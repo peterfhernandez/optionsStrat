@@ -59,6 +59,7 @@ def _deribit_instrument(
     ticker: str,
     spot: float,
     days: int,
+    strike_round:int,
     option_type: str,
 ) -> str:
     """
@@ -78,7 +79,7 @@ def _deribit_instrument(
     option_type  : str   "P" for put, "C" for call
     """
     expiry_str = _expiry_date(days).strftime("%d%b%y").upper()
-    strike = _atm_strike(spot, ticker)
+    strike = _atm_strike(spot, strike_round)
     return f"{ticker}-{expiry_str}-{int(strike)}-{option_type}"
 
 
