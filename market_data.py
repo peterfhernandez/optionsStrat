@@ -151,7 +151,7 @@ def get_deribit_iv(asset: str, spot: float, days: int) -> float | None:
     spot  : float Current spot price (used to determine ATM strike)
     days  : int   Days to expiry — 1 for daily, 7 for weekly
     """
-        asset = asset.upper()
+    asset = asset.upper()
     if asset not in SUPPORTED_ASSETS:
         raise ValueError(
             f"Unsupported asset '{asset}'. "
