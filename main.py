@@ -11,7 +11,7 @@ config.py           Configuration file. Contain Global Variables ← DONE
 pricing.py          Black-Scholes pricing & probability helpers  ← DONE
 market_data.py      ETH price + IV fetching                      ← DONE
 display.py          ANSI colour helpers, ASCII chart             ← DONE
-excel_tracker.py    openpyxl workbook setup & row helpers         ← TODO
+excel_tracker.py    openpyxl workbook setup & row helpers        ← DONE
 strategies/
     wheel.py        Wheel paper trading simulator                 ← TODO
     strangle.py     Short strangle paper trading + stop-loss      ← TODO
@@ -37,6 +37,12 @@ except ImportError:
     print("Please run: pip install requests openpyxl")
     sys.exit(1)
 
+try:
+    import colorama  # noqa: F401
+except ImportError:
+    print("Please run: pip install requests openpyxl colorama")
+    sys.exit(1)
+
 # ── Internal modules (added as each is extracted) ─────────────────────────────
 from config      import (
     BUDGET_USD, EXCEL_FILE, RISK_FREE_RATE, OTM_LEVELS, IV_FALLBACK,
@@ -48,8 +54,8 @@ from config      import (
 from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
 from market_data import get_spot_price, get_deribit_iv
 from display     import hdr, sub, inf, ok, warn, err, draw_profit_zone
+from excel_tracker import setup_excel, append_trade_row, append_strangle_row  # noqa: F401
 
-# TODO: from excel_tracker import setup_excel, append_trade_row, append_strangle_row
 # TODO: from strategies.wheel import wheel_paper_menu, show_strikes
 # TODO: from strategies.strangle import strangle_paper_menu, show_strangle_analysis
 
@@ -61,7 +67,6 @@ from crypto_options_trade import (
     show_strikes,
     wheel_paper_menu,
     show_summary,
-    setup_excel,
 )
 
 # ── Main menu ─────────────────────────────────────────────────────────────────
