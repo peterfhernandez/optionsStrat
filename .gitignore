@@ -1,0 +1,6 @@
+# Local state files (personal paper trading data)
+paper_state.json
+strangle_state.json
+
+# Excel lock files
+~$*.xlsx
