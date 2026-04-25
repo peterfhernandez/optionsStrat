@@ -1,11 +1,12 @@
 # Paper trading state files (local only)
-paper_state.json
-strangle_state.json
+*_state.json
+
 
 # Debug file (local only)
 debug*.py
 
 # Excel temp files
+*.xlsx
 ~$*.xlsx
 
 # Python cache
