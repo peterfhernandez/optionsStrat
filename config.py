@@ -26,24 +26,33 @@ IV_FALLBACK             Fallback implied volatility if Deribit fetch fails
 # Add a new asset here and market_data.py will support it automatically.
 #
 # Fields per asset:
-#   coingecko_id  : str    CoinGecko coin ID for spot price fetch
-#   deribit_ticker: str    Deribit instrument prefix (e.g. "ETH", "BTC", "SOL")
+#   binance_symbol: str    Binance USDT pair symbol (primary price source)
+#   coingecko_id  : str    CoinGecko coin ID (fallback price source)
+#   deribit_ticker: str    Deribit instrument prefix
 #   strike_round  : int    Round ATM strike to nearest N dollars
-#                          (ETH ~$2k → $100 increments, BTC ~$90k → $500,
-#                           SOL ~$150 → $1 increments)
+#
+# Deribit ticker notes:
+#   BTC, ETH  — inverse (USD-settled) contracts, ticker = asset symbol
+#   SOL       — linear USDC-settled contracts, ticker = "SOL_USDC"
+#   BTC strike increments: ~$90k price → $1000 increments
+#   ETH strike increments: ~$2k  price → $100  increments
+#   SOL strike increments: ~$150 price → $1    increments
  
 SUPPORTED_ASSETS = {
     "ETH": {
+        "binance_symbol": "ETHUSDT",
         "coingecko_id":   "ethereum",
         "deribit_ticker": "ETH",
         "strike_round":   100,
     },
     "BTC": {
+        "binance_symbol": "BTCUSDT",
         "coingecko_id":   "bitcoin",
         "deribit_ticker": "BTC",
         "strike_round":   1000,
     },
     "SOL": {
+        "binance_symbol": "SOLUSDT",
         "coingecko_id":   "solana",
         "deribit_ticker": "SOL_USDC",
         "strike_round":   1,

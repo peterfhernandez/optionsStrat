@@ -2,19 +2,30 @@
 market_data.py
 ==============
 Live market data fetching for the Crypto Options Strategy Tool.
-
-Functions
----------
-get_eth_price()                 Fetch current ETH/USD spot price from CoinGecko
-get_btc_price()                 Fetch current BTC/USD spot price from CoinGecko
-get_sol_price()                 Fetch current SOL/USD spot price from CoinGecko
-get_deribit_iv(spot, days)      Fetch ATM implied volatility from Deribit
-
+ 
+Supports any asset defined in config.SUPPORTED_ASSETS.
+To add a new asset, add an entry there — no changes needed here.
+ 
+Spot price source priority
+--------------------------
+1. Binance public ticker  — no API key, generous rate limits
+2. CoinGecko simple price — fallback if Binance fails
+ 
+Public API
+----------
+get_spot_price(asset)               Fetch current spot price (Binance → CoinGecko)
+get_deribit_iv(asset, spot, days)   Fetch ATM implied volatility from Deribit
+get_eth_price()                     Convenience wrapper → get_spot_price("ETH")
+ 
 Internal helpers
 ----------------
-_expiry_date(days)              Resolve expiry date for daily or weekly options
-_deribit_instrument(spot, days, option_type)  Build a Deribit instrument name
-_fetch_mark_iv(instrument)      Fetch mark IV for a single Deribit instrument
+_price_from_binance(asset)              Fetch price from Binance
+_price_from_coingecko(asset)            Fetch price from CoinGecko (with 429 retry)
+_expiry_date(days)                      Resolve expiry date (daily or weekly)
+_atm_strike(spot, strike_round)         Round spot to nearest ATM strike increment
+_deribit_instrument(ticker, spot, days, Build a Deribit instrument name
+                    strike_round, opt_type)
+_fetch_mark_iv(instrument)              Fetch mark IV for one Deribit instrument
 """
 
 import requests
@@ -32,6 +43,57 @@ _COINGECKO_RETRY = 2  # seconds to wait before retrying after a 429
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _price_from_binance(asset: str) -> float | None:
+    """
+    Fetch spot price from Binance public ticker endpoint.
+ 
+    No API key required. Rate limits are generous for public endpoints.
+    Returns price in USD, or None if the request fails.
+    """
+    symbol = SUPPORTED_ASSETS[asset]["binance_symbol"]
+    try:
+        response = requests.get(
+            _BINANCE_URL,
+            params={"symbol": symbol},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        if "price" not in data:
+            return None
+        return float(data["price"])
+    except Exception:
+        return None
+ 
+ 
+def _price_from_coingecko(asset: str) -> float | None:
+    """
+    Fetch spot price from CoinGecko as a fallback.
+ 
+    Handles 429 rate-limit responses with one automatic retry.
+    Returns price in USD, or None if the request fails.
+    """
+    coingecko_id = SUPPORTED_ASSETS[asset]["coingecko_id"]
+    try:
+        for _ in range(2):  # one retry on 429
+            response = requests.get(
+                _COINGECKO_URL,
+                params={"ids": coingecko_id, "vs_currencies": "usd"},
+                timeout=_REQUEST_TIMEOUT,
+            )
+            if response.status_code == 429:
+                print(f"  ⚠ CoinGecko rate limit — waiting {_COINGECKO_RETRY}s...")
+                time.sleep(_COINGECKO_RETRY)
+                continue
+            data = response.json()
+            if coingecko_id not in data:
+                return None
+            return float(data[coingecko_id]["usd"])
+    except Exception:
+        return None
+    return None
 
 def _expiry_date(days: int) -> datetime:
     """
@@ -110,14 +172,17 @@ def get_spot_price(asset: str) -> float | None:
     """
     Fetch the current USD spot price for any supported asset.
  
+    Tries Binance first (no API key, generous rate limits). Falls back
+    to CoinGecko if Binance fails. Prints which source was used only
+    when the primary fails.
+ 
     Parameters
     ----------
     asset : str  Asset symbol — must be a key in config.SUPPORTED_ASSETS
-                 e.g. "ETH", "BTC", "SOL"
  
     Returns
     -------
-    float | None  Spot price in USD, or None if the request fails.
+    float | None  Spot price in USD, or None if both sources fail.
     """
     asset = asset.upper()
     if asset not in SUPPORTED_ASSETS:
@@ -125,25 +190,19 @@ def get_spot_price(asset: str) -> float | None:
             f"Unsupported asset '{asset}'. "
             f"Choose from: {', '.join(SUPPORTED_ASSETS)}"
         )
-    coingecko_id = SUPPORTED_ASSETS[asset]["coingecko_id"]
-    try:
-        for attempt in range(2):  # one retry on 429
-            response = requests.get(
-                _COINGECKO_URL,
-                params={"ids": coingecko_id, "vs_currencies": "usd"},
-                timeout=_REQUEST_TIMEOUT,
-            )
-            if response.status_code == 429:
-                print(f"  ⚠ CoinGecko rate limit hit — waiting {_COINGECKO_RETRY}s...")
-                time.sleep(_COINGECKO_RETRY)
-                continue
-            data = response.json()
-            if coingecko_id not in data:
-                print(f"  ⚠ {asset} price fetch failed: unexpected response {data}")
-                return None
-            return float(data[coingecko_id]["usd"])
-    except Exception as e:
-        print(f"  ⚠ {asset} price fetch failed: {e}")
+ 
+    # Primary: Binance
+    price = _price_from_binance(asset)
+    if price:
+        return price
+ 
+    # Fallback: CoinGecko
+    print(f"  ⚠ Binance price fetch failed for {asset} — trying CoinGecko...")
+    price = _price_from_coingecko(asset)
+    if price:
+        return price
+ 
+    print(f"  ⚠ All price sources failed for {asset}.")
     return None
     
     
