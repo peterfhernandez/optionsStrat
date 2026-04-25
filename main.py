@@ -141,8 +141,8 @@ def main():
   {CY}[5]{R}  Record live trade (wheel)
   {CY}[6]{R}  Performance summary & stats
   {CY}[7]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
-  {CY}[8]{R}  Refresh market data
-  {CY}[9]{R}  Switch asset   {GY}(currently {asset}){R}
+  {CY}[8]{R}  Switch asset   {GY}(currently {asset}){R}
+  {CY}[9]{R}  Refresh market data
   {CY}[0]{R}  Exit
 """)
         choice = input(f"  {YL}Choice: {R}").strip()
@@ -171,21 +171,24 @@ def main():
             ok(f"Switched to {'daily' if days == 1 else 'weekly'} expiry ({days}d)")
 
         elif choice == "8":
-            spot_new = get_spot_price(DEFAULT_ASSET)
-            iv_new   = get_deribit_iv(DEFAULT_ASSET, spot_new or spot, days)
-            if spot_new:
-                spot = spot_new
-                ok(f"{DEFAULT_ASSET} price refreshed: ${spot:,.2f}")
-            if iv_new:
-                iv = iv_new
-                ok(f"IV refreshed: {iv*100:.0f}%")
-            else:
-                warn("IV refresh failed — keeping previous value")
+            asset    = _select_asset()
+            spot_new = get_spot_price(asset)
+            iv_new   = get_deribit_iv(asset, spot_new or spot, days)
+            if spot_new: ok(f"Switched to {'{'}asset{'}'} — price: ${'{'}spot:,.2f{'}'}")
+            if iv_new:   ok(f"IV refreshed: {'{'}iv*100:.0f{'}'}%")
+            else:        warn(f"IV fetch failed for {'{'}asset{'}'}...")
 
         elif choice == "9":
-            print(f"\n  {GY}Goodbye.{R}\n")
-            break
+            spot_new = get_spot_price(asset)
+            iv_new   = get_deribit_iv(asset, spot_new or spot, days)
+            if spot_new: ok(f"{'{'}asset{'}'} price refreshed: ${'{'}spot:,.2f{'}'}")
+            if iv_new:   ok(f"IV refreshed: {'{'}iv*100:.0f{'}'}%")
+            else:        warn("IV refresh failed — keeping previous value")
 
+        elif choice == "0":
+            print(f"\n  Goodbye.\n")
+            break   ← exit unchanged
+        
         else:
             warn("Invalid choice — enter 1–9")
 

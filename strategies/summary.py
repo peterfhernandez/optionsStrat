@@ -53,7 +53,7 @@ def show_summary(wb) -> None:
 
         rows = [
             r for r in ws.iter_rows(min_row=4, values_only=True)
-            if r[0] and "←" not in str(r[0])
+            if r[1] and "←" not in str(r[1])
         ]
         if not rows:
             inf("No trades yet", "")
