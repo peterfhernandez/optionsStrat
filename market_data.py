@@ -6,6 +6,8 @@ Live market data fetching for the Crypto Options Strategy Tool.
 Functions
 ---------
 get_eth_price()                 Fetch current ETH/USD spot price from CoinGecko
+get_btc_price()                 Fetch current BTC/USD spot price from CoinGecko
+get_sol_price()                 Fetch current SOL/USD spot price from CoinGecko
 get_deribit_iv(spot, days)      Fetch ATM implied volatility from Deribit
 
 Internal helpers
@@ -136,6 +138,16 @@ def get_spot_price(asset: str) -> float | None:
 def get_eth_price() -> float | None:
     """Convenience wrapper for get_spot_price('ETH'). Keeps existing call sites working."""
     return get_spot_price("ETH")
+
+
+def get_btc_price() -> float | None:
+    """Convenience wrapper for get_spot_price('BTC'). Keeps existing call sites working."""
+    return get_spot_price("BTC")
+
+
+def get_sol_price() -> float | None:
+    """Convenience wrapper for get_spot_price('SOL'). Keeps existing call sites working."""
+    return get_spot_price("SOL")
 
 
 def get_deribit_iv(asset: str, spot: float, days: int) -> float | None:
