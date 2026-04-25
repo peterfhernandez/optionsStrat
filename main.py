@@ -8,7 +8,7 @@ Orchestrates the CLI menu and delegates to strategy/helper modules.
 Current module layout
 ---------------------
 pricing.py          Black-Scholes pricing & probability helpers  ← DONE
-market_data.py      ETH price + IV fetching                      ← TODO
+market_data.py      ETH price + IV fetching                      ← DONE
 display.py          ANSI colour helpers, ASCII chart              ← TODO
 excel_tracker.py    openpyxl workbook setup & row helpers         ← TODO
 strategies/
@@ -48,12 +48,6 @@ from market_data import get_eth_price, get_deribit_iv
 # ── Temporary: import everything from the original file while refactoring ─────
 # Remove each import below as its module is extracted and wired up above.
 from crypto_options_trade import (
-    BUDGET_USD,
-    EXCEL_FILE,
-    RISK_FREE_RATE,
-    OTM_LEVELS,
-    STOP_LOSS_MULTIPLIER,
-    STOP_WARN_MULTIPLIER,
     get_eth_price,
     get_deribit_iv,
     hdr, sub, inf, ok, warn, err,
@@ -68,6 +62,14 @@ from crypto_options_trade import (
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
+
+BUDGET_USD          = 250.0                          # total capital allocated (USD)
+EXCEL_FILE          = "crypto_options_trade_tracker.xlsx"
+RISK_FREE_RATE      = 0.05                           # 5% annualised risk-free rate
+OTM_LEVELS          = [0.10, 0.15, 0.20]             # OTM strike targets (10%, 15%, 20%)
+ 
+STOP_LOSS_MULTIPLIER = 2.0   # close strangle when value reaches 2x premium received
+STOP_WARN_MULTIPLIER = 1.5   # warn when value reaches 1.5x premium received
 
 DAILY_DAYS = 1
 WEEKLY_DAYS = 7
