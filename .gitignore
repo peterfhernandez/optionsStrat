@@ -1,12 +1,12 @@
 # Paper trading state files (local only)
-*_state_*.json
+*_state*.json
 
 
 # Debug file (local only)
 debug*.py
 
 # Excel temp files
-*.xlsx
+crypto_options_trade_tracker.xlsx
 ~$*.xlsx
 
 # Python cache
