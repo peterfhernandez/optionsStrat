@@ -17,6 +17,7 @@ strategies/
     strangle.py     Short strangle paper trading + stop-loss     ← DONE
     summary.py      Cross-sheet reporting                        ← DONE
     monitor.py      Monitor trades and automatically close       ← DONE
+    scannner.py     Recommend across strategies and instruments  ← DONE
 
 Run
 ---
@@ -59,6 +60,7 @@ from strategies.wheel    import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.summary import show_summary
 from strategies.monitor import run_monitor
+from strategies.scanner import run_scanner
 
 
 # ── Asset selection ───────────────────────────────────────────────────────────
@@ -121,6 +123,7 @@ def _strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
   {CY}[3]{R}  Strangle — analysis + profit zone chart
   {CY}[4]{R}  Strangle — paper trading simulator
   {CY}[5]{R}  Record live trade  {GY}(wheel){R}
+  {CY}[R]{R}  Recommendations scanner
   {CY}[0]{R}  Back
 """)
         choice = input(f"  {YL}Choice: {R}").strip()
@@ -139,12 +142,15 @@ def _strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
  
         elif choice == "5":
             warn("Live trade recording not yet wired — use the original tool for now.")
- 
+
+        elif choice == "R":
+            run_scanner(spot, iv, asset, days) 
+
         elif choice == "0":
             break
  
         else:
-            warn("Invalid choice — enter 0–5")
+            warn("Invalid choice — enter 0–5 or R")
  
 
 # ── Main menu ─────────────────────────────────────────────────────────────────
@@ -186,6 +192,7 @@ def main():
 {CY}{'─' * 54}{R}
 
   {CY}[S]{R}  Strategies
+  {CY}[R]{R}  Recommendations scanner
   {CY}[M]{R}  Monitor all positions
   {CY}[P]{R}  Performance summary & stats
   {CY}[1]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
@@ -197,6 +204,9 @@ def main():
 
         if choice == "S":
             _strategies_menu(asset, spot, iv, wb, days)
+
+        elif choice == "R":
+            run_scanner(spot, iv, asset, days)
 
         elif choice == "M":
             run_monitor(spot, iv, wb, days, asset, silent=False)
@@ -234,7 +244,7 @@ def main():
             break
         
         else:
-            warn("Invalid choice — enter 1–3, S, M or P")
+            warn("Invalid choice — enter 1–3, S, R, M or P")
 
 
 if __name__ == "__main__":
