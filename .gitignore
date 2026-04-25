@@ -1,5 +1,5 @@
 # Paper trading state files (local only)
-*_state.json
+*_state_*.json
 
 
 # Debug file (local only)
