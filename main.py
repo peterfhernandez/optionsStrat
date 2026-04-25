@@ -234,7 +234,7 @@ def main():
             break
         
         else:
-            warn("Invalid choice — enter 1–9, or M")
+            warn("Invalid choice — enter 1–3, S, M or P")
 
 
 if __name__ == "__main__":

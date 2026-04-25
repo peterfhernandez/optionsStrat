@@ -315,6 +315,8 @@ def run_monitor(
     asset  : str    Currently selected asset (used for spot/IV context)
     silent : bool   True = only print on trigger; False = print all statuses
     """
+    from market_data import get_spot_price, get_deribit_iv
+    
     if not silent:
         hdr("Position Monitor")
         print(f"  {GY}Checking all open positions across all assets...{R}\n")
@@ -322,15 +324,18 @@ def run_monitor(
     any_triggered = False
 
     for a in SUPPORTED_ASSETS:
-        # Use live spot/IV for the active asset; for others we use spot as
-        # a proxy — in a future version this could fetch live prices per asset
-        a_spot = spot if a == asset else spot
-        a_iv   = iv   if a == asset else iv
-
-        for checker in _REGISTRY:
-            triggered = checker(a, a_spot, a_iv, wb, silent)
-            if triggered:
-                any_triggered = True
+        # Reuse already-fetched values for the active asset to avoid
+        # an unnecessary API call; fetch fresh for all other assets
+        if a == asset:
+            a_spot = spot
+            a_iv   = iv
+        else:
+            a_spot = get_spot_price(a)
+            if not a_spot:
+                if not silent:
+                    warn(f"Could not fetch {a} price — skipping {a} positions")
+                continue
+            a_iv = get_deribit_iv(a, a_spot, days) or iv # fall back to active IV
 
     if not silent:
         if not any_triggered:
