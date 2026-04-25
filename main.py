@@ -122,7 +122,7 @@ def main():
     iv = get_deribit_iv(asset, spot, WEEKLY_DAYS)
     if not iv:
         iv = IV_FALLBACK
-        print(f"  {YL}⚠ IV fetch failed — using fallback 80%{R}")
+        print(f"  {YL}⚠ IV fetch failed — using fallback {IV_FALLBACK*100:.0f}%{R}")
 
     days = WEEKLY_DAYS  # default expiry; user can switch via menu
 
@@ -174,9 +174,15 @@ def main():
             asset    = _select_asset()
             spot_new = get_spot_price(asset)
             iv_new   = get_deribit_iv(asset, spot_new or spot, days)
-            if spot_new: ok(f"Switched to {'{'}asset{'}'} — price: ${'{'}spot:,.2f{'}'}")
-            if iv_new:   ok(f"IV refreshed: {'{'}iv*100:.0f{'}'}%")
-            else:        warn(f"IV fetch failed for {'{'}asset{'}'}...")
+            if spot_new:
+                spot = spot_new
+                ok(f"Switched to {asset} — price: ${spot:,.2f}")
+            if iv_new:
+                iv = iv_new
+                ok(f"IV refreshed: {iv*100:.0f}%")
+            else:
+                iv = IV_FALLBACK
+                warn(f"IV fetch failed for {asset} — using fallback {IV_FALLBACK*100:.0f}%")
 
         elif choice == "9":
             spot_new = get_spot_price(asset)
