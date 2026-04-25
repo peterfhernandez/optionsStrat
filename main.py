@@ -13,8 +13,8 @@ market_data.py      ETH price + IV fetching                      ← DONE
 display.py          ANSI colour helpers, ASCII chart             ← DONE
 excel_tracker.py    openpyxl workbook setup & row helpers        ← DONE
 strategies/
-    wheel.py        Wheel paper trading simulator                 ← TODO
-    strangle.py     Short strangle paper trading + stop-loss      ← TODO
+    wheel.py        Wheel paper trading simulator                ← DONE
+    strangle.py     Short strangle paper trading + stop-loss     ← DONE
 
 Run
 ---
@@ -45,29 +45,19 @@ except ImportError:
 
 # ── Internal modules (added as each is extracted) ─────────────────────────────
 from config      import (
-    BUDGET_USD, EXCEL_FILE, RISK_FREE_RATE, OTM_LEVELS, IV_FALLBACK,
-    STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
+    IV_FALLBACK,
     DAILY_DAYS, WEEKLY_DAYS,
-    PAPER_STATE_FILE, STRANGLE_STATE_FILE,
     DEFAULT_ASSET, SUPPORTED_ASSETS,
 )
 from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
 from market_data import get_spot_price, get_deribit_iv
 from display     import hdr, sub, inf, ok, warn, err, draw_profit_zone
 from excel_tracker import setup_excel, append_trade_row, append_strangle_row  # noqa: F401
+from strategies.wheel    import show_strikes, wheel_paper_menu, show_summary
+from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 
 # TODO: from strategies.wheel import wheel_paper_menu, show_strikes
 # TODO: from strategies.strangle import strangle_paper_menu, show_strangle_analysis
-
-# ── Temporary: import everything from the original file while refactoring ─────
-# Remove each import below as its module is extracted and wired up above.
-from crypto_options_trade import (
-    show_strangle_analysis,
-    strangle_paper_menu,
-    show_strikes,
-    wheel_paper_menu,
-    show_summary,
-)
 
 # ── Asset selection ───────────────────────────────────────────────────────────
  
