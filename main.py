@@ -46,7 +46,7 @@ from config      import (
     DEFAULT_ASSET,
 )
 from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
-from market_data import get_eth_price, get_deribit_iv
+from market_data import get_spot_price, get_deribit_iv
 
 # TODO: from display import hdr, sub, inf, ok, warn, err, draw_profit_zone
 # TODO: from excel_tracker import setup_excel, append_trade_row, append_strangle_row
@@ -56,8 +56,6 @@ from market_data import get_eth_price, get_deribit_iv
 # ── Temporary: import everything from the original file while refactoring ─────
 # Remove each import below as its module is extracted and wired up above.
 from crypto_options_trade import (
-    get_eth_price,
-    get_deribit_iv,
     hdr, sub, inf, ok, warn, err,
     draw_profit_zone,
     show_strangle_analysis,
@@ -134,8 +132,8 @@ def main():
             ok(f"Switched to {'daily' if days == 1 else 'weekly'} expiry ({days}d)")
 
         elif choice == "8":
-            spot_new = get_eth_price()
-            iv_new   = get_deribit_iv(spot_new or spot, days)
+            spot_new = get_spot_price(DEFAULT_ASSET)
+            iv_new   = get_deribit_iv(DEFAULT_ASSET, spot_new or spot, days)
             if spot_new:
                 spot = spot_new
                 ok(f"ETH price refreshed: ${spot:,.2f}")
