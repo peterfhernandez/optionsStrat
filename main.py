@@ -49,7 +49,7 @@ from config      import (
     STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
     DAILY_DAYS, WEEKLY_DAYS,
     PAPER_STATE_FILE, STRANGLE_STATE_FILE,
-    DEFAULT_ASSET,
+    DEFAULT_ASSET, SUPPORTED_ASSETS,
 )
 from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
 from market_data import get_spot_price, get_deribit_iv
@@ -69,6 +69,45 @@ from crypto_options_trade import (
     show_summary,
 )
 
+# ── Asset selection ───────────────────────────────────────────────────────────
+ 
+def _select_asset() -> str:
+    """
+    Prompt the user to choose an underlying asset from SUPPORTED_ASSETS.
+ 
+    Displays a numbered menu of available assets. Pressing Enter without
+    a selection defaults to DEFAULT_ASSET. Returns the chosen asset symbol
+    as an uppercase string e.g. "ETH", "BTC", "SOL".
+    """
+    assets = list(SUPPORTED_ASSETS.keys())
+ 
+    R  = "\033[0m";  B  = "\033[1m"
+    CY = "\033[96m"; YL = "\033[93m"; GY = "\033[90m"; WH = "\033[97m"
+ 
+    print(f"\n{B}{CY}  Select underlying asset{R}")
+    for i, asset in enumerate(assets, 1):
+        default_label = f"  {GY}← default{R}" if asset == DEFAULT_ASSET else ""
+        print(f"  {CY}[{i}]{R}  {WH}{asset}{R}{default_label}")
+    print()
+ 
+    while True:
+        raw = input(
+            f"  {YL}Choice [1–{len(assets)}, Enter for {DEFAULT_ASSET}]: {R}"
+        ).strip()
+ 
+        if raw == "":
+            return DEFAULT_ASSET
+ 
+        if raw.isdigit() and 1 <= int(raw) <= len(assets):
+            return assets[int(raw) - 1]
+ 
+        # Allow typing the asset symbol directly e.g. "BTC"
+        if raw.upper() in SUPPORTED_ASSETS:
+            return raw.upper()
+ 
+        print(f"  Invalid choice — enter a number between 1 and {len(assets)}")
+ 
+
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
 def main():
@@ -76,15 +115,19 @@ def main():
     CY = "\033[96m"; YL = "\033[93m"; GY = "\033[90m"; WH = "\033[97m"
 
     print(f"\n{B}{CY}  Crypto Options Strategy Tool v3.0{R}")
-    print(f"  {GY}Paper trading & planning for ETH options on Deribit{R}\n")
+    print(f"  {GY}Crypto option paper trading & planning on Deribit{R}\n")
 
+    # Asset selection
+    asset = _select_asset()
+    ok(f"Asset selected: {asset}")
+ 
     # Fetch live market data
-    spot = get_spot_price(DEFAULT_ASSET)
+    spot = get_spot_price(asset)
     if not spot:
-        print(f"  {YL}⚠ Could not fetch {DEFAULT_ASSET} price. Check your connection.{R}")
+        print(f"  {YL}⚠ Could not fetch {asset} price. Check your connection.{R}")
         sys.exit(1)
 
-    iv = get_deribit_iv(DEFAULT_ASSET, spot, WEEKLY_DAYS)
+    iv = get_deribit_iv(asset, spot, WEEKLY_DAYS)
     if not iv:
         iv = IV_FALLBACK
         print(f"  {YL}⚠ IV fetch failed — using fallback 80%{R}")
@@ -96,7 +139,7 @@ def main():
     while True:
         print(f"""
 {CY}{'─' * 54}{R}
-{B}{WH}  ETH: ${spot:>10,.2f}   IV: {iv*100:.0f}%   Expiry: {days}d{R}
+{B}{WH}  {asset}: ${spot:>10,.2f}   IV: {iv*100:.0f}%   Expiry: {days}d{R}
 {CY}{'─' * 54}{R}
 
   {CY}[1]{R}  Wheel strike & premium analysis
@@ -107,7 +150,8 @@ def main():
   {CY}[6]{R}  Performance summary & stats
   {CY}[7]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
   {CY}[8]{R}  Refresh market data
-  {CY}[9]{R}  Exit
+  {CY}[9]{R}  Switch asset   {GY}(currently {asset}){R}
+  {CY}[0]{R}  Exit
 """)
         choice = input(f"  {YL}Choice: {R}").strip()
 
