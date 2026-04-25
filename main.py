@@ -43,6 +43,7 @@ from config      import (
     STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
     DAILY_DAYS, WEEKLY_DAYS,
     PAPER_STATE_FILE, STRANGLE_STATE_FILE,
+    DEFAULT_ASSET,
 )
 from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
 from market_data import get_eth_price, get_deribit_iv
@@ -82,7 +83,7 @@ def main():
         print(f"  {YL}⚠ Could not fetch ETH price. Check your connection.{R}")
         sys.exit(1)
 
-    iv = get_deribit_iv(spot, WEEKLY_DAYS)
+    iv = get_deribit_iv(DEFAULT_ASSET, spot, WEEKLY_DAYS)
     if not iv:
         iv = IV_FALLBACK
         print(f"  {YL}⚠ IV fetch failed — using fallback 80%{R}")

@@ -18,6 +18,7 @@ _fetch_mark_iv(instrument)      Fetch mark IV for a single Deribit instrument
 import requests
 from datetime import datetime, timedelta
 
+from config import SUPPORTED_ASSETS
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -42,22 +43,42 @@ def _expiry_date(days: int) -> datetime:
     return today + timedelta(days=days_until_friday)
 
 
-def _deribit_instrument(spot: float, days: int, option_type: str) -> str:
+def _atm_strike(spot: float, strike_round: int) -> int:
     """
-    Build a Deribit instrument name for an ATM ETH option.
+    Round spot price to the nearest ATM strike increment for this asset.
+ 
+    Each asset has its own increment (e.g. ETH=$100, BTC=$500, SOL=$1)
+    defined in config.SUPPORTED_ASSETS.
+    """
+    return round(spot / strike_round) * strike_round
 
-    Format: ETH-{DDMMMYY}-{STRIKE}-{P|C}
+
+def _deribit_instrument(
+    ticker: str,
+    spot: float,
+    days: int,
+    strike_round: int,
+    option_type: str,
+) -> str:
+    """
+    Build a Deribit instrument name for an ATM option.
+ 
+    Format: {TICKER}-{DDMMMYY}-{STRIKE}-{P|C}
     e.g.    ETH-25APR25-1800-P
-
+            BTC-25APR25-90000-C
+            SOL-25APR25-150-P
+ 
     Parameters
     ----------
-    spot        : float   Current ETH spot price
-    days        : int     Days to expiry (1 = daily, 7 = weekly)
-    option_type : str     "P" for put, "C" for call
+    ticker       : str   Deribit asset ticker (e.g. "ETH", "BTC", "SOL")
+    spot         : float Current spot price
+    days         : int   Days to expiry (1 = daily, 7 = weekly)
+    strike_round : int   ATM strike rounding increment
+    option_type  : str   "P" for put, "C" for call
     """
     expiry_str = _expiry_date(days).strftime("%d%b%y").upper()
-    atm_strike = round(spot / 100) * 100
-    return f"ETH-{expiry_str}-{int(atm_strike)}-{option_type}"
+    strike = _atm_strike(spot, strike_round)
+    return f"{ticker}-{expiry_str}-{int(strike)}-{option_type}"
 
 
 def _fetch_mark_iv(instrument: str) -> float | None:
@@ -80,38 +101,63 @@ def _fetch_mark_iv(instrument: str) -> float | None:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
-
-def get_eth_price() -> float | None:
+def get_spot_price(asset: str) -> float | None:
     """
-    Fetch the current ETH/USD spot price from CoinGecko.
-
-    Returns the price as a float, or None if the request fails.
-    CoinGecko's free tier requires no API key.
+    Fetch the current USD spot price for any supported asset.
+ 
+    Parameters
+    ----------
+    asset : str  Asset symbol — must be a key in config.SUPPORTED_ASSETS
+                 e.g. "ETH", "BTC", "SOL"
+ 
+    Returns
+    -------
+    float | None  Spot price in USD, or None if the request fails.
     """
+    asset = asset.upper()
+    if asset not in SUPPORTED_ASSETS:
+        raise ValueError(
+            f"Unsupported asset '{asset}'. "
+            f"Choose from: {', '.join(SUPPORTED_ASSETS)}"
+        )
+    coingecko_id = SUPPORTED_ASSETS[asset]["coingecko_id"]
     try:
         response = requests.get(
             _COINGECKO_URL,
-            params={"ids": "ethereum", "vs_currencies": "usd"},
+            params={"ids": coingecko_id, "vs_currencies": "usd"},
             timeout=_REQUEST_TIMEOUT,
         )
-        return float(response.json()["ethereum"]["usd"])
+        return float(response.json()[coingecko_id]["usd"])
     except Exception as e:
-        print(f"  ⚠ ETH price fetch failed: {e}")
+        print(f"  ⚠ {asset} price fetch failed: {e}")
         return None
+    
+
+def get_eth_price() -> float | None:
+    """Convenience wrapper for get_spot_price('ETH'). Keeps existing call sites working."""
+    return get_spot_price("ETH")
 
 
-def get_deribit_iv(spot: float, days: int) -> float | None:
+def get_deribit_iv(asset: str, spot: float, days: int) -> float | None:
     """
-    Fetch the ATM implied volatility for ETH options from Deribit.
-
-    Tries the put first, then the call, for the nearest ATM strike.
+    Fetch the ATM implied volatility for any supported asset from Deribit.
+ 
+    Tries the put first, then the call, at the nearest ATM strike.
     Returns IV as a decimal (e.g. 0.80 for 80%), or None if both fail.
-
+ 
     Parameters
     ----------
-    spot : float  Current ETH spot price (used to determine ATM strike)
-    days : int    Days to expiry — 1 for daily, 7 for weekly
+    asset : str   Asset symbol — must be a key in config.SUPPORTED_ASSETS
+    spot  : float Current spot price (used to determine ATM strike)
+    days  : int   Days to expiry — 1 for daily, 7 for weekly
     """
+        asset = asset.upper()
+    if asset not in SUPPORTED_ASSETS:
+        raise ValueError(
+            f"Unsupported asset '{asset}'. "
+            f"Choose from: {', '.join(SUPPORTED_ASSETS)}"
+        )
+    cfg = SUPPORTED_ASSETS[asset]
     try:
         for option_type in ("P", "C"):
             instrument = _deribit_instrument(spot, days, option_type)

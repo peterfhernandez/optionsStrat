@@ -8,6 +8,8 @@ edit this file — no need to touch strategy or display code.
 
 Settings
 --------
+SUPPORTED_ASSETS        Per-asset config: CoinGecko ID, Deribit ticker, strike rounding
+DEFAULT_ASSET           Asset used on startup (ETH, BTC, or SOL)
 BUDGET_USD              Capital allocated to each trade (USD)
 EXCEL_FILE              Output workbook filename
 RISK_FREE_RATE          Annualised risk-free rate (decimal)
@@ -18,6 +20,37 @@ DAILY_DAYS              Days constant for daily expiry
 WEEKLY_DAYS             Days constant for weekly expiry
 IV_FALLBACK             Fallback implied volatility if Deribit fetch fails
 """
+
+# ── Supported assets ─────────────────────────────────────────────────────────
+#
+# Add a new asset here and market_data.py will support it automatically.
+#
+# Fields per asset:
+#   coingecko_id  : str    CoinGecko coin ID for spot price fetch
+#   deribit_ticker: str    Deribit instrument prefix (e.g. "ETH", "BTC", "SOL")
+#   strike_round  : int    Round ATM strike to nearest N dollars
+#                          (ETH ~$2k → $100 increments, BTC ~$90k → $500,
+#                           SOL ~$150 → $1 increments)
+ 
+SUPPORTED_ASSETS = {
+    "ETH": {
+        "coingecko_id":   "ethereum",
+        "deribit_ticker": "ETH",
+        "strike_round":   100,
+    },
+    "BTC": {
+        "coingecko_id":   "bitcoin",
+        "deribit_ticker": "BTC",
+        "strike_round":   500,
+    },
+    "SOL": {
+        "coingecko_id":   "solana",
+        "deribit_ticker": "SOL",
+        "strike_round":   1,
+    },
+}
+ 
+DEFAULT_ASSET = "ETH"   # used by main.py if no asset is selected
 
 # ── Trading ───────────────────────────────────────────────────────────────────
 
