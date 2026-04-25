@@ -7,6 +7,7 @@ Orchestrates the CLI menu and delegates to strategy/helper modules.
 
 Current module layout
 ---------------------
+config.py           Configuration file. Contain Global Variables ← DONE
 pricing.py          Black-Scholes pricing & probability helpers  ← DONE
 market_data.py      ETH price + IV fetching                      ← DONE
 display.py          ANSI colour helpers, ASCII chart              ← TODO
@@ -37,6 +38,12 @@ except ImportError:
     sys.exit(1)
 
 # ── Internal modules (added as each is extracted) ─────────────────────────────
+from config      import (
+    BUDGET_USD, EXCEL_FILE, RISK_FREE_RATE, OTM_LEVELS, IV_FALLBACK,
+    STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
+    DAILY_DAYS, WEEKLY_DAYS,
+    PAPER_STATE_FILE, STRANGLE_STATE_FILE,
+)
 from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
 from market_data import get_eth_price, get_deribit_iv
 
@@ -60,21 +67,6 @@ from crypto_options_trade import (
     setup_excel,
 )
 
-
-# ── Config ────────────────────────────────────────────────────────────────────
-
-BUDGET_USD          = 250.0                          # total capital allocated (USD)
-EXCEL_FILE          = "crypto_options_trade_tracker.xlsx"
-RISK_FREE_RATE      = 0.05                           # 5% annualised risk-free rate
-OTM_LEVELS          = [0.10, 0.15, 0.20]             # OTM strike targets (10%, 15%, 20%)
- 
-STOP_LOSS_MULTIPLIER = 2.0   # close strangle when value reaches 2x premium received
-STOP_WARN_MULTIPLIER = 1.5   # warn when value reaches 1.5x premium received
-
-DAILY_DAYS = 1
-WEEKLY_DAYS = 7
-
-
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
 def main():
@@ -92,7 +84,7 @@ def main():
 
     iv = get_deribit_iv(spot, WEEKLY_DAYS)
     if not iv:
-        iv = 0.80
+        iv = IV_FALLBACK
         print(f"  {YL}⚠ IV fetch failed — using fallback 80%{R}")
 
     days = WEEKLY_DAYS  # default expiry; user can switch via menu
