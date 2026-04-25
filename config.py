@@ -41,11 +41,11 @@ SUPPORTED_ASSETS = {
     "BTC": {
         "coingecko_id":   "bitcoin",
         "deribit_ticker": "BTC",
-        "strike_round":   500,
+        "strike_round":   1000,
     },
     "SOL": {
         "coingecko_id":   "solana",
-        "deribit_ticker": "SOL",
+        "deribit_ticker": "SOL_USDC",
         "strike_round":   1,
     },
 }
