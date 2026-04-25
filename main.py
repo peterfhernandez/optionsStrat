@@ -28,7 +28,7 @@ import sys
 try:
     import requests  # noqa: F401
 except ImportError:
-    print("Please run: pip install requests openpyxl")
+    print("Please run: pip install requests openpyxl colorama")
     sys.exit(1)
 
 try:

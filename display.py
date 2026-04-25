@@ -27,6 +27,13 @@ Profit zone chart
 """
 
 import shutil
+import os
+
+try:
+    from colorama import just_fix_windows_console
+    just_fix_windows_console()  # no-op on Mac/Linux; enables ANSI on Windows
+except ImportError:
+    pass  # colorama missing — colours may not render on Windows
 
 from pricing import prob_otm_put, prob_otm_call
 from config  import RISK_FREE_RATE, STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER

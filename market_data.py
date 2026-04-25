@@ -18,7 +18,7 @@ _fetch_mark_iv(instrument)      Fetch mark IV for a single Deribit instrument
 """
 
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from config import SUPPORTED_ASSETS
 
@@ -38,7 +38,7 @@ def _expiry_date(days: int) -> datetime:
     - days == 1  → tomorrow (daily expiry)
     - days >= 2  → next Friday (standard weekly expiry on Deribit)
     """
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
     if days == 1:
         return today + timedelta(days=1)
     days_until_friday = (4 - today.weekday()) % 7 or 7
@@ -78,7 +78,8 @@ def _deribit_instrument(
     strike_round : int   ATM strike rounding increment
     option_type  : str   "P" for put, "C" for call
     """
-    expiry_str = _expiry_date(days).strftime("%d%b%y").upper()
+    expiry_dt  = _expiry_date(days)
+    expiry_str = str(expiry_dt.day) + expiry_dt.strftime("%b%y").upper()
     strike = _atm_strike(spot, strike_round)
     return f"{ticker}-{expiry_str}-{int(strike)}-{option_type}"
 
