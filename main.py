@@ -99,7 +99,7 @@ def _select_asset() -> str:
  
         print(f"  Invalid choice — enter a number between 1 and {len(assets)}")
  
- 
+
  # ── Strategies sub-menu ───────────────────────────────────────────────────────
  
 def _strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
@@ -185,16 +185,12 @@ def main():
 {B}{WH}  {asset}: ${spot:>10,.2f}   IV: {iv*100:.0f}%   Expiry: {days}d{R}
 {CY}{'─' * 54}{R}
 
-  {CY}[1]{R}  Wheel strike & premium analysis
-  {CY}[2]{R}  Wheel paper trading simulator
-  {CY}[3]{R}  Strangle analysis + profit zone chart
-  {CY}[4]{R}  Strangle paper trading simulator
-  {CY}[5]{R}  Record live trade (wheel)
-  {CY}[6]{R}  Performance summary & stats
-  {CY}[7]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
-  {CY}[8]{R}  Switch asset   {GY}(currently {asset}){R}
-  {CY}[9]{R}  Refresh market data
+  {CY}[S]{R}  Strategies
   {CY}[M]{R}  Monitor all positions
+  {CY}[P]{R}  Performance summary & stats
+  {CY}[1]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
+  {CY}[2]{R}  Switch asset   {GY}(currently {asset}){R}
+  {CY}[3]{R}  Refresh market data
   {CY}[0]{R}  Exit
 """)
         choice = input(f"  {YL}Choice: {R}").strip().upper()
