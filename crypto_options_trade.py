@@ -1,5 +1,5 @@
 """
-ETH Options Strategy Tool  v3.0
+Crypto Options Strategy Tool  v3.0
 =================================
 Paper trading tool for two strategies on ETH options:
   1. Wheel Strategy  (Cash-Secured Put → Covered Call)
@@ -33,7 +33,7 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BUDGET_USD     = 250.0
-EXCEL_FILE     = "eth_wheel_tracker.xlsx"
+EXCEL_FILE     = "crypto_options_trade_tracker.xlsx"
 RISK_FREE_RATE = 0.05
 OTM_LEVELS     = [0.10, 0.15, 0.20]
 
@@ -732,14 +732,28 @@ def _create_summary_sheet(wb):
     c.fill  = PatternFill("solid", start_color=DARK)
     c.alignment = Alignment(horizontal="center", vertical="center")
 
+def _unmerge_row(ws, row, max_col=17):
+    """Unmerge any merged cells in this row so we can write to them freely."""
+    merges_to_remove = [
+        rng for rng in ws.merged_cells.ranges
+        if rng.min_row <= row <= rng.max_row
+    ]
+    for rng in merges_to_remove:
+        ws.unmerge_cells(str(rng))
+    for col in range(2, max_col + 1):
+        ws.cell(row=row, column=col).value = None
 
 def append_trade_row(wb, sheet_name, trade):
     ws = wb[sheet_name]
     row = 4
-    while ws.cell(row=row, column=2).value not in (None, "← Trades will appear here as you use the tool"):
+    while True:
+        cell_val = ws.cell(row=row, column=2).value
+        if cell_val is None:
+            break
+        if isinstance(cell_val, str) and "←" in cell_val:
+            _unmerge_row(ws, row)   # unmerge & clear the placeholder row
+            break
         row += 1
-    if ws.cell(row=row, column=2).value and "←" in str(ws.cell(row=row,column=2).value):
-        ws.cell(row=row, column=2).value = None  # clear placeholder
 
     result  = trade.get("result","")
     bg      = "1a3a1a" if result=="Win" else "3a1a1a" if result=="Loss" else MID
@@ -767,10 +781,14 @@ def append_trade_row(wb, sheet_name, trade):
 def append_strangle_row(wb, trade):
     ws = wb["🔀 Strangles"]
     row = 4
-    while ws.cell(row=row, column=2).value not in (None, "← Strangle trades will appear here as you paper trade"):
+    while True:
+        cell_val = ws.cell(row=row, column=2).value
+        if cell_val is None:
+            break
+        if isinstance(cell_val, str) and "←" in cell_val:
+            _unmerge_row(ws, row, max_col=14)
+            break
         row += 1
-    if ws.cell(row=row, column=2).value and "←" in str(ws.cell(row=row,column=2).value):
-        ws.cell(row=row, column=2).value = None
 
     result = trade.get("result","")
     bg     = "1a3a1a" if result=="Win" else "3a1a1a" if result=="Loss" else MID
