@@ -177,7 +177,7 @@ def main():
         iv = IV_FALLBACK
         print(f"  {YL}⚠ IV fetch failed — using fallback {IV_FALLBACK*100:.0f}%{R}")
 
-    days = WEEKLY_DAYS  # default expiry; user can switch via menu
+    days = DAILY_DAYS  # default expiry; user can switch via menu
 
     wb = setup_excel()
 
