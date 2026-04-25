@@ -45,13 +45,19 @@ def _expiry_date(days: int) -> datetime:
     return today + timedelta(days=days_until_friday)
 
 
-def _atm_strike(spot: float, strike_round: int) -> int:
+def _atm_strike(spot: float, ticker: str) -> int:
     """
     Round spot price to the nearest ATM strike increment for this asset.
  
     Each asset has its own increment (e.g. ETH=$100, BTC=$500, SOL=$1)
     defined in config.SUPPORTED_ASSETS.
     """
+    if ticker == "ETH":
+        strike_round = 100
+    elif ticker == "BTC":
+        strike_round = 500
+    elif ticker == "SOL":
+        strike_round = 1
     return round(spot / strike_round) * strike_round
 
 
@@ -59,7 +65,6 @@ def _deribit_instrument(
     ticker: str,
     spot: float,
     days: int,
-    strike_round: int,
     option_type: str,
 ) -> str:
     """
@@ -79,7 +84,7 @@ def _deribit_instrument(
     option_type  : str   "P" for put, "C" for call
     """
     expiry_str = _expiry_date(days).strftime("%d%b%y").upper()
-    strike = _atm_strike(spot, strike_round)
+    strike = _atm_strike(spot, ticker)
     return f"{ticker}-{expiry_str}-{int(strike)}-{option_type}"
 
 
@@ -172,7 +177,7 @@ def get_deribit_iv(asset: str, spot: float, days: int) -> float | None:
     cfg = SUPPORTED_ASSETS[asset]
     try:
         for option_type in ("P", "C"):
-            instrument = _deribit_instrument(spot, days, option_type)
+            instrument = _deribit_instrument(asset, spot, days, option_type)
             iv = _fetch_mark_iv(instrument)
             if iv is not None:
                 return iv

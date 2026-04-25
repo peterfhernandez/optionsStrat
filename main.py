@@ -76,7 +76,7 @@ def main():
     # Fetch live market data
     spot = get_spot_price(DEFAULT_ASSET)
     if not spot:
-        print(f"  {YL}⚠ Could not fetch ETH price. Check your connection.{R}")
+        print(f"  {YL}⚠ Could not fetch {DEFAULT_ASSET} price. Check your connection.{R}")
         sys.exit(1)
 
     iv = get_deribit_iv(DEFAULT_ASSET, spot, WEEKLY_DAYS)
