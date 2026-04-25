@@ -15,7 +15,8 @@ excel_tracker.py    openpyxl workbook setup & row helpers        ← DONE
 strategies/
     wheel.py        Wheel paper trading simulator                ← DONE
     strangle.py     Short strangle paper trading + stop-loss     ← DONE
-    summary.py      cross-sheet reporting                        ← DONE
+    summary.py      Cross-sheet reporting                        ← DONE
+    monitor.py      Monitor trades and automatically close       ← DONE
 
 Run
 ---
@@ -57,9 +58,8 @@ from excel_tracker import setup_excel, append_trade_row, append_strangle_row  # 
 from strategies.wheel    import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.summary import show_summary
+from strategies.monitor import run_monitor
 
-# TODO: from strategies.wheel import wheel_paper_menu, show_strikes
-# TODO: from strategies.strangle import strangle_paper_menu, show_strangle_analysis
 
 # ── Asset selection ───────────────────────────────────────────────────────────
  
@@ -129,6 +129,10 @@ def main():
     wb = setup_excel()
 
     while True:
+        # ── Background monitor check (silent) ─────────────────────────────────
+        run_monitor(spot, iv, wb, days, asset, silent=True)
+ 
+       
         print(f"""
 {CY}{'─' * 54}{R}
 {B}{WH}  {asset}: ${spot:>10,.2f}   IV: {iv*100:.0f}%   Expiry: {days}d{R}
@@ -143,6 +147,7 @@ def main():
   {CY}[7]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
   {CY}[8]{R}  Switch asset   {GY}(currently {asset}){R}
   {CY}[9]{R}  Refresh market data
+  {CY}[M]{R}  Monitor all positions
   {CY}[0]{R}  Exit
 """)
         choice = input(f"  {YL}Choice: {R}").strip()
@@ -191,12 +196,15 @@ def main():
             if iv_new:   ok(f"IV refreshed: {'{'}iv*100:.0f{'}'}%")
             else:        warn("IV refresh failed — keeping previous value")
 
+        elif choice in ("m", "M"):
+            run_monitor(spot, iv, wb, days, asset, silent=False)
+        
         elif choice == "0":
             print(f"\n  Goodbye.\n")
             break
         
         else:
-            warn("Invalid choice — enter 1–9")
+            warn("Invalid choice — enter 1–9, or M")
 
 
 if __name__ == "__main__":
