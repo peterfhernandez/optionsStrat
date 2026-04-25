@@ -37,9 +37,9 @@ except ImportError:
     sys.exit(1)
 
 # ── Internal modules (added as each is extracted) ─────────────────────────────
-from pricing import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
+from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
+from market_data import get_eth_price, get_deribit_iv
 
-# TODO: from market_data import get_eth_price, get_deribit_iv
 # TODO: from display import hdr, sub, inf, ok, warn, err, draw_profit_zone
 # TODO: from excel_tracker import setup_excel, append_trade_row, append_strangle_row
 # TODO: from strategies.wheel import wheel_paper_menu, show_strikes
