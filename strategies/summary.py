@@ -16,11 +16,21 @@ show_summary(wb)    Print win rate, premium totals, and trade counts
 from display import hdr, sub, inf
 
 
-# Sheet name → (col_result, col_prem) — zero-based index into iter_rows tuple
+# Sheet name → (col_result, col_prem) — zero-based index into iter_rows tuple.
+# Column A = index 0 (always empty); data starts at column B = index 1.
+#
+# Trade sheets  (📝 Paper Trades, 📋 Live Trades):
+#   B=Date C=Type D=Stage E=Days F=Strike G=SpotOpen H=SpotClose I=Premium J=PnL K=Result
+#   Premium → I = index 8    Result → K = index 10
+#
+# Strangles sheet (🔀 Strangles):
+#   B=Date C=Type D=PutK E=CallK F=SpotOpen G=SpotClose H=Days I=Premium J=PnL
+#   K=LowerBE L=UpperBE M=Result
+#   Premium → I = index 8    Result → M = index 12
 _SHEET_CONFIGS = {
-    "📝 Paper Trades": {"col_result": 9,  "col_prem": 7},
-    "📋 Live Trades":  {"col_result": 9,  "col_prem": 7},
-    "🔀 Strangles":    {"col_result": 11, "col_prem": 7},
+    "📝 Paper Trades": {"col_result": 10, "col_prem": 8},
+    "📋 Live Trades":  {"col_result": 10, "col_prem": 8},
+    "🔀 Strangles":    {"col_result": 12, "col_prem": 8},
 }
 
 
