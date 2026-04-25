@@ -18,15 +18,17 @@ _fetch_mark_iv(instrument)      Fetch mark IV for a single Deribit instrument
 """
 
 import requests
+import time
 from datetime import datetime, timedelta, timezone
 
 from config import SUPPORTED_ASSETS
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-_COINGECKO_URL  = "https://api.coingecko.com/api/v3/simple/price"
-_DERIBIT_URL    = "https://www.deribit.com/api/v2/public/get_order_book"
+_COINGECKO_URL   = "https://api.coingecko.com/api/v3/simple/price"
+_DERIBIT_URL     = "https://www.deribit.com/api/v2/public/get_order_book"
 _REQUEST_TIMEOUT = 8  # seconds
+_COINGECKO_RETRY = 2  # seconds to wait before retrying after a 429
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -125,15 +127,25 @@ def get_spot_price(asset: str) -> float | None:
         )
     coingecko_id = SUPPORTED_ASSETS[asset]["coingecko_id"]
     try:
-        response = requests.get(
-            _COINGECKO_URL,
-            params={"ids": coingecko_id, "vs_currencies": "usd"},
-            timeout=_REQUEST_TIMEOUT,
-        )
-        return float(response.json()[coingecko_id]["usd"])
+        for attempt in range(2):  # one retry on 429
+            response = requests.get(
+                _COINGECKO_URL,
+                params={"ids": coingecko_id, "vs_currencies": "usd"},
+                timeout=_REQUEST_TIMEOUT,
+            )
+            if response.status_code == 429:
+                print(f"  ⚠ CoinGecko rate limit hit — waiting {_COINGECKO_RETRY}s...")
+                time.sleep(_COINGECKO_RETRY)
+                continue
+            data = response.json()
+            if coingecko_id not in data:
+                print(f"  ⚠ {asset} price fetch failed: unexpected response {data}")
+                return None
+            return float(data[coingecko_id]["usd"])
     except Exception as e:
         print(f"  ⚠ {asset} price fetch failed: {e}")
-        return None
+    return None
+    
     
 
 def get_eth_price() -> float | None:
