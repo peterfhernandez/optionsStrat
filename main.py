@@ -99,6 +99,53 @@ def _select_asset() -> str:
  
         print(f"  Invalid choice — enter a number between 1 and {len(assets)}")
  
+ 
+ # ── Strategies sub-menu ───────────────────────────────────────────────────────
+ 
+def _strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
+    """
+    Sub-menu grouping all strategy options.
+    Returns to the main menu when the user selects Back.
+    """
+    R  = "\033[0m";  B  = "\033[1m"
+    CY = "\033[96m"; YL = "\033[93m"; GY = "\033[90m"; WH = "\033[97m"
+ 
+    while True:
+        print(f"""
+{CY}{'─' * 54}{R}
+{B}{WH}  Strategies — {asset}  ${spot:,.2f}   IV: {iv*100:.0f}%   {days}d{R}
+{CY}{'─' * 54}{R}
+ 
+  {CY}[1]{R}  Wheel — strike & premium analysis
+  {CY}[2]{R}  Wheel — paper trading simulator
+  {CY}[3]{R}  Strangle — analysis + profit zone chart
+  {CY}[4]{R}  Strangle — paper trading simulator
+  {CY}[5]{R}  Record live trade  {GY}(wheel){R}
+  {CY}[0]{R}  Back
+""")
+        choice = input(f"  {YL}Choice: {R}").strip()
+ 
+        if choice == "1":
+            show_strikes(asset, spot, iv, days)
+ 
+        elif choice == "2":
+            wheel_paper_menu(asset, spot, iv, wb, days)
+ 
+        elif choice == "3":
+            show_strangle_analysis(asset, spot, iv, days)
+ 
+        elif choice == "4":
+            strangle_paper_menu(asset, spot, iv, wb, days)
+ 
+        elif choice == "5":
+            warn("Live trade recording not yet wired — use the original tool for now.")
+ 
+        elif choice == "0":
+            break
+ 
+        else:
+            warn("Invalid choice — enter 0–5")
+ 
 
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
@@ -150,32 +197,22 @@ def main():
   {CY}[M]{R}  Monitor all positions
   {CY}[0]{R}  Exit
 """)
-        choice = input(f"  {YL}Choice: {R}").strip()
+        choice = input(f"  {YL}Choice: {R}").strip().upper()
 
-        if choice == "1":
-            show_strikes(spot, iv, days)
+        if choice == "S":
+            _strategies_menu(asset, spot, iv, wb, days)
 
-        elif choice == "2":
-            wheel_paper_menu(spot, iv, wb, days)
+        elif choice == "M":
+            run_monitor(spot, iv, wb, days, asset, silent=False)
 
-        elif choice == "3":
-            show_strangle_analysis(spot, iv, days)
-
-        elif choice == "4":
-            strangle_paper_menu(spot, iv, wb, days)
-
-        elif choice == "5":
-            # Live trade recording — delegates to excel_tracker once extracted
-            warn("Live trade recording not yet wired to main.py — use the original tool for now.")
-
-        elif choice == "6":
+        elif choice == "P":
             show_summary(wb)
 
-        elif choice == "7":
+        elif choice == "1":
             days = DAILY_DAYS if days == WEEKLY_DAYS else WEEKLY_DAYS
             ok(f"Switched to {'daily' if days == 1 else 'weekly'} expiry ({days}d)")
 
-        elif choice == "8":
+        elif choice == "2":
             asset    = _select_asset()
             spot_new = get_spot_price(asset)
             iv_new   = get_deribit_iv(asset, spot_new or spot, days)
@@ -189,15 +226,12 @@ def main():
                 iv = IV_FALLBACK
                 warn(f"IV fetch failed for {asset} — using fallback {IV_FALLBACK*100:.0f}%")
 
-        elif choice == "9":
+        elif choice == "3":
             spot_new = get_spot_price(asset)
             iv_new   = get_deribit_iv(asset, spot_new or spot, days)
             if spot_new: ok(f"{'{'}asset{'}'} price refreshed: ${'{'}spot:,.2f{'}'}")
             if iv_new:   ok(f"IV refreshed: {'{'}iv*100:.0f{'}'}%")
             else:        warn("IV refresh failed — keeping previous value")
-
-        elif choice in ("m", "M"):
-            run_monitor(spot, iv, wb, days, asset, silent=False)
         
         elif choice == "0":
             print(f"\n  Goodbye.\n")
