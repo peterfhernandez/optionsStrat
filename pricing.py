@@ -24,6 +24,25 @@ def ncdf(x: float) -> float:
     """Standard normal cumulative distribution function."""
     return 0.5 * math.erfc(-x / math.sqrt(2))
 
+# ── d1 / d2 helpers ───────────────────────────────────────────────────────────
+ 
+def _d1(S: float, K: float, T: float, r: float, v: float) -> float:
+    """
+    Black-Scholes d1 term.
+ 
+    d1 = [ ln(S/K) + (r + v²/2) * T ] / (v * √T)
+    """
+    return (math.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * math.sqrt(T))
+ 
+ 
+def _d2(S: float, K: float, T: float, r: float, v: float) -> float:
+    """
+    Black-Scholes d2 term.
+ 
+    d2 = d1 - v * √T
+    """
+    return _d1(S, K, T, r, v) - v * math.sqrt(T)
+
 
 # ── Black-Scholes pricing ─────────────────────────────────────────────────────
 
@@ -45,8 +64,8 @@ def bs_put(S: float, K: float, T: float, r: float, v: float) -> float:
     """
     if T <= 0 or v <= 0:
         return max(K - S, 0)
-    d1 = (math.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * math.sqrt(T))
-    d2 = d1 - v * math.sqrt(T)
+    d1 = _d1(S, K, T, r, v)
+    d2 = _d2(S, K, T, r, v)
     return K * math.exp(-r * T) * ncdf(-d2) - S * ncdf(-d1)
 
 
@@ -68,8 +87,8 @@ def bs_call(S: float, K: float, T: float, r: float, v: float) -> float:
     """
     if T <= 0 or v <= 0:
         return max(S - K, 0)
-    d1 = (math.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * math.sqrt(T))
-    d2 = d1 - v * math.sqrt(T)
+    d1 = _d1(S, K, T, r, v)
+    d2 = _d2(S, K, T, r, v)
     return S * ncdf(d1) - K * math.exp(-r * T) * ncdf(d2)
 
 
@@ -84,8 +103,7 @@ def prob_otm_put(S: float, K: float, T: float, r: float, v: float) -> float:
     """
     if T <= 0 or v <= 0:
         return 1.0 if S > K else 0.0
-    d2 = (math.log(S / K) + (r - 0.5 * v ** 2) * T) / (v * math.sqrt(T))
-    return ncdf(d2)
+    return ncdf(_d2(S, K, T, r, v))
 
 
 def prob_otm_call(S: float, K: float, T: float, r: float, v: float) -> float:
@@ -97,5 +115,4 @@ def prob_otm_call(S: float, K: float, T: float, r: float, v: float) -> float:
     """
     if T <= 0 or v <= 0:
         return 1.0 if S < K else 0.0
-    d2 = (math.log(S / K) + (r - 0.5 * v ** 2) * T) / (v * math.sqrt(T))
-    return ncdf(-d2)
+    return ncdf(-_d2(S, K, T, r, v))
