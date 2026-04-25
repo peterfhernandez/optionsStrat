@@ -36,6 +36,7 @@ from config import SUPPORTED_ASSETS
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
+_BINANCE_URL     = "https://api.binance.com/api/v3/ticker/price"
 _COINGECKO_URL   = "https://api.coingecko.com/api/v3/simple/price"
 _DERIBIT_URL     = "https://www.deribit.com/api/v2/public/get_order_book"
 _REQUEST_TIMEOUT = 8  # seconds
