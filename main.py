@@ -187,7 +187,7 @@ def main():
 
         elif choice == "0":
             print(f"\n  Goodbye.\n")
-            break   ← exit unchanged
+            break
         
         else:
             warn("Invalid choice — enter 1–9")
