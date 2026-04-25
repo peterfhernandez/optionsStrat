@@ -1,6 +1,11 @@
-# Local state files (personal paper trading data)
+# Paper trading state files (local only)
 paper_state.json
 strangle_state.json
 
-# Excel lock files
+# Excel temp files
 ~$*.xlsx
+
+# Python cache
+__pycache__/
+*.pyc
+.env
