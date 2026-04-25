@@ -173,7 +173,7 @@ def get_deribit_iv(asset: str, spot: float, days: int) -> float | None:
     cfg = SUPPORTED_ASSETS[asset]
     try:
         for option_type in ("P", "C"):
-            instrument = _deribit_instrument(asset, spot, days, cfg['strike_round'], option_type)
+            instrument = _deribit_instrument(cfg['deribit_ticker'], spot, days, cfg['strike_round'], option_type)
             iv = _fetch_mark_iv(instrument)
             if iv is not None:
                 return iv
