@@ -10,7 +10,7 @@ Current module layout
 config.py           Configuration file. Contain Global Variables ← DONE
 pricing.py          Black-Scholes pricing & probability helpers  ← DONE
 market_data.py      ETH price + IV fetching                      ← DONE
-display.py          ANSI colour helpers, ASCII chart              ← TODO
+display.py          ANSI colour helpers, ASCII chart             ← DONE
 excel_tracker.py    openpyxl workbook setup & row helpers         ← TODO
 strategies/
     wheel.py        Wheel paper trading simulator                 ← TODO
@@ -47,8 +47,8 @@ from config      import (
 )
 from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
 from market_data import get_spot_price, get_deribit_iv
+from display     import hdr, sub, inf, ok, warn, err, draw_profit_zone
 
-# TODO: from display import hdr, sub, inf, ok, warn, err, draw_profit_zone
 # TODO: from excel_tracker import setup_excel, append_trade_row, append_strangle_row
 # TODO: from strategies.wheel import wheel_paper_menu, show_strikes
 # TODO: from strategies.strangle import strangle_paper_menu, show_strangle_analysis
@@ -56,8 +56,6 @@ from market_data import get_spot_price, get_deribit_iv
 # ── Temporary: import everything from the original file while refactoring ─────
 # Remove each import below as its module is extracted and wired up above.
 from crypto_options_trade import (
-    hdr, sub, inf, ok, warn, err,
-    draw_profit_zone,
     show_strangle_analysis,
     strangle_paper_menu,
     show_strikes,
