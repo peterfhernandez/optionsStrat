@@ -4,7 +4,8 @@ strategies/scanner.py
 Cross-asset, cross-strategy trade recommendation scanner.
 
 Scans every (asset, strategy, OTM level) combination, computes key
-metrics for each candidate, and ranks them by two criteria:
+metrics for each candidate, including live liquidity data from Deribit,
+and ranks them by two criteria:
 
   1. Highest probability of profit with a reasonable return
   2. Best annualised return regardless of probability
@@ -20,12 +21,14 @@ run_scanner(active_spot, active_iv, active_asset, days)
 
 Internal helpers
 ----------------
+_fetch_liquidity(ticker, spot, days,      Fetch IV + liquidity for one strike
+                 strike_round, otm, r)
 _build_candidates(asset, spot, iv, days)  Build all candidates for one asset
 _display_candidates(candidates)           Print the full candidate table
 _display_ranked(label, candidates)        Print a ranked recommendation block
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
@@ -35,10 +38,13 @@ from display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
 
 
 # ── Minimum yield threshold for "high probability" ranking ───────────────────
-# Candidates below this annualised yield are excluded from ranking #1
-# even if they have high probability — too cheap to bother.
-MIN_YIELD_PCT = 20.0   # 20% annualised
+MIN_YIELD_PCT = 20.0   # exclude candidates below this annualised yield
 
+# ── Liquidity rating thresholds ───────────────────────────────────────────────
+_OI_HIGH    = 1000.0   # open interest ≥ this → high liquidity
+_OI_MED     = 100.0    # open interest ≥ this → medium liquidity
+_VOL_HIGH   = 50000.0  # 24h volume USD ≥ this → high liquidity
+_SPREAD_LOW = 0.02     # IV spread ≤ this → tight (liquid) market
 
 # ── Data model ────────────────────────────────────────────────────────────────
 
@@ -56,11 +62,65 @@ class Candidate:
     prob_profit:  float  # probability of full profit (0–100)
     days:         int
 
-    # Strangle-only fields (None for wheel)
+    # Liquidity fields (None if Deribit fetch skipped or failed)
+    open_interest: float = None
+    volume_usd:    float = None
+    iv_spread:     float = None   # ask_iv - bid_iv as decimal
+    liquidity_tag: str   = ""     # "High", "Med", "Low", or ""
+ 
+    # Strangle-only fields
     put_strike:   float = None
     call_strike:  float = None
     be_lo:        float = None
     be_hi:        float = None
+
+
+def _liquidity_tag(oi: float, vol_usd: float, iv_spread: float) -> str:
+    """
+    Derive a simple liquidity label from open interest, volume, and IV spread.
+ 
+    High : OI ≥ 1000 AND spread ≤ 0.02
+    Med  : OI ≥ 100  OR  vol_usd ≥ $50k
+    Low  : everything else
+    """
+    if oi is None:
+        return ""
+    if oi >= _OI_HIGH and (iv_spread is None or iv_spread <= _SPREAD_LOW):
+        return "High"
+    if oi >= _OI_MED or (vol_usd and vol_usd >= _VOL_HIGH):
+        return "Med"
+    return "Low"
+ 
+ 
+ # ── Liquidity fetcher ─────────────────────────────────────────────────────────
+ 
+def _fetch_liquidity(
+    ticker:       str,
+    spot:         float,
+    days:         int,
+    strike_round: int,
+    otm:          float,
+    side:         str,   # "put" or "call"
+) -> dict | None:
+    """
+    Fetch IV and liquidity data from Deribit for one strike.
+ 
+    Returns the order book dict from _fetch_order_book, or None on failure.
+    For strangles both put and call are fetched; the put side is used for IV.
+    """
+    from market_data import _deribit_instrument, _fetch_order_book
+ 
+    spot_adj = spot * (1 - otm) if side == "put" else spot * (1 + otm)
+    opt_type = "P" if side == "put" else "C"
+ 
+    instrument = _deribit_instrument(
+        ticker       = ticker,
+        spot         = spot_adj,
+        days         = days,
+        strike_round = strike_round,
+        option_type  = opt_type,
+    )
+    return _fetch_order_book(instrument)
 
 
 # ── Candidate builder ─────────────────────────────────────────────────────────
@@ -81,46 +141,74 @@ def _build_candidates(
     """
     T   = days / 365.0
     r   = RISK_FREE_RATE
+    cfg = SUPPORTED_ASSETS[asset]
+    ticker       = cfg["deribit_ticker"]
+    strike_round = cfg["strike_round"]
     candidates = []
 
     for otm in OTM_LEVELS:
+        Kp = round(spot * (1 - otm) / 10) * 10
+        Kc = round(spot * (1 + otm) / 10) * 10
+ 
+        # Fetch liquidity for put and call strikes
+        put_book  = _fetch_liquidity(ticker, spot, days, strike_round, otm, "put")
+        call_book = _fetch_liquidity(ticker, spot, days, strike_round, otm, "call")
+ 
+        # Use live IV from Deribit if available, otherwise use passed-in iv
+        put_iv  = put_book["mark_iv"]  if put_book  else iv
+        call_iv = call_book["mark_iv"] if call_book else iv
 
         # ── Cash-Secured Put ──────────────────────────────────────────────────
         Kp  = round(spot * (1 - otm) / 10) * 10
-        qty = BUDGET_USD / Kp
-        pp  = bs_put(spot, Kp, T, r, iv) * qty
-        yld = (pp / BUDGET_USD) * (365 / days) * 100
-        pop = prob_otm_put(spot, Kp, T, r, iv) * 100
+        qty_p = BUDGET_USD / Kp
+        pp    = bs_put(spot, Kp, T, r, put_iv) * qty_p
+        yld_p = (pp / BUDGET_USD) * (365 / days) * 100
+        pop_p = prob_otm_put(spot, Kp, T, r, put_iv) * 100
+        oi_p  = put_book["open_interest"] if put_book else None
+        vol_p = put_book["volume_usd"]    if put_book else None
+        spd_p = put_book["iv_spread"]     if put_book else None
         candidates.append(Candidate(
             asset       = asset,
             strategy    = "CSP",
             otm_pct     = otm,
             spot        = spot,
-            iv          = iv,
+            iv          = put_iv,
             strike      = f"${Kp:,.0f}",
             premium     = round(pp, 2),
-            yield_ann   = round(yld, 1),
-            prob_profit = round(pop, 1),
+            yield_ann   = round(yld_p, 1),
+            prob_profit = round(pop_p, 1),
             days        = days,
+            open_interest = oi_p,
+            volume_usd  = vol_p,
+            iv_spread   = spd_p,
+            liquidity_tag = _liquidity_tag(oi_p, vol_p, spd_p),
         ))
 
         # ── Covered Call ──────────────────────────────────────────────────────
-        Kc   = round(spot * (1 + otm) / 10) * 10
-        qty2 = BUDGET_USD / spot
-        cp   = bs_call(spot, Kc, T, r, iv) * qty2
-        yld2 = (cp / BUDGET_USD) * (365 / days) * 100
-        pop2 = prob_otm_call(spot, Kc, T, r, iv) * 100
+        Kc    = round(spot * (1 + otm) / 10) * 10
+        qty_c = BUDGET_USD / spot
+        cp    = bs_call(spot, Kc, T, r, call_iv) * qty_c
+        yld_c = (cp / BUDGET_USD) * (365 / days) * 100
+        pop_c = prob_otm_call(spot, Kc, T, r, call_iv) * 100
+ 
+        oi_c  = call_book["open_interest"] if call_book else None
+        vol_c = call_book["volume_usd"]    if call_book else None
+        spd_c = call_book["iv_spread"]     if call_book else None
         candidates.append(Candidate(
             asset       = asset,
             strategy    = "CC",
             otm_pct     = otm,
             spot        = spot,
-            iv          = iv,
+            iv          = call_iv,
             strike      = f"${Kc:,.0f}",
             premium     = round(cp, 2),
-            yield_ann   = round(yld2, 1),
-            prob_profit = round(pop2, 1),
+            yield_ann   = round(yld_c, 1),
+            prob_profit = round(pop_c, 1),
             days        = days,
+            open_interest = oi_c,
+            volume_usd  = vol_c,
+            iv_spread   = spd_c,
+            liquidity_tag = _liquidity_tag(oi_c, vol_c, spd_c),
         ))
 
         # ── Short Strangle ────────────────────────────────────────────────────
@@ -157,6 +245,33 @@ def _build_candidates(
 
 # ── Display helpers ───────────────────────────────────────────────────────────
 
+
+def _liq_colour(tag: str) -> str:
+    """Return ANSI colour for a liquidity tag."""
+    return GR if tag == "High" else YL if tag == "Med" else RD if tag == "Low" else GY
+ 
+ 
+def _fmt_oi(oi: float) -> str:
+    """Format open interest compactly."""
+    if oi is None: return "  —"
+    if oi >= 1000: return f"{oi/1000:.1f}k"
+    return f"{oi:.0f}"
+ 
+ 
+def _fmt_vol(vol: float) -> str:
+    """Format 24h volume compactly."""
+    if vol is None: return "  —"
+    if vol >= 1_000_000: return f"${vol/1_000_000:.1f}M"
+    if vol >= 1_000:     return f"${vol/1_000:.0f}k"
+    return f"${vol:.0f}"
+ 
+ 
+def _fmt_spread(spd: float) -> str:
+    """Format IV spread as percentage points."""
+    if spd is None: return " —"
+    return f"{spd*100:.1f}pp"
+
+
 def _display_candidates(candidates: list[Candidate], days: int) -> None:
     """Print the full candidate table grouped by asset."""
 
@@ -166,28 +281,29 @@ def _display_candidates(candidates: list[Candidate], days: int) -> None:
             current_asset = c.asset
             sub(f"{c.asset}  spot=${c.spot:,.2f}   IV={c.iv*100:.0f}%   {days}d")
             print(
-                f"\n  {'Strategy':<12}{'OTM%':<7}{'Strike(s)':<22}"
-                f"{'Premium':<11}{'Yield/yr':<11}{'P(Profit)':<12}{'Notes'}"
+                f"\n  {'Strategy':<12}{'OTM%':<7}{'Strike(s)':<20}"
+                f"{'Prem':<9}{'Yld/yr':<9}{'P(Prof)':<10}"
+                f"{'OI':<8}{'Vol24h':<10}{'Spread':<9}{'Liq'}"
             )
-            print(f"  {'─' * 85}")
-
-        notes = ""
-        if c.strategy == "Strangle":
-            notes = f"B/E ${c.be_lo:,.0f}–${c.be_hi:,.0f}"
-
-        colour = GR if c.prob_profit >= 70 else YL if c.prob_profit >= 55 else WH
+            print(f"  {'─' * 100}")
+ 
+        lc = _liq_colour(c.liquidity_tag)
+        pc = GR if c.prob_profit >= 70 else YL if c.prob_profit >= 55 else WH
         print(
-            f"  {colour}{c.strategy:<12}{c.otm_pct*100:.0f}%{'':4}"
-            f"{c.strike:<22}${c.premium:<9.2f}"
+            f"  {WH}{c.strategy:<12}{c.otm_pct*100:.0f}%{'':4}"
+            f"{c.strike:<20}${c.premium:<7.2f}"
             f"{c.yield_ann:>6.1f}%/yr  "
-            f"{c.prob_profit:>5.1f}%     {notes}{R}"
+            f"{pc}{c.prob_profit:>5.1f}%{WH}     "
+            f"{_fmt_oi(c.open_interest):<8}"
+            f"{_fmt_vol(c.volume_usd):<10}"
+            f"{_fmt_spread(c.iv_spread):<9}"
+            f"{lc}{c.liquidity_tag or '—'}{R}"
         )
-    print(f"\n  {GY}Premiums estimated via Black-Scholes | Budget: ${BUDGET_USD:.0f}{R}")
-
+    print(f"\n  {GY}OI = open interest | Spread = bid/ask IV spread (tighter = more liquid){R}")
+    print(f"  {GY}Premiums estimated via Black-Scholes | Budget: ${BUDGET_USD:.0f}{R}")
 
 def _display_ranked(
     rank_label: str,
-    emoji: str,
     candidates: list[Candidate],
     limit: int = 5,
 ) -> None:
@@ -195,19 +311,23 @@ def _display_ranked(
     medals = ["🥇", "🥈", "🥉", "  4.", "  5."]
     sub(rank_label)
     print(
-        f"\n  {'':4}{'Asset':<7}{'Strategy':<12}{'OTM%':<7}{'Strike(s)':<22}"
-        f"{'Premium':<11}{'Yield/yr':<11}{'P(Profit)':<12}{'IV'}"
+        f"\n  {'':4}{'Asset':<6}{'Strat':<12}{'OTM%':<6}{'Strike(s)':<20}"
+        f"{'Prem':<9}{'Yld/yr':<9}{'P(Prof)':<10}{'IV':<7}{'OI':<8}{'Vol24h':<10}{'Liq'}"
     )
-    print(f"  {'─' * 95}")
-
+    print(f"  {'─' * 105}")
+ 
     for i, c in enumerate(candidates[:limit]):
         medal  = medals[i] if i < len(medals) else f"  {i+1}."
         colour = GR if i == 0 else YL if i == 1 else WH
+        lc     = _liq_colour(c.liquidity_tag)
         print(
-            f"  {medal} {colour}{c.asset:<7}{c.strategy:<12}"
-            f"{c.otm_pct*100:.0f}%{'':4}{c.strike:<22}"
-            f"${c.premium:<9.2f}{c.yield_ann:>6.1f}%/yr  "
-            f"{c.prob_profit:>5.1f}%     {c.iv*100:.0f}%{R}"
+            f"  {medal} {colour}{c.asset:<6}{c.strategy:<12}"
+            f"{c.otm_pct*100:.0f}%{'':3}{c.strike:<20}"
+            f"${c.premium:<7.2f}{c.yield_ann:>6.1f}%/yr  "
+            f"{c.prob_profit:>5.1f}%     {c.iv*100:.0f}%{'':4}"
+            f"{_fmt_oi(c.open_interest):<8}"
+            f"{_fmt_vol(c.volume_usd):<10}"
+            f"{lc}{c.liquidity_tag or '—'}{R}"
         )
 
 
@@ -221,11 +341,8 @@ def run_scanner(
 ) -> None:
     """
     Scan every (asset, strategy, OTM level) combination and display
-    ranked trade recommendations.
-
-    Fetches live spot and IV per asset, reusing already-fetched values
-    for the active asset to avoid a redundant API call.
-
+    ranked trade recommendations including live liquidity data.
+ 
     Parameters
     ----------
     active_spot  : float  Current spot for the active asset
@@ -234,14 +351,14 @@ def run_scanner(
     days         : int    Days to expiry
     """
     from market_data import get_spot_price, get_deribit_iv
-
+ 
     hdr("Trade Recommendation Scanner")
-    print(f"  {GY}Fetching live data and computing all candidates...{R}\n")
-
+    print(f"  {GY}Fetching live data and liquidity for all candidates...{R}")
+    print(f"  {GY}(This may take a few seconds — fetching order books per strike){R}\n")
+ 
     all_candidates = []
-
+ 
     for asset in SUPPORTED_ASSETS:
-        # Reuse active asset data; fetch fresh for others
         if asset == active_asset:
             spot = active_spot
             iv   = active_iv
@@ -254,19 +371,19 @@ def run_scanner(
             if not iv:
                 warn(f"Could not fetch {asset} IV — using fallback")
                 iv = active_iv
-
-        ok(f"{asset}: spot=${spot:,.2f}  IV={iv*100:.0f}%")
+ 
+        ok(f"{asset}: spot=${spot:,.2f}  IV={iv*100:.0f}%  — scanning {len(OTM_LEVELS)*3} candidates...")
         all_candidates.extend(_build_candidates(asset, spot, iv, days))
-
+ 
     if not all_candidates:
         warn("No candidates generated — check your connection.")
         return
-
+ 
     # ── Full candidate table ──────────────────────────────────────────────────
     print()
     hdr("All Candidates")
     _display_candidates(all_candidates, days)
-
+ 
     # ── Ranking 1: Highest probability with reasonable return ─────────────────
     print()
     hdr("Ranked Recommendations")
@@ -274,25 +391,28 @@ def run_scanner(
     by_prob   = sorted(qualified, key=lambda c: c.prob_profit, reverse=True)
     _display_ranked(
         rank_label = f"① Highest Probability  {GY}(yield ≥ {MIN_YIELD_PCT:.0f}%/yr){R}",
-        emoji      = "🎯",
         candidates = by_prob,
     )
-
+ 
     # ── Ranking 2: Best annualised return ─────────────────────────────────────
     print()
     by_yield = sorted(all_candidates, key=lambda c: c.yield_ann, reverse=True)
     _display_ranked(
         rank_label = "② Best Return",
-        emoji      = "💰",
         candidates = by_yield,
     )
-
+ 
     print(f"""
   {GY}Strategy key:
   CSP      = Cash-Secured Put (wheel leg 1)
   CC       = Covered Call     (wheel leg 2)
   Strangle = Short Strangle   (simultaneous OTM put + call)
-
+ 
+  Liquidity key:
+  High = OI ≥ 1,000 contracts and tight IV spread
+  Med  = OI ≥ 100 contracts or 24h volume ≥ $50k
+  Low  = thin market — wider spreads, harder to fill
+ 
   {YL}⚠ Strangles carry unlimited loss potential on the call side.
   {YL}⚠ All figures are Black-Scholes estimates — not financial advice.{R}
 """)

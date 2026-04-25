@@ -26,6 +26,7 @@ _atm_strike(spot, strike_round)         Round spot to nearest ATM strike increme
 _deribit_instrument(ticker, spot, days, Build a Deribit instrument name
                     strike_round, opt_type)
 _fetch_mark_iv(instrument)              Fetch mark IV for one Deribit instrument
+_fetch_order_book(instrument)           Fetch IV + liquidity metrics for one instrument
 """
 
 import requests
@@ -167,6 +168,51 @@ def _fetch_mark_iv(instrument: str) -> float | None:
         return float(iv) / 100.0
     return None
 
+
+def _fetch_order_book(instrument: str) -> dict | None:
+    """
+    Fetch full order book data for a Deribit instrument.
+ 
+    Returns a dict with IV and liquidity metrics, or None if unavailable.
+ 
+    Keys returned
+    -------------
+    mark_iv      : float  Mark IV as a decimal (e.g. 0.80)
+    bid_iv       : float  Bid IV as a decimal
+    ask_iv       : float  Ask IV as a decimal
+    iv_spread    : float  ask_iv - bid_iv (tighter = more liquid)
+    open_interest: float  Open interest in contracts
+    volume_usd   : float  24h volume in USD
+    best_bid     : float  Best bid price (in BTC/ETH — Deribit convention)
+    best_ask     : float  Best ask price
+    """
+    response = requests.get(
+        _DERIBIT_URL,
+        params={"instrument_name": instrument},
+        timeout=_REQUEST_TIMEOUT,
+    )
+    if response.status_code != 200:
+        return None
+    result = response.json().get("result", {})
+ 
+    mark_iv = result.get("mark_iv")
+    bid_iv  = result.get("bid_iv")
+    ask_iv  = result.get("ask_iv")
+    if not mark_iv or mark_iv <= 0:
+        return None
+ 
+    stats = result.get("stats", {})
+    return {
+        "mark_iv":       float(mark_iv) / 100.0,
+        "bid_iv":        float(bid_iv)  / 100.0 if bid_iv  else None,
+        "ask_iv":        float(ask_iv)  / 100.0 if ask_iv  else None,
+        "iv_spread":     round((ask_iv - bid_iv) / 100.0, 4)
+                         if bid_iv and ask_iv else None,
+        "open_interest": float(result.get("open_interest", 0)),
+        "volume_usd":    float(stats.get("volume_usd", 0)),
+        "best_bid":      result.get("best_bid_price"),
+        "best_ask":      result.get("best_ask_price"),
+    }
 
 # ── Public API ────────────────────────────────────────────────────────────────
 def get_spot_price(asset: str) -> float | None:
