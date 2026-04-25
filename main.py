@@ -15,6 +15,7 @@ excel_tracker.py    openpyxl workbook setup & row helpers        ← DONE
 strategies/
     wheel.py        Wheel paper trading simulator                ← DONE
     strangle.py     Short strangle paper trading + stop-loss     ← DONE
+    summary.py      cross-sheet reporting                        ← DONE
 
 Run
 ---
@@ -49,12 +50,13 @@ from config      import (
     DAILY_DAYS, WEEKLY_DAYS,
     DEFAULT_ASSET, SUPPORTED_ASSETS,
 )
-from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
+#from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
 from market_data import get_spot_price, get_deribit_iv
 from display     import hdr, sub, inf, ok, warn, err, draw_profit_zone
 from excel_tracker import setup_excel, append_trade_row, append_strangle_row  # noqa: F401
-from strategies.wheel    import show_strikes, wheel_paper_menu, show_summary
+from strategies.wheel    import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
+from strategies.summary import show_summary
 
 # TODO: from strategies.wheel import wheel_paper_menu, show_strikes
 # TODO: from strategies.strangle import strangle_paper_menu, show_strangle_analysis
