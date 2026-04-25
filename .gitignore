@@ -2,6 +2,9 @@
 paper_state.json
 strangle_state.json
 
+# Debug file (local only)
+debug.py
+
 # Excel temp files
 ~$*.xlsx
 
