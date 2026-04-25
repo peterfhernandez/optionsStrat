@@ -76,7 +76,7 @@ def main():
     print(f"  {GY}Paper trading & planning for ETH options on Deribit{R}\n")
 
     # Fetch live market data
-    spot = get_eth_price()
+    spot = get_spot_price(DEFAULT_ASSET)
     if not spot:
         print(f"  {YL}⚠ Could not fetch ETH price. Check your connection.{R}")
         sys.exit(1)
@@ -136,7 +136,7 @@ def main():
             iv_new   = get_deribit_iv(DEFAULT_ASSET, spot_new or spot, days)
             if spot_new:
                 spot = spot_new
-                ok(f"ETH price refreshed: ${spot:,.2f}")
+                ok(f"{DEFAULT_ASSET} price refreshed: ${spot:,.2f}")
             if iv_new:
                 iv = iv_new
                 ok(f"IV refreshed: {iv*100:.0f}%")
