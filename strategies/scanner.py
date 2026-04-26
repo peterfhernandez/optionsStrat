@@ -332,7 +332,11 @@ def _display_ranked(
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
-
+def set_min_yield(value: float) -> None:
+    """Update the minimum yield filter for the current session."""
+    global MIN_YIELD_PCT
+    MIN_YIELD_PCT = value
+    
 def run_scanner(
     active_spot:  float,
     active_iv:    float,
@@ -387,7 +391,8 @@ def run_scanner(
     # ── Ranking 1: Highest probability with reasonable return ─────────────────
     print()
     hdr("Ranked Recommendations")
-    qualified = [c for c in all_candidates if c.yield_ann >= MIN_YIELD_PCT]
+    liquid    = [c for c in all_candidates if c.liquidity_tag]
+    qualified = [c for c in liquid if c.yield_ann >= MIN_YIELD_PCT]
     by_prob   = sorted(qualified, key=lambda c: c.prob_profit, reverse=True)
     _display_ranked(
         rank_label = f"① Highest Probability  {GY}(yield ≥ {MIN_YIELD_PCT:.0f}%/yr){R}",
@@ -396,7 +401,7 @@ def run_scanner(
  
     # ── Ranking 2: Best annualised return ─────────────────────────────────────
     print()
-    by_yield = sorted(all_candidates, key=lambda c: c.yield_ann, reverse=True)
+    by_yield = sorted(liquid, key=lambda c: c.yield_ann, reverse=True)
     _display_ranked(
         rank_label = "② Best Return",
         candidates = by_yield,

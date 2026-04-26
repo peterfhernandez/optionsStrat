@@ -60,7 +60,7 @@ from strategies.wheel    import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.summary import show_summary
 from strategies.monitor import run_monitor
-from strategies.scanner import run_scanner
+import strategies.scanner as scanner
 
 
 # ── Asset selection ───────────────────────────────────────────────────────────
@@ -100,7 +100,23 @@ def _select_asset() -> str:
             return raw.upper()
  
         print(f"  Invalid choice — enter a number between 1 and {len(assets)}")
+
+# ── Select yield filter ───────────────────────────────────────────────────────
  
+def _set_yield_filter() -> None:
+    """Prompt user to update the scanner minimum yield filter."""
+    import strategies.scanner as scanner
+    YL = "\033[93m"; R = "\033[0m"
+    current = scanner.MIN_YIELD_PCT
+    raw = input(
+        f"  {YL}Min yield %/yr for recommendations [{current:.0f}%]: {R}"
+    ).strip()
+    if raw:
+        try:
+            scanner.set_min_yield(float(raw))
+            ok(f"Min yield filter set to {scanner.MIN_YIELD_PCT:.0f}%/yr")
+        except ValueError:
+            warn("Invalid value — enter a number e.g. 15") 
 
  # ── Strategies sub-menu ───────────────────────────────────────────────────────
  
@@ -123,10 +139,11 @@ def _strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
   {CY}[3]{R}  Strangle — analysis + profit zone chart
   {CY}[4]{R}  Strangle — paper trading simulator
   {CY}[5]{R}  Record live trade  {GY}(wheel){R}
+  {CY}[Y]{R}  Set minimum yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[R]{R}  Recommendations scanner
   {CY}[0]{R}  Back
 """)
-        choice = input(f"  {YL}Choice: {R}").strip()
+        choice = input(f"  {YL}Choice: {R}").strip().upper()
  
         if choice == "1":
             show_strikes(asset, spot, iv, days)
@@ -143,14 +160,17 @@ def _strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
         elif choice == "5":
             warn("Live trade recording not yet wired — use the original tool for now.")
 
+        elif choice == "Y":
+            _set_yield_filter()
+                    
         elif choice == "R":
-            run_scanner(spot, iv, asset, days) 
+            scanner.run_scanner(spot, iv, asset, days) 
 
         elif choice == "0":
             break
  
         else:
-            warn("Invalid choice — enter 0–5 or R")
+            warn("Invalid choice — enter 0–5, Y or R")
  
 
 # ── Main menu ─────────────────────────────────────────────────────────────────
@@ -195,6 +215,7 @@ def main():
   {CY}[R]{R}  Recommendations scanner
   {CY}[M]{R}  Monitor all positions
   {CY}[P]{R}  Performance summary & stats
+  {CY}[Y]{R}  Set min yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[1]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
   {CY}[2]{R}  Switch asset   {GY}(currently {asset}){R}
   {CY}[3]{R}  Refresh market data
@@ -206,13 +227,16 @@ def main():
             _strategies_menu(asset, spot, iv, wb, days)
 
         elif choice == "R":
-            run_scanner(spot, iv, asset, days)
+            scanner.run_scanner(spot, iv, asset, days)
 
         elif choice == "M":
             run_monitor(spot, iv, wb, days, asset, silent=False)
 
         elif choice == "P":
             show_summary(wb)
+
+        elif choice == "Y":
+            _set_yield_filter()
 
         elif choice == "1":
             days = DAILY_DAYS if days == WEEKLY_DAYS else WEEKLY_DAYS
@@ -244,7 +268,7 @@ def main():
             break
         
         else:
-            warn("Invalid choice — enter 1–3, S, R, M or P")
+            warn("Invalid choice — enter 1–3, S, Y,     R, M or P")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ STOP_WARN_MULTIPLIER    Warn at this multiple of premium received
 DAILY_DAYS              Days constant for daily expiry
 WEEKLY_DAYS             Days constant for weekly expiry
 IV_FALLBACK             Fallback implied volatility if Deribit fetch fails
+MIN_YIELD_PCT           Default minimum annualised yield to qualify for recommendations
 """
 
 # ── Supported assets ─────────────────────────────────────────────────────────
@@ -83,3 +84,7 @@ STOP_WARN_MULTIPLIER = 1.5  # warn when value reaches 1.5x premium received
 EXCEL_FILE           = "crypto_options_trade_tracker.xlsx"
 PAPER_STATE_FILE     = "paper_state.json"
 STRANGLE_STATE_FILE  = "strangle_state.json"
+
+# ── Scanner ───────────────────────────────────────────────────────────────────
+
+MIN_YIELD_PCT = 20.0    # minimum annualised yield for ranking ① in scanner
