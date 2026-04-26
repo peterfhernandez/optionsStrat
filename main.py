@@ -183,8 +183,9 @@ def main():
     print(f"  {GY}Crypto option paper trading & planning on Deribit{R}\n")
 
     # Asset selection
-    asset = _select_asset()
-    ok(f"Asset selected: {asset}")
+    asset = DEFAULT_ASSET
+    #asset = _select_asset()
+    #ok(f"Asset selected: {asset}")
  
     # Fetch live market data
     spot = get_spot_price(asset)
