@@ -15,6 +15,7 @@ excel_tracker.py    openpyxl workbook setup & row helpers        ← DONE
 strategies/
     wheel.py        Wheel paper trading simulator                ← DONE
     strangle.py     Short strangle paper trading + stop-loss     ← DONE
+    calendar.py     Calendar spread paper trading + monitoring   ← DONE
     summary.py      Cross-sheet reporting                        ← DONE
     monitor.py      Monitor trades and automatically close       ← DONE
     scannner.py     Recommend across strategies and instruments  ← DONE
@@ -58,8 +59,9 @@ from display     import hdr, sub, inf, ok, warn, err, draw_profit_zone
 from excel_tracker import setup_excel, append_trade_row, append_strangle_row  # noqa: F401
 from strategies.wheel    import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
-from strategies.summary import show_summary
-from strategies.monitor import run_monitor
+from strategies.calendar import show_calendar_analysis, calendar_paper_menu
+from strategies.summary  import show_summary
+from strategies.monitor  import run_monitor
 import strategies.scanner as scanner
 
 
@@ -133,44 +135,52 @@ def _strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
 {CY}{'─' * 54}{R}
 {B}{WH}  Strategies — {asset}  ${spot:,.2f}   IV: {iv*100:.0f}%   {days}d{R}
 {CY}{'─' * 54}{R}
- 
+
   {CY}[1]{R}  Wheel — strike & premium analysis
   {CY}[2]{R}  Wheel — paper trading simulator
   {CY}[3]{R}  Strangle — analysis + profit zone chart
   {CY}[4]{R}  Strangle — paper trading simulator
-  {CY}[5]{R}  Record live trade  {GY}(wheel){R}
+  {CY}[5]{R}  Calendar Spread — analysis + P&L chart
+  {CY}[6]{R}  Calendar Spread — paper trading simulator
+  {CY}[7]{R}  Record live trade  {GY}(wheel){R}
   {CY}[Y]{R}  Set minimum yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[R]{R}  Recommendations scanner
   {CY}[0]{R}  Back
 """)
         choice = input(f"  {YL}Choice: {R}").strip().upper()
- 
+
         if choice == "1":
             show_strikes(asset, spot, iv, days)
- 
+
         elif choice == "2":
             wheel_paper_menu(asset, spot, iv, wb, days)
- 
+
         elif choice == "3":
             show_strangle_analysis(asset, spot, iv, days)
- 
+
         elif choice == "4":
             strangle_paper_menu(asset, spot, iv, wb, days)
- 
+
         elif choice == "5":
+            show_calendar_analysis(asset, spot, iv, days)
+
+        elif choice == "6":
+            calendar_paper_menu(asset, spot, iv, wb, days)
+
+        elif choice == "7":
             warn("Live trade recording not yet wired — use the original tool for now.")
 
         elif choice == "Y":
             _set_yield_filter()
-                    
+
         elif choice == "R":
-            scanner.run_scanner(spot, iv, asset, days) 
+            scanner.run_scanner(spot, iv, asset, days)
 
         elif choice == "0":
             break
- 
+
         else:
-            warn("Invalid choice — enter 0–5, Y or R")
+            warn("Invalid choice — enter 0–7, Y or R")
  
 
 # ── Main menu ─────────────────────────────────────────────────────────────────

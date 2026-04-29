@@ -300,3 +300,150 @@ def draw_profit_zone(
     filled = int(pop / 100 * bar_w)
     bar    = f"{GR}{'█' * filled}{GY}{'░' * (bar_w - filled)}{R}"
     print(f"  {WH}Est. Prob of Profit: {bar}  {GR}{pop:.0f}%{R}\n")
+
+
+# ── Calendar Spread P&L chart ─────────────────────────────────────────────────
+
+def draw_calendar_zone(
+    spot: float,
+    strike: float,
+    net_debit: float,
+    qty: float,
+    near_days: int,
+    far_days: int,
+    iv: float,
+    option_type: str = "Call",
+) -> None:
+    """
+    Draw an ASCII P&L chart for a calendar spread at near-leg expiry.
+
+    Shows the bell-shaped profit zone centred on the strike.  Near leg is
+    settled at intrinsic; far leg is valued with remaining time (far - near).
+
+    Parameters
+    ----------
+    spot        : float  Current underlying price
+    strike      : float  Strike used for both legs
+    net_debit   : float  Net debit paid at entry (max loss)
+    qty         : float  Notional quantity (units of underlying)
+    near_days   : int    Near-leg expiry in days
+    far_days    : int    Far-leg expiry in days
+    iv          : float  Implied volatility (decimal)
+    option_type : str    "Call" or "Put"
+    """
+    from pricing import bs_call as _bs_call, bs_put as _bs_put
+
+    T_rem = max(far_days - near_days, 1) / 365.0
+
+    width = shutil.get_terminal_size((80, 20)).columns - 4
+    width = max(60, min(width, 100))
+
+    lo_price = spot * 0.65
+    hi_price = spot * 1.35
+    prices   = [lo_price + (hi_price - lo_price) * i / (width - 1) for i in range(width)]
+
+    def _pnl(price: float) -> float:
+        if option_type == "Call":
+            near_cost = max(price - strike, 0) * qty
+            far_val   = _bs_call(price, strike, T_rem, RISK_FREE_RATE, iv) * qty
+        else:
+            near_cost = max(strike - price, 0) * qty
+            far_val   = _bs_put(price, strike, T_rem, RISK_FREE_RATE, iv) * qty
+        return far_val - near_cost - net_debit
+
+    pnls = [_pnl(p) for p in prices]
+
+    max_pnl   = max(pnls)
+    min_pnl   = min(pnls)
+    pnl_range = max_pnl - min_pnl if max_pnl != min_pnl else 1
+    tick      = (hi_price - lo_price) / width * 1.5
+
+    # Locate breakevens
+    be_lo = be_hi = 0.0
+    for i in range(len(pnls) - 1):
+        if pnls[i] < 0 <= pnls[i + 1]:
+            be_lo = prices[i]
+        if pnls[i] >= 0 > pnls[i + 1]:
+            be_hi = prices[i + 1]
+
+    chart_height = 12
+    rows = []
+    for row in range(chart_height):
+        threshold = max_pnl - (row / (chart_height - 1)) * pnl_range
+        line = ""
+        for price, pnl in zip(prices, pnls):
+            in_profit = pnl >= 0
+            is_be_lo  = be_lo > 0 and abs(price - be_lo)  < tick
+            is_be_hi  = be_hi > 0 and abs(price - be_hi)  < tick
+            is_spot   = abs(price - spot)   < tick
+            is_strike = abs(price - strike) < tick
+            at_level  = pnl >= threshold - pnl_range / (chart_height * 2)
+
+            if at_level:
+                if is_be_lo or is_be_hi: line += f"{YL}|{R}"
+                elif is_spot:            line += f"{CY}◆{R}"
+                elif is_strike:          line += f"{GY}┊{R}"
+                elif in_profit:          line += f"{GR}█{R}"
+                else:                    line += f"{RD}█{R}"
+            else:
+                line += " "
+        rows.append(line)
+
+    print(
+        f"\n  {B}{WH}P&L at Near Expiry — {option_type} Calendar Spread{R}  "
+        f"{GY}({near_days}d/{far_days}d, spot=${spot:,.0f}){R}"
+    )
+    print(f"  {GY}{'─' * width}{R}")
+
+    for row_idx, line in enumerate(rows):
+        if row_idx == 0:
+            label = f"{GR}+${max_pnl:>6.2f}{R}"
+        elif row_idx == chart_height // 2:
+            label = f"   {WH}$0.00{R} "
+        elif row_idx == chart_height - 1:
+            label = f"{RD}${min_pnl:>7.2f}{R}"
+        else:
+            label = "         "
+        print(f"  {label}  {line}")
+
+    print(f"  {GY}{'─' * width}{R}")
+
+    # X-axis price labels
+    n_labels  = 6
+    label_row = ""
+    prev_end  = 0
+    for i in range(n_labels + 1):
+        price = lo_price + (hi_price - lo_price) * i / n_labels
+        pos   = int(i * (width - 1) / n_labels)
+        lbl   = f"${price:,.0f}"
+        pad   = max(0, pos - prev_end)
+        label_row += " " * pad + lbl
+        prev_end   = pos + len(lbl)
+    print(f"  {GY}{label_row}{R}")
+
+    # Legend and key stats
+    be_str   = f"${be_lo:,.0f} — ${be_hi:,.0f}" if be_lo > 0 and be_hi > 0 else "—"
+    be_width = (f"  {(be_hi - be_lo) / spot * 100:.1f}% wide" if be_lo > 0 and be_hi > 0 else "")
+    print(f"""
+  {GR}█{R} Profit  {RD}█{R} Loss  {CY}◆{R} Spot  {YL}|{R} Breakeven  {GY}┊{R} Strike
+
+  {WH}Strike     : {YL}${strike:>8,.0f}{R}    {WH}Option type : {YL}{option_type}{R}
+  {WH}Net debit  : {RD}${net_debit:>7.2f}{R}    {WH}(= max loss){R}
+  {WH}Max profit : {GR}${max_pnl:>7.2f}{R}    {WH}(when spot ≈ strike at near expiry){R}
+  {WH}Profit zone: {GR}{be_str}{R}{GY}{be_width}{R}
+""")
+
+    # Probability-of-profit bar
+    T_near = near_days / 365.0
+    if be_lo > 0 and be_hi > 0:
+        p_in = max(0.0, (
+            prob_otm_put (spot, be_lo, T_near, RISK_FREE_RATE, iv) +
+            prob_otm_call(spot, be_hi, T_near, RISK_FREE_RATE, iv) - 1
+        ) * 100)
+    else:
+        p_in = 0.0
+
+    bar_w  = 40
+    filled = int(p_in / 100 * bar_w)
+    bar    = f"{GR}{'█' * filled}{GY}{'░' * (bar_w - filled)}{R}"
+    print(f"  {WH}Est. Prob of Profit: {bar}  {GR}{p_in:.0f}%{R}\n")

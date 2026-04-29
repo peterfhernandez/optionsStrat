@@ -23,6 +23,8 @@ _check_strangle(asset, spot, iv,    Evaluate and optionally close a
                 wb, silent)          strangle position
 _check_wheel(asset, spot, iv,       Evaluate and optionally close a
              wb, silent)             wheel position
+_check_calendar(asset, spot, iv,    Evaluate and optionally close a
+                wb, silent)          calendar spread position
 _REGISTRY                           List of checker functions to call
 """
 
@@ -33,10 +35,11 @@ from datetime import date, datetime
 from config  import (
     SUPPORTED_ASSETS, RISK_FREE_RATE,
     STOP_LOSS_MULTIPLIER, BUDGET_USD,
+    CALENDAR_STOP_PCT,
 )
 from pricing import bs_put, bs_call
 from display import ok, warn, err, hdr, inf, sub, GR, RD, YL, CY, WH, GY, R
-from excel_tracker import append_strangle_row, append_trade_row
+from excel_tracker import append_strangle_row, append_trade_row, append_calendar_row
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -278,6 +281,123 @@ def _check_wheel(
     return True
 
 
+# ── Calendar Spread checker ───────────────────────────────────────────────────
+
+def _check_calendar(
+    asset: str,
+    spot: float,
+    iv: float,
+    wb,
+    silent: bool,
+) -> bool:
+    """
+    Evaluate an open calendar spread position and auto-close if thresholds are met.
+
+    Checks in priority order:
+      1. Near-leg expiry reached → close at near-expiry P&L
+      2. Stop-loss hit           → spread value ≤ CALENDAR_STOP_PCT of debit
+      3. Take-profit hit         → spread value ≥ 150% of debit
+
+    Returns True if a close was triggered, False otherwise.
+    """
+    path  = f"calendar_state_{asset.upper()}.json"
+    state = _load_state(path)
+    if not state or not state.get("open"):
+        return False
+
+    op          = state["open"]
+    K           = op["strike"]
+    opt_type    = op["option_type"]
+    net_debit   = op["net_debit"]
+    qty         = op["qty"]
+    near_days   = op["near_days"]
+    far_days    = op["far_days"]
+
+    near_left = _days_remaining(op.get("expiry_near", ""))
+    far_left  = _days_remaining(op.get("expiry_far",  ""))
+    T_near    = max(near_left / 365.0, 1 / 365.0)
+    T_far     = max(far_left  / 365.0, 1 / 365.0)
+
+    if opt_type == "Call":
+        far_val  = bs_call(spot, K, T_far,  RISK_FREE_RATE, iv) * qty
+        near_val = bs_call(spot, K, T_near, RISK_FREE_RATE, iv) * qty
+    else:
+        far_val  = bs_put(spot, K, T_far,  RISK_FREE_RATE, iv) * qty
+        near_val = bs_put(spot, K, T_near, RISK_FREE_RATE, iv) * qty
+
+    sv   = far_val - near_val
+    pct  = sv / net_debit if net_debit > 0 else 0.0
+
+    # Near expiry: use intrinsic + remaining far value
+    if near_left == 0:
+        if opt_type == "Call":
+            near_cost = max(spot - K, 0) * qty
+            T_rem = max(far_days - near_days, 1) / 365.0
+            far_rem = bs_call(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
+        else:
+            near_cost = max(K - spot, 0) * qty
+            T_rem = max(far_days - near_days, 1) / 365.0
+            far_rem = bs_put(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
+        pnl     = far_rem - near_cost - net_debit
+        trigger = "EXPIRY"
+        result  = "Win" if pnl >= 0 else "Loss"
+        note    = f"Auto-closed at near-leg expiry. P&L: ${pnl:.2f}"
+
+    elif pct <= CALENDAR_STOP_PCT:
+        pnl     = sv - net_debit
+        trigger = "STOP-LOSS"
+        result  = "Loss (Auto Stop)"
+        note    = f"Auto stop-loss — spread at {pct*100:.0f}% of debit. P&L: ${pnl:.2f}"
+
+    elif pct >= 1.50:
+        pnl     = sv - net_debit
+        trigger = "TAKE-PROFIT"
+        result  = "Win (Auto TP)"
+        note    = f"Auto take-profit — spread at {pct*100:.0f}% of debit. P&L: ${pnl:.2f}"
+
+    else:
+        if not silent:
+            pnl = sv - net_debit
+            col = GR if pnl >= 0 else RD
+            inf(f"  {asset} {opt_type} Calendar",
+                f"spread=${sv:.2f}  {pct*100:.0f}% of debit  "
+                f"P&L={col}${pnl:.2f}{R}  {near_left}d near / {far_left}d far  → No action")
+        return False
+
+    # ── Auto-close ────────────────────────────────────────────────────────────
+    col = GR if pnl >= 0 else RD
+    trig_col = RD if trigger == "STOP-LOSS" else YL if trigger == "EXPIRY" else GR
+    print(f"\n  {trig_col}⚡ AUTO-CLOSE [{trigger}] {asset} {opt_type} Calendar{R}")
+    print(f"  Strike ${K:,.0f}  |  Net debit: ${net_debit:.2f}  |  P&L: {col}${pnl:.2f}{R}")
+
+    append_calendar_row(wb, {
+        "date":        str(date.today()),
+        "type":        f"{opt_type} Calendar — Auto Close ({trigger})",
+        "strike":      K,
+        "option_type": opt_type,
+        "spot_open":   op.get("spot_open", spot),
+        "spot_close":  spot,
+        "near_prem":   op.get("near_prem", 0),
+        "far_prem":    op.get("far_prem",  0),
+        "net_debit":   net_debit,
+        "pnl":         round(pnl, 4),
+        "near_days":   near_days,
+        "far_days":    far_days,
+        "result":      result,
+        "notes":       note,
+    })
+
+    if pnl >= 0:
+        state["wins"]  += 1
+    else:
+        state["losses"] += 1
+    state["total_pnl"] = state.get("total_pnl", 0.0) + pnl
+    state["open"] = None
+    _save_state(path, state)
+    ok(f"{asset} {opt_type} calendar auto-closed and logged to Excel.")
+    return True
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 #
 # To add a new strategy, append a checker function here.
@@ -287,6 +407,7 @@ def _check_wheel(
 _REGISTRY = [
     _check_strangle,
     _check_wheel,
+    _check_calendar,
 ]
 
 
@@ -316,7 +437,7 @@ def run_monitor(
     silent : bool   True = only print on trigger; False = print all statuses
     """
     from market_data import get_spot_price, get_deribit_iv
-    
+
     if not silent:
         hdr("Position Monitor")
         print(f"  {GY}Checking all open positions across all assets...{R}\n")
@@ -335,16 +456,21 @@ def run_monitor(
                 if not silent:
                     warn(f"Could not fetch {a} price — skipping {a} positions")
                 continue
-            a_iv = get_deribit_iv(a, a_spot, days) or iv # fall back to active IV
+            a_iv = get_deribit_iv(a, a_spot, days) or iv
+
+        for checker in _REGISTRY:
+            triggered = checker(a, a_spot, a_iv, wb, silent)
+            if triggered:
+                any_triggered = True
 
     if not silent:
         if not any_triggered:
             print(f"\n  {GY}No positions required action.{R}")
         print(f"\n  {GY}Thresholds:  "
-              f"Stop-loss {STOP_LOSS_MULTIPLIER:.1f}x  |  "
-              f"Take-profit <{TAKE_PROFIT_THRESHOLD*100:.0f}% remaining{R}\n")
+              f"Stop-loss {STOP_LOSS_MULTIPLIER:.1f}x strangle  |  "
+              f"Take-profit <{TAKE_PROFIT_THRESHOLD*100:.0f}% remaining  |  "
+              f"Calendar stop {CALENDAR_STOP_PCT*100:.0f}% of debit{R}\n")
 
     elif any_triggered:
-        # Silent mode — just print a brief alert so it's not invisible
         print(f"\n  {YL}⚡ One or more positions were auto-closed. "
               f"Select [M] Monitor for details.{R}")

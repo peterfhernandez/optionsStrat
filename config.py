@@ -79,6 +79,11 @@ WEEKLY_DAYS = 7
 STOP_LOSS_MULTIPLIER = 2.0  # close strangle when value reaches 2x premium received
 STOP_WARN_MULTIPLIER = 1.5  # warn when value reaches 1.5x premium received
 
+# ── Calendar Spread ───────────────────────────────────────────────────────────
+
+CALENDAR_FAR_DAYS = 30    # far leg expiry for calendar spreads (days)
+CALENDAR_STOP_PCT = 0.50  # stop if spread value drops to 50% of net debit paid
+
 # ── Files ─────────────────────────────────────────────────────────────────────
 
 EXCEL_FILE           = "crypto_options_trade_tracker.xlsx"

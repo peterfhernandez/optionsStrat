@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 
 from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
+    CALENDAR_FAR_DAYS,
 )
 from pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
 from display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
@@ -52,12 +53,12 @@ _SPREAD_LOW = 0.02     # IV spread ≤ this → tight (liquid) market
 class Candidate:
     """A single tradeable proposition with all relevant metrics."""
     asset:        str
-    strategy:     str    # "CSP", "CC", "Strangle"
-    otm_pct:      float  # e.g. 0.10, 0.15, 0.20
+    strategy:     str    # "CSP", "CC", "Strangle", "Cal-C", "Cal-P"
+    otm_pct:      float  # e.g. 0.10, 0.15, 0.20; 0.00 = ATM for calendars
     spot:         float
     iv:           float
     strike:       str    # formatted string e.g. "$1800" or "$1700/$2000"
-    premium:      float  # total premium in USD
+    premium:      float  # total premium / net debit in USD
     yield_ann:    float  # annualised yield as a percentage
     prob_profit:  float  # probability of full profit (0–100)
     days:         int
@@ -67,12 +68,16 @@ class Candidate:
     volume_usd:    float = None
     iv_spread:     float = None   # ask_iv - bid_iv as decimal
     liquidity_tag: str   = ""     # "High", "Med", "Low", or ""
- 
+
     # Strangle-only fields
     put_strike:   float = None
     call_strike:  float = None
     be_lo:        float = None
     be_hi:        float = None
+
+    # Calendar-only fields
+    far_days:     int   = None
+    max_profit:   float = None
 
 
 def _liquidity_tag(oi: float, vol_usd: float, iv_spread: float) -> str:
@@ -240,6 +245,58 @@ def _build_candidates(
             be_hi       = round(be_hi, 0),
         ))
 
+    # ── Calendar Spreads (ATM only — added once per asset, not per OTM level) ─
+    if days < CALENDAR_FAR_DAYS:
+        T_far  = CALENDAR_FAR_DAYS / 365.0
+        T_rem  = max(CALENDAR_FAR_DAYS - days, 1) / 365.0
+        qty_c  = BUDGET_USD / spot
+        K_atm  = round(spot / 10) * 10
+
+        for cal_type, bs_near, bs_far in (
+            ("Cal-C", bs_call, bs_call),
+            ("Cal-P", bs_put,  bs_put),
+        ):
+            near_prem = bs_near(spot, K_atm, T,     r, iv) * qty_c
+            far_prem  = bs_far (spot, K_atm, T_far, r, iv) * qty_c
+            net_debit = far_prem - near_prem
+            # Max profit: spot pins the strike at near expiry
+            bs_fn     = bs_call if cal_type == "Cal-C" else bs_put
+            max_far   = bs_fn(K_atm, K_atm, T_rem, r, iv) * qty_c
+            max_profit = max_far - net_debit
+
+            # Yield = max_profit / net_debit * annualised (based on near days)
+            yld_cal = (max_profit / net_debit * (365 / days) * 100) if net_debit > 0 else 0.0
+
+            # Rough P(profit): probability spot stays within ±max_profit/net_debit band
+            # Use numeric breakeven scan (fast pure-math function)
+            from strategies.calendar import _find_breakevens as _cal_be
+            be_lo_c, be_hi_c = _cal_be(
+                spot, K_atm, days, CALENDAR_FAR_DAYS, r, iv, qty_c, net_debit,
+                "Call" if cal_type == "Cal-C" else "Put",
+            )
+            if be_lo_c > 0 and be_hi_c > 0:
+                p_cal = max(0.0, (
+                    prob_otm_put (spot, be_lo_c, T, r, iv) +
+                    prob_otm_call(spot, be_hi_c, T, r, iv) - 1
+                ) * 100)
+            else:
+                p_cal = 0.0
+
+            candidates.append(Candidate(
+                asset       = asset,
+                strategy    = cal_type,
+                otm_pct     = 0.00,
+                spot        = spot,
+                iv          = iv,
+                strike      = f"${K_atm:,.0f} ATM",
+                premium     = round(net_debit, 2),   # net debit = max loss
+                yield_ann   = round(yld_cal, 1),
+                prob_profit = round(p_cal, 1),
+                days        = days,
+                far_days    = CALENDAR_FAR_DAYS,
+                max_profit  = round(max_profit, 2),
+            ))
+
     return candidates
 
 
@@ -281,26 +338,34 @@ def _display_candidates(candidates: list[Candidate], days: int) -> None:
             current_asset = c.asset
             sub(f"{c.asset}  spot=${c.spot:,.2f}   IV={c.iv*100:.0f}%   {days}d")
             print(
-                f"\n  {'Strategy':<12}{'OTM%':<7}{'Strike(s)':<20}"
-                f"{'Prem':<9}{'Yld/yr':<9}{'P(Prof)':<10}"
+                f"\n  {'Strategy':<12}{'OTM%':<7}{'Strike(s)':<22}"
+                f"{'Prem/Debit':<11}{'Yld/yr':<9}{'P(Prof)':<10}"
                 f"{'OI':<8}{'Vol24h':<10}{'Spread':<9}{'Liq'}"
             )
-            print(f"  {'─' * 100}")
- 
-        lc = _liq_colour(c.liquidity_tag)
-        pc = GR if c.prob_profit >= 70 else YL if c.prob_profit >= 55 else WH
+            print(f"  {'─' * 102}")
+
+        lc  = _liq_colour(c.liquidity_tag)
+        pc  = GR if c.prob_profit >= 70 else YL if c.prob_profit >= 55 else WH
+        is_cal = c.strategy.startswith("Cal")
+        otm_str = "ATM" if c.otm_pct == 0.00 else f"{c.otm_pct*100:.0f}%"
+        # For calendars, append max-profit note after premium
+        prem_str = f"${c.premium:<7.2f}"
+        if is_cal and c.max_profit is not None:
+            prem_str = f"${c.premium:.2f}{'':2}"   # debit
         print(
-            f"  {WH}{c.strategy:<12}{c.otm_pct*100:.0f}%{'':4}"
-            f"{c.strike:<20}${c.premium:<7.2f}"
-            f"{c.yield_ann:>6.1f}%/yr  "
+            f"  {WH}{c.strategy:<12}{otm_str:<7}"
+            f"{c.strike:<22}{prem_str}"
+            f"{'':2}{c.yield_ann:>6.1f}%/yr  "
             f"{pc}{c.prob_profit:>5.1f}%{WH}     "
             f"{_fmt_oi(c.open_interest):<8}"
             f"{_fmt_vol(c.volume_usd):<10}"
             f"{_fmt_spread(c.iv_spread):<9}"
-            f"{lc}{c.liquidity_tag or '—'}{R}"
+            f"{lc}{c.liquidity_tag or ('—' if not is_cal else 'N/A')}{R}"
+            + (f"  {GY}max profit ${c.max_profit:.2f}{R}" if is_cal and c.max_profit else "")
         )
     print(f"\n  {GY}OI = open interest | Spread = bid/ask IV spread (tighter = more liquid){R}")
-    print(f"  {GY}Premiums estimated via Black-Scholes | Budget: ${BUDGET_USD:.0f}{R}")
+    print(f"  {GY}Premiums/debits estimated via Black-Scholes | Budget: ${BUDGET_USD:.0f}{R}")
+    print(f"  {GY}Cal = calendar spread: Prem/Debit = net debit paid (= max loss){R}")
 
 def _display_ranked(
     rank_label: str,
@@ -412,13 +477,17 @@ def run_scanner(
   CSP      = Cash-Secured Put (wheel leg 1)
   CC       = Covered Call     (wheel leg 2)
   Strangle = Short Strangle   (simultaneous OTM put + call)
- 
+  Cal-C    = Call Calendar Spread  (buy far call, sell near call — same strike)
+  Cal-P    = Put  Calendar Spread  (buy far put,  sell near put  — same strike)
+             For Cal: premium = net debit (= max loss)  |  max profit shown separately
+
   Liquidity key:
   High = OI ≥ 1,000 contracts and tight IV spread
   Med  = OI ≥ 100 contracts or 24h volume ≥ $50k
   Low  = thin market — wider spreads, harder to fill
- 
+
   {YL}⚠ Strangles carry unlimited loss potential on the call side.
+  {YL}⚠ Calendar spreads carry limited risk (net debit) but require two expiries.
   {YL}⚠ All figures are Black-Scholes estimates — not financial advice.{R}
 """)
     warn(f"Min yield filter for ranking ①: {MIN_YIELD_PCT:.0f}%/yr  "

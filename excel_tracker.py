@@ -10,6 +10,7 @@ Public API
 setup_excel()                           Open existing workbook or create a new one
 append_trade_row(wb, sheet_name, trade) Append a wheel trade row to a sheet
 append_strangle_row(wb, trade)          Append a strangle trade row
+append_calendar_row(wb, trade)          Append a calendar spread trade row
 
 Internal helpers
 ----------------
@@ -20,6 +21,7 @@ _unmerge_row(ws, row, max_col)          Clear merged cells before writing a data
 _create_dashboard(wb)                   Build the Dashboard sheet
 _create_trade_sheet(wb, name)           Build a wheel trade sheet (live or paper)
 _create_strangle_sheet(wb)              Build the Strangles sheet
+_create_calendar_sheet(wb)              Build the Calendar Spreads sheet
 _create_summary_sheet(wb)              Build the Summary sheet
 
 Sheet layout
@@ -28,6 +30,7 @@ Sheet layout
 📋 Live Trades      Wheel live trade log
 📝 Paper Trades     Wheel paper trade log
 🔀 Strangles        Strangle paper trade log
+📅 Calendars        Calendar spread paper trade log
 📈 Summary          Cycle performance summary
 """
 
@@ -150,8 +153,11 @@ def _create_dashboard(wb) -> None:
         (8,  "Strangle — Total Paper Premium",   "='🔀 Strangles'!H2",           "$#,##0.00", _GREEN_C),
         (9,  "Strangle — Paper Win Rate",        "='🔀 Strangles'!I2",           "0.0%",      _GOLD),
         (10, "Strangle — Trades Completed",      "='🔀 Strangles'!J2",           "0",         _LIGHT),
-        (11, "Live — Total Premium",             "='📋 Live Trades'!K2",         "$#,##0.00", _GREEN_C),
-        (12, "Live — Win Rate",                  "='📋 Live Trades'!L2",         "0.0%",      _GOLD),
+        (11, "Calendar — Total P&L",             "='📅 Calendars'!H2",           "$#,##0.00", _GREEN_C),
+        (12, "Calendar — Win Rate",              "='📅 Calendars'!I2",           "0.0%",      _GOLD),
+        (13, "Calendar — Trades Completed",      "='📅 Calendars'!J2",           "0",         _LIGHT),
+        (14, "Live — Total Premium",             "='📋 Live Trades'!K2",         "$#,##0.00", _GREEN_C),
+        (15, "Live — Win Rate",                  "='📋 Live Trades'!L2",         "0.0%",      _GOLD),
     ]
     for row, label, formula, fmt, color in kpis:
         ws.row_dimensions[row].height = 24
@@ -159,28 +165,29 @@ def _create_dashboard(wb) -> None:
         _styled(ws, f"C{row}", formula,             bg=_DARK, fg=color,  num_fmt=fmt)
 
     # Disclaimer
-    ws.row_dimensions[14].height = 18
-    ws.merge_cells("B14:E14")
-    c = ws["B14"]
+    ws.row_dimensions[17].height = 18
+    ws.merge_cells("B17:E17")
+    c = ws["B17"]
     c.value     = "ℹ Premiums are Black-Scholes estimates. Paper trading only — not financial advice."
     c.font      = Font(name="Arial", italic=True, color="888888", size=9)
     c.alignment = Alignment(horizontal="center")
 
     # Strategy comparison table
-    ws.row_dimensions[16].height = 22
-    ws.merge_cells("B16:E16")
-    _styled(ws, "B16", "STRATEGY COMPARISON", bold=True, bg=_MID, fg=_GOLD, size=11)
+    ws.row_dimensions[19].height = 22
+    ws.merge_cells("B19:E19")
+    _styled(ws, "B19", "STRATEGY COMPARISON", bold=True, bg=_MID, fg=_GOLD, size=11)
 
-    for col, header in enumerate(["Strategy", "Max Income", "Risk", "Best Market"], 2):
-        _styled(ws, f"{get_column_letter(col)}17", header, bold=True, bg=_DARK, fg=_ACCENT)
+    for col, header in enumerate(["Strategy", "Max Income/Loss", "Risk", "Best Market"], 2):
+        _styled(ws, f"{get_column_letter(col)}20", header, bold=True, bg=_DARK, fg=_ACCENT)
 
     rows_data = [
-        ("Wheel (CSP→CC)",  "Medium",  "Capped (put side)", "Mild bullish / sideways"),
-        ("Short Strangle",  "High",    "Unlimited",         "Sideways / low vol"),
-        ("Short Straddle",  "Highest", "Unlimited",         "Very sideways"),
-        ("Iron Condor",     "Low",     "Capped ✓",          "Range-bound"),
+        ("Wheel (CSP→CC)",    "Medium premium",    "Capped (put side)", "Mild bullish / sideways"),
+        ("Short Strangle",    "High premium",      "Unlimited",         "Sideways / low vol"),
+        ("Calendar Spread",   "Limited profit",    "Capped ✓ (debit)",  "Neutral / low movement"),
+        ("Short Straddle",    "Highest premium",   "Unlimited",         "Very sideways"),
+        ("Iron Condor",       "Low premium",       "Capped ✓",          "Range-bound"),
     ]
-    for i, row_data in enumerate(rows_data, 18):
+    for i, row_data in enumerate(rows_data, 21):
         ws.row_dimensions[i].height = 20
         bg = _MID if i % 2 == 0 else _DARK
         for col, val in enumerate(row_data, 2):
@@ -272,6 +279,50 @@ def _create_strangle_sheet(wb) -> None:
     c.alignment = Alignment(horizontal="center", vertical="center")
 
 
+def _create_calendar_sheet(wb) -> None:
+    """
+    Build the 📅 Calendars sheet for calendar spread paper trade logs.
+
+    Columns: Date, Type, Strike, Option Type, Spot Open, Spot Close,
+             Near Days, Far Days, Net Debit, P&L, Result, Notes.
+    Hidden summary formulas in row 2 feed the Dashboard KPI tiles.
+    """
+    ws = wb.create_sheet("📅 Calendars")
+    ws.sheet_view.showGridLines = False
+    _col_widths(ws, [3, 13, 20, 12, 12, 14, 14, 11, 10, 13, 13, 12, 28])
+
+    # Hidden summary formulas (read by Dashboard)
+    ws.row_dimensions[2].height = 1
+    ws["H2"] = "=IF(COUNTA(J4:J5000)=0,0,SUM(J4:J5000))"   # total P&L
+    ws["I2"] = '=IF(COUNTA(K4:K5000)=0,0,COUNTIF(K4:K5000,"Win")/COUNTA(K4:K5000))'
+    ws["J2"] = "=COUNTA(A4:A5000)"                          # trade count
+    ws["H2"].number_format = "$#,##0.00"
+    ws["I2"].number_format = "0.0%"
+
+    # Column headers
+    ws.row_dimensions[3].height = 34
+    headers = [
+        "Date", "Type", "Strike ($)", "Option", "Spot Open ($)", "Spot Close ($)",
+        "Near Days", "Far Days", "Net Debit ($)", "P&L ($)", "Result", "Notes",
+    ]
+    for col, header in enumerate(headers, 2):
+        ref     = f"{get_column_letter(col)}3"
+        ws[ref] = header
+        ws[ref].font      = Font(name="Arial", bold=True, color=_ACCENT, size=10)
+        ws[ref].fill      = PatternFill("solid", start_color=_DARK)
+        ws[ref].border    = _thin_border()
+        ws[ref].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    # Placeholder row
+    ws.row_dimensions[4].height = 18
+    ws.merge_cells("B4:M4")
+    c = ws["B4"]
+    c.value     = "← Calendar spread trades will appear here as you paper trade"
+    c.font      = Font(name="Arial", italic=True, color="666666", size=9)
+    c.fill      = PatternFill("solid", start_color=_MID)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+
+
 def _create_summary_sheet(wb) -> None:
     """Build the 📈 Summary sheet header (rows are populated at runtime)."""
     ws = wb.create_sheet("📈 Summary")
@@ -302,8 +353,14 @@ def setup_excel():
     """
     if os.path.exists(EXCEL_FILE):
         wb = openpyxl.load_workbook(EXCEL_FILE)
+        changed = False
         if "🔀 Strangles" not in wb.sheetnames:
             _create_strangle_sheet(wb)
+            changed = True
+        if "📅 Calendars" not in wb.sheetnames:
+            _create_calendar_sheet(wb)
+            changed = True
+        if changed:
             wb.save(EXCEL_FILE)
     else:
         wb = openpyxl.Workbook()
@@ -312,6 +369,7 @@ def setup_excel():
         _create_trade_sheet(wb, "📋 Live Trades")
         _create_trade_sheet(wb, "📝 Paper Trades")
         _create_strangle_sheet(wb)
+        _create_calendar_sheet(wb)
         _create_summary_sheet(wb)
         wb.save(EXCEL_FILE)
     return wb
@@ -449,3 +507,64 @@ def append_strangle_row(wb, trade: dict) -> None:
     ws.row_dimensions[row].height = 18
     wb.save(EXCEL_FILE)
     ok(f"Strangle trade saved → 🔀 Strangles row {row}")
+
+
+def append_calendar_row(wb, trade: dict) -> None:
+    """
+    Append a calendar spread trade row to the 📅 Calendars sheet.
+
+    Colour-codes the row green (Win), red (Loss), or neutral (Open).
+
+    Parameters
+    ----------
+    wb    : openpyxl.Workbook
+    trade : dict  Keys: date, type, strike, option_type, spot_open, spot_close,
+                  near_prem, far_prem, net_debit, pnl, near_days, far_days,
+                  result, notes
+    """
+    ws  = wb["📅 Calendars"]
+    row = 4
+    while True:
+        cell_val = ws.cell(row=row, column=2).value
+        if cell_val is None:
+            break
+        if isinstance(cell_val, str) and "←" in cell_val:
+            _unmerge_row(ws, row, max_col=13)
+            break
+        row += 1
+
+    result = trade.get("result", "")
+    bg = "1a3a1a" if result == "Win" else "3a1a1a" if "Loss" in result else _MID
+    fg = _GREEN_C  if result == "Win" else _RED_C   if "Loss" in result else _LIGHT
+
+    values = [
+        trade.get("date",        ""),
+        trade.get("type",        ""),
+        trade.get("strike",      0),
+        trade.get("option_type", ""),
+        trade.get("spot_open",   ""),
+        trade.get("spot_close",  ""),
+        trade.get("near_days",   7),
+        trade.get("far_days",    30),
+        trade.get("net_debit",   0),
+        trade.get("pnl",         ""),
+        result,
+        trade.get("notes",       ""),
+    ]
+    fmts = {
+        4: "$#,##0", 6: "$#,##0.00", 7: "$#,##0.00",
+        10: "$#,##0.00", 11: "$#,##0.00",
+    }
+
+    for col_idx, val in enumerate(values, 2):
+        c = ws.cell(row=row, column=col_idx, value=val)
+        c.font      = Font(name="Arial", size=9, color=fg)
+        c.fill      = PatternFill("solid", start_color=bg)
+        c.border    = _thin_border()
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        if col_idx in fmts:
+            c.number_format = fmts[col_idx]
+
+    ws.row_dimensions[row].height = 18
+    wb.save(EXCEL_FILE)
+    ok(f"Calendar trade saved → 📅 Calendars row {row}")

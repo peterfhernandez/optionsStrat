@@ -284,22 +284,24 @@ class TestBuildCandidates:
         return lambda *a, **kw: liquid_book
 
     def test_produces_correct_count(self):
-        """3 OTM levels × 3 strategies = 9 candidates per asset."""
+        """3 OTM levels × 3 strategies + 2 ATM calendar candidates = 11 per asset."""
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
-        assert len(results) == len(OTM_LEVELS) * 3
+        assert len(results) == len(OTM_LEVELS) * 3 + 2  # +2 for Cal-C and Cal-P
 
-    def test_all_three_strategies_present(self):
+    def test_all_strategies_present(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
         strategies = {c.strategy for c in results}
-        assert strategies == {"CSP", "CC", "Strangle"}
+        assert strategies == {"CSP", "CC", "Strangle", "Cal-C", "Cal-P"}
 
     def test_all_otm_levels_present(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
+        # OTM levels for non-calendar strategies + 0.00 for calendars
         otm_levels = {c.otm_pct for c in results}
-        assert otm_levels == set(OTM_LEVELS)
+        assert set(OTM_LEVELS).issubset(otm_levels)
+        assert 0.00 in otm_levels  # calendar ATM
 
     def test_asset_field_correct(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
