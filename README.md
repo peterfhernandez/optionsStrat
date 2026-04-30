@@ -150,6 +150,26 @@ The tool can pick a trade for you and open the paper position automatically.
 5. Opens the paper trade, persists the per-asset state file, and logs the row to the Excel workbook with an `AUTO` note.
 6. **If no candidate qualifies, it does nothing and exits cleanly.** Run it again later (an hourly schedule is the intended pattern).
 
+### Liquidity rating
+
+Every candidate the scanner produces carries a liquidity tag derived from Deribit order book data:
+
+| Tag | Criteria |
+|---|---|
+| **High** | Open interest ≥ 1,000 contracts AND tight IV bid/ask spread (≤ 2 pp) |
+| **Med** | Open interest ≥ 100 contracts OR 24h volume ≥ $50k |
+| **Low** | Anything thinner — wider spreads, harder fills |
+| _blank_ | Order book unavailable — automator treats as unrated, ineligible |
+
+For multi-leg trades (Strangle, Cal-C, Cal-P) the tag is the **worst-of-legs** roll-up:
+the smallest open interest, the smallest 24h volume, and the widest IV spread across
+the two legs. A trade is only as fillable as its weakest leg, so the rating reflects
+that bottleneck rather than averaging it away. If either leg's book is missing, the
+tag is blank (the automator skips it rather than guessing).
+
+You'll see the same `OI / Vol24h / Spread / Liq` columns in the scanner table for
+every strategy, including strangle and calendar rows.
+
 ### Run it interactively
 From the main menu, press `A` to invoke the automator once with the currently-selected asset and expiry.
 

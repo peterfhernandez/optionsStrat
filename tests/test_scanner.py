@@ -31,6 +31,7 @@ from unittest.mock import patch
 from strategies.scanner import (
     Candidate,
     _liquidity_tag,
+    _combine_liquidity_legs,
     _fmt_oi,
     _fmt_vol,
     _fmt_spread,
@@ -271,6 +272,76 @@ class TestCandidate:
         assert c.iv_spread is None
 
 
+# ── _combine_liquidity_legs ───────────────────────────────────────────────────
+
+class TestCombineLiquidityLegs:
+    """Worst-of-legs roll-up used by Strangle and Calendar candidates."""
+
+    LIQUID = {
+        "open_interest": 5000.0, "volume_usd": 200000.0, "iv_spread": 0.01,
+        "mark_iv": 0.80,
+    }
+    MEDIUM = {
+        "open_interest": 200.0,  "volume_usd": 60000.0,  "iv_spread": 0.05,
+        "mark_iv": 0.80,
+    }
+    THIN = {
+        "open_interest": 50.0,   "volume_usd": 500.0,    "iv_spread": 0.20,
+        "mark_iv": 0.80,
+    }
+
+    def test_no_legs_returns_blank(self):
+        r = _combine_liquidity_legs()
+        assert r["liquidity_tag"]  == ""
+        assert r["open_interest"] is None
+        assert r["volume_usd"]    is None
+        assert r["iv_spread"]     is None
+
+    def test_all_legs_none_returns_blank(self):
+        r = _combine_liquidity_legs(None, None)
+        assert r["liquidity_tag"] == ""
+
+    def test_partial_missing_returns_blank(self):
+        """If even one leg's book is missing, refuse to invent a rating."""
+        r = _combine_liquidity_legs(self.LIQUID, None)
+        assert r["liquidity_tag"]  == ""
+        assert r["open_interest"] is None
+
+    def test_two_high_legs_is_high(self):
+        r = _combine_liquidity_legs(self.LIQUID, self.LIQUID)
+        assert r["liquidity_tag"] == "High"
+
+    def test_high_plus_med_is_med(self):
+        r = _combine_liquidity_legs(self.LIQUID, self.MEDIUM)
+        assert r["liquidity_tag"] == "Med"
+        # Worst-of metrics
+        assert r["open_interest"] == 200.0      # min
+        assert r["volume_usd"]   == 60000.0     # min
+        assert r["iv_spread"]    == 0.05        # max (worst)
+
+    def test_high_plus_low_is_low(self):
+        r = _combine_liquidity_legs(self.LIQUID, self.THIN)
+        assert r["liquidity_tag"] == "Low"
+        assert r["open_interest"] == 50.0       # leg with fewer contracts
+        assert r["iv_spread"]    == 0.20        # leg with widest spread
+
+    def test_three_legs_takes_worst(self):
+        r = _combine_liquidity_legs(self.LIQUID, self.LIQUID, self.THIN)
+        assert r["liquidity_tag"] == "Low"
+
+    def test_min_oi_chosen_correctly(self):
+        a = {**self.LIQUID, "open_interest": 1500.0}
+        b = {**self.LIQUID, "open_interest": 600.0}
+        r = _combine_liquidity_legs(a, b)
+        assert r["open_interest"] == 600.0
+
+    def test_max_spread_chosen_correctly(self):
+        a = {**self.LIQUID, "iv_spread": 0.02}
+        b = {**self.LIQUID, "iv_spread": 0.08}
+        r = _combine_liquidity_legs(a, b)
+        assert r["iv_spread"] == 0.08
+
+
 # ── _build_candidates ─────────────────────────────────────────────────────────
 
 class TestBuildCandidates:
@@ -340,17 +411,94 @@ class TestBuildCandidates:
         assert all(c.iv == pytest.approx(live_iv) for c in csps)
 
     def test_liquidity_tag_set_when_data_available(self, liquid_book):
-        """CSP and CC get a non-empty liquidity tag when order book data is available."""
+        """All candidate strategies get a non-empty liquidity tag when order book data is available."""
         with patch("strategies.scanner._fetch_liquidity", self._with_liquidity(liquid_book)):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
-        # Only test CSP and CC — strangles combine two legs which has edge cases
-        csps_and_ccs = [c for c in results if c.strategy in ("CSP", "CC")]
-        assert len(csps_and_ccs) > 0
-        for c in csps_and_ccs:
+        for c in results:
             assert c.liquidity_tag != "", (
                 f"{c.strategy} at {c.otm_pct:.0%} OTM has empty liquidity_tag "
                 f"(OI={c.open_interest}, vol={c.volume_usd}, spread={c.iv_spread})"
             )
+
+    def test_strangle_inherits_combined_liquidity(self, liquid_book):
+        """Strangles (multi-leg) get liquidity from _combine_liquidity_legs."""
+        with patch("strategies.scanner._fetch_liquidity", self._with_liquidity(liquid_book)):
+            results = _build_candidates("ETH", 2000.0, 0.80, 7)
+        strangles = [c for c in results if c.strategy == "Strangle"]
+        assert len(strangles) == len(OTM_LEVELS)
+        # When both legs are equally liquid, the combined tag matches the leg
+        for s in strangles:
+            assert s.liquidity_tag == "High"
+            assert s.open_interest == liquid_book["open_interest"]
+            assert s.volume_usd    == liquid_book["volume_usd"]
+            assert s.iv_spread     == liquid_book["iv_spread"]
+
+    def test_calendar_has_liquidity(self, liquid_book):
+        """Calendar candidates now carry liquidity (fetched from near + far ATM books)."""
+        with patch("strategies.scanner._fetch_liquidity", self._with_liquidity(liquid_book)):
+            results = _build_candidates("ETH", 2000.0, 0.80, 7)
+        cals = [c for c in results if c.strategy.startswith("Cal")]
+        assert len(cals) >= 2  # Cal-C and Cal-P
+        for c in cals:
+            assert c.liquidity_tag == "High"
+            assert c.open_interest == liquid_book["open_interest"]
+
+    def test_strangle_downgrades_when_one_leg_thin(self):
+        """If only the call leg is illiquid, the strangle's tag must drop to Low."""
+        thin_call = {
+            "mark_iv": 0.80, "open_interest": 50.0, "volume_usd": 500.0,
+            "iv_spread": 0.20,
+        }
+        liquid_put = {
+            "mark_iv": 0.80, "open_interest": 5000.0, "volume_usd": 200000.0,
+            "iv_spread": 0.01,
+        }
+        def stub(ticker, spot, days, strike_round, otm, side):
+            return thin_call if side == "call" else liquid_put
+
+        with patch("strategies.scanner._fetch_liquidity", side_effect=stub):
+            results = _build_candidates("ETH", 2000.0, 0.80, 7)
+
+        strangles = [c for c in results if c.strategy == "Strangle"]
+        for s in strangles:
+            assert s.liquidity_tag == "Low"
+            assert s.open_interest == 50.0   # worst leg's OI
+            assert s.iv_spread     == 0.20   # worst leg's spread
+
+    def test_calendar_downgrades_when_far_leg_thin(self):
+        """Calendars should drop to Low when the far leg is illiquid."""
+        def stub(ticker, spot, days, strike_round, otm, side):
+            if days >= 30:    # far leg
+                return {"mark_iv": 0.80, "open_interest": 80.0,
+                        "volume_usd": 1000.0, "iv_spread": 0.20}
+            return {"mark_iv": 0.80, "open_interest": 5000.0,
+                    "volume_usd": 200000.0, "iv_spread": 0.01}
+
+        with patch("strategies.scanner._fetch_liquidity", side_effect=stub):
+            results = _build_candidates("ETH", 2000.0, 0.80, 7)
+
+        cals = [c for c in results if c.strategy.startswith("Cal")]
+        assert len(cals) >= 2
+        for c in cals:
+            assert c.liquidity_tag == "Low"
+            assert c.open_interest == 80.0   # far leg's OI (worst)
+            assert c.iv_spread     == 0.20
+
+    def test_calendar_blank_when_far_leg_unavailable(self):
+        """If the far leg's book is unavailable, calendar tag should be blank."""
+        def stub(ticker, spot, days, strike_round, otm, side):
+            if days >= 30:
+                return None
+            return {"mark_iv": 0.80, "open_interest": 5000.0,
+                    "volume_usd": 200000.0, "iv_spread": 0.01}
+
+        with patch("strategies.scanner._fetch_liquidity", side_effect=stub):
+            results = _build_candidates("ETH", 2000.0, 0.80, 7)
+
+        cals = [c for c in results if c.strategy.startswith("Cal")]
+        for c in cals:
+            assert c.liquidity_tag == ""
+            assert c.open_interest is None
 
     def test_strangle_uses_worst_leg_oi(self):
         """

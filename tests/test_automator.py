@@ -302,7 +302,7 @@ class TestEnterTrade:
 
     def test_calendar_writes_calendar_state(self):
         c  = _make(strategy="Cal-C", strike_str="$2000 ATM",
-                   far_days=30)
+                   far_days=30, liq="Med")
         wb = MagicMock()
         with patch("strategies.automator.append_calendar_row") as row:
             opened = enter_trade(c, wb)
@@ -317,7 +317,7 @@ class TestEnterTrade:
 
     def test_calendar_put_strategy(self):
         c  = _make(strategy="Cal-P", strike_str="$2000 ATM",
-                   far_days=30)
+                   far_days=30, liq="Med")
         wb = MagicMock()
         with patch("strategies.automator.append_calendar_row"):
             enter_trade(c, wb)
@@ -425,6 +425,67 @@ class TestRunAutomation:
             )
         # 92% prob (CSP) > 70% prob (Strangle) — CSP must win
         assert result["candidate"].strategy == "CSP"
+
+    def test_strangle_with_high_liquidity_is_eligible(self):
+        """Strangles with worst-of-leg liquidity Med/High flow through filter."""
+        wb = MagicMock()
+        cand = _make(
+            strategy="Strangle", strike_str="$1800/$2200",
+            yield_ann=120.0, prob_profit=80.0, liq="High",
+            put_strike=1800.0, call_strike=2200.0,
+        )
+        with patch("strategies.automator._build_candidates", return_value=[cand]), \
+             patch("strategies.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("strategies.automator.append_strangle_row") as row, \
+             patch("market_data.get_spot_price",  return_value=2000.0), \
+             patch("market_data.get_deribit_iv",  return_value=0.80):
+            result = run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, wb=wb, silent=True,
+            )
+        assert result["status"]            == "entered"
+        assert result["candidate"].strategy == "Strangle"
+        row.assert_called_once()
+
+    def test_strangle_with_low_liquidity_is_skipped(self):
+        """Strangle whose worst leg is Low must be filtered out."""
+        wb = MagicMock()
+        cand = _make(
+            strategy="Strangle", strike_str="$1800/$2200",
+            yield_ann=120.0, prob_profit=99.0, liq="Low",
+            put_strike=1800.0, call_strike=2200.0,
+        )
+        with patch("strategies.automator._build_candidates", return_value=[cand]), \
+             patch("strategies.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("strategies.automator.append_strangle_row") as row, \
+             patch("market_data.get_spot_price",  return_value=2000.0), \
+             patch("market_data.get_deribit_iv",  return_value=0.80):
+            result = run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, wb=wb, silent=True,
+            )
+        assert result["status"] == "no_candidate"
+        row.assert_not_called()
+
+    def test_calendar_with_med_liquidity_is_eligible(self):
+        """Calendar candidates now carry liquidity tags and can be picked."""
+        wb = MagicMock()
+        cand = _make(
+            strategy="Cal-C", strike_str="$2000 ATM",
+            yield_ann=40.0, prob_profit=65.0, liq="Med", far_days=30,
+        )
+        with patch("strategies.automator._build_candidates", return_value=[cand]), \
+             patch("strategies.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("strategies.automator.append_calendar_row") as row, \
+             patch("market_data.get_spot_price",  return_value=2000.0), \
+             patch("market_data.get_deribit_iv",  return_value=0.80):
+            result = run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, wb=wb, silent=True,
+            )
+        assert result["status"]            == "entered"
+        assert result["candidate"].strategy == "Cal-C"
+        row.assert_called_once()
 
     def test_skips_blocked_strategy_and_picks_next(self):
         """If the wheel already has a short put open, CSP is blocked, so

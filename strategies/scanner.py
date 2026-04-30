@@ -83,7 +83,7 @@ class Candidate:
 def _liquidity_tag(oi: float, vol_usd: float, iv_spread: float) -> str:
     """
     Derive a simple liquidity label from open interest, volume, and IV spread.
- 
+
     High : OI ≥ 1000 AND spread ≤ 0.02
     Med  : OI ≥ 100  OR  vol_usd ≥ $50k
     Low  : everything else
@@ -95,6 +95,51 @@ def _liquidity_tag(oi: float, vol_usd: float, iv_spread: float) -> str:
     if oi >= _OI_MED or (vol_usd and vol_usd >= _VOL_HIGH):
         return "Med"
     return "Low"
+
+
+def _combine_liquidity_legs(*books) -> dict:
+    """
+    Combine the order books of two or more legs into a single
+    "worst-of-legs" liquidity view.
+
+    Used for multi-leg strategies (strangle, calendar) where the trade is
+    only as fillable as its weakest leg. We take:
+
+        open_interest : min   across legs   (the leg that has the fewest
+                                              contracts open is the bottleneck)
+        volume_usd    : min   across legs
+        iv_spread     : max   across legs   (widest spread = least liquid)
+
+    If any leg's book is missing, the combined result has empty fields and
+    a blank liquidity_tag — better to be honest about uncertainty than to
+    invent a rating.
+
+    Returns
+    -------
+    dict with keys: open_interest, volume_usd, iv_spread, liquidity_tag
+    """
+    if not books or any(b is None for b in books):
+        return {
+            "open_interest": None,
+            "volume_usd":    None,
+            "iv_spread":     None,
+            "liquidity_tag": "",
+        }
+
+    ois  = [b["open_interest"] for b in books if b.get("open_interest") is not None]
+    vols = [b["volume_usd"]    for b in books if b.get("volume_usd")    is not None]
+    spds = [b["iv_spread"]     for b in books if b.get("iv_spread")     is not None]
+
+    worst_oi  = min(ois)  if ois  else None
+    worst_vol = min(vols) if vols else None
+    worst_spd = max(spds) if spds else None
+
+    return {
+        "open_interest": worst_oi,
+        "volume_usd":    worst_vol,
+        "iv_spread":     worst_spd,
+        "liquidity_tag": _liquidity_tag(worst_oi, worst_vol, worst_spd),
+    }
  
  
  # ── Liquidity fetcher ─────────────────────────────────────────────────────────
@@ -109,15 +154,20 @@ def _fetch_liquidity(
 ) -> dict | None:
     """
     Fetch IV and liquidity data from Deribit for one strike.
- 
+
     Returns the order book dict from _fetch_order_book, or None on failure.
     For strangles both put and call are fetched; the put side is used for IV.
+
+    Pass ``otm=0.0`` to fetch an at-the-money strike (used for calendar
+    spreads).  ``days`` selects the expiry — calendars need to call this
+    twice, once with the near-leg ``days`` and once with
+    ``CALENDAR_FAR_DAYS``.
     """
     from market_data import _deribit_instrument, _fetch_order_book
- 
+
     spot_adj = spot * (1 - otm) if side == "put" else spot * (1 + otm)
     opt_type = "P" if side == "put" else "C"
- 
+
     instrument = _deribit_instrument(
         ticker       = ticker,
         spot         = spot_adj,
@@ -228,6 +278,10 @@ def _build_candidates(
         p_lo          = prob_otm_put (spot, Kp, T, r, iv)
         p_hi          = prob_otm_call(spot, Kc, T, r, iv)
         pop3          = max(0.0, (p_lo + p_hi - 1) * 100)
+
+        # Worst-of-legs liquidity — strangle is only as fillable as its
+        # weakest leg (reuse the put/call books fetched above).
+        liq_str = _combine_liquidity_legs(put_book, call_book)
         candidates.append(Candidate(
             asset       = asset,
             strategy    = "Strangle",
@@ -243,6 +297,10 @@ def _build_candidates(
             call_strike = Kc,
             be_lo       = round(be_lo, 0),
             be_hi       = round(be_hi, 0),
+            open_interest = liq_str["open_interest"],
+            volume_usd    = liq_str["volume_usd"],
+            iv_spread     = liq_str["iv_spread"],
+            liquidity_tag = liq_str["liquidity_tag"],
         ))
 
     # ── Calendar Spreads (ATM only — added once per asset, not per OTM level) ─
@@ -252,9 +310,9 @@ def _build_candidates(
         qty_c  = BUDGET_USD / spot
         K_atm  = round(spot / 10) * 10
 
-        for cal_type, bs_near, bs_far in (
-            ("Cal-C", bs_call, bs_call),
-            ("Cal-P", bs_put,  bs_put),
+        for cal_type, bs_near, bs_far, side in (
+            ("Cal-C", bs_call, bs_call, "call"),
+            ("Cal-P", bs_put,  bs_put,  "put"),
         ):
             near_prem = bs_near(spot, K_atm, T,     r, iv) * qty_c
             far_prem  = bs_far (spot, K_atm, T_far, r, iv) * qty_c
@@ -282,6 +340,17 @@ def _build_candidates(
             else:
                 p_cal = 0.0
 
+            # Worst-of-legs liquidity — fetch ATM near + far order books
+            # for the appropriate option side.  A calendar is only as
+            # fillable as the worse of its two legs.
+            near_book = _fetch_liquidity(
+                ticker, spot, days,              strike_round, 0.0, side,
+            )
+            far_book  = _fetch_liquidity(
+                ticker, spot, CALENDAR_FAR_DAYS, strike_round, 0.0, side,
+            )
+            liq_cal = _combine_liquidity_legs(near_book, far_book)
+
             candidates.append(Candidate(
                 asset       = asset,
                 strategy    = cal_type,
@@ -295,6 +364,10 @@ def _build_candidates(
                 days        = days,
                 far_days    = CALENDAR_FAR_DAYS,
                 max_profit  = round(max_profit, 2),
+                open_interest = liq_cal["open_interest"],
+                volume_usd    = liq_cal["volume_usd"],
+                iv_spread     = liq_cal["iv_spread"],
+                liquidity_tag = liq_cal["liquidity_tag"],
             ))
 
     return candidates
@@ -360,7 +433,7 @@ def _display_candidates(candidates: list[Candidate], days: int) -> None:
             f"{_fmt_oi(c.open_interest):<8}"
             f"{_fmt_vol(c.volume_usd):<10}"
             f"{_fmt_spread(c.iv_spread):<9}"
-            f"{lc}{c.liquidity_tag or ('—' if not is_cal else 'N/A')}{R}"
+            f"{lc}{c.liquidity_tag or '—'}{R}"
             + (f"  {GY}max profit ${c.max_profit:.2f}{R}" if is_cal and c.max_profit else "")
         )
     print(f"\n  {GY}OI = open interest | Spread = bid/ask IV spread (tighter = more liquid){R}")
@@ -485,6 +558,9 @@ def run_scanner(
   High = OI ≥ 1,000 contracts and tight IV spread
   Med  = OI ≥ 100 contracts or 24h volume ≥ $50k
   Low  = thin market — wider spreads, harder to fill
+  For multi-leg trades (Strangle, Cal-C, Cal-P) the liquidity tag is
+  the WORST of the legs (lowest OI, lowest volume, widest spread) — a
+  trade is only as fillable as its weakest leg.
 
   {YL}⚠ Strangles carry unlimited loss potential on the call side.
   {YL}⚠ Calendar spreads carry limited risk (net debit) but require two expiries.
