@@ -62,6 +62,7 @@ from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.calendar import show_calendar_analysis, calendar_paper_menu
 from strategies.summary  import show_summary
 from strategies.monitor  import run_monitor
+from strategies.automator import run_automation
 import strategies.scanner as scanner
 
 
@@ -224,6 +225,7 @@ def main():
 
   {CY}[S]{R}  Strategies
   {CY}[R]{R}  Recommendations scanner
+  {CY}[A]{R}  Auto-enter best paper trade  {GY}(yield ≥10%/yr, liq Med/High){R}
   {CY}[M]{R}  Monitor all positions
   {CY}[P]{R}  Performance summary & stats
   {CY}[Y]{R}  Set min yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
@@ -239,6 +241,9 @@ def main():
 
         elif choice == "R":
             scanner.run_scanner(spot, iv, asset, days)
+
+        elif choice == "A":
+            run_automation(spot, iv, asset, days, wb)
 
         elif choice == "M":
             run_monitor(spot, iv, wb, days, asset, silent=False)
@@ -279,7 +284,7 @@ def main():
             break
         
         else:
-            warn("Invalid choice — enter 1–3, S, Y,     R, M or P")
+            warn("Invalid choice — enter 1–3, S, Y, R, A, M or P")
 
 
 if __name__ == "__main__":

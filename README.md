@@ -9,10 +9,13 @@ Built to practice the **Wheel Strategy** and **Short Strangle** before trading w
 
 | File | Purpose |
 |---|---|
-| `crypto_options_trade.py` | Main tool — run this |
+| `main.py` | Main interactive tool — run this |
+| `automate.py` | One-shot automated strategy runner (cron / scheduler entry point) |
 | `crypto_options_trade_tracker.xlsx` | Excel workbook — auto-updated by the tool |
-| `paper_state.json` | Wheel paper trading state (auto-created) |
-| `strangle_state.json` | Strangle paper trading state (auto-created) |
+| `paper_state_<ASSET>.json` | Wheel paper trading state (auto-created) |
+| `strangle_state_<ASSET>.json` | Strangle paper trading state (auto-created) |
+| `calendar_state_<ASSET>.json` | Calendar spread paper trading state (auto-created) |
+| `strategies/automator.py` | Auto-selects highest-probability candidate and opens the trade |
 
 > `paper_state.json` and `strangle_state.json` are excluded from git (see `.gitignore`) — they store local paper trading progress only.
 
@@ -119,16 +122,57 @@ The tool will:
 ## Menu Reference
 
 ```
-[1] Wheel strike & premium analysis
-[2] Wheel paper trading simulator
-[3] Strangle analysis + profit zone chart
-[4] Strangle paper trading simulator
-[5] Record live trade (wheel)
-[6] Performance summary & stats
-[7] Switch expiry (daily / weekly)
-[8] Refresh market data
-[9] Exit
+[S]  Strategies (sub-menu)
+[R]  Recommendations scanner
+[A]  Auto-enter best paper trade  (yield ≥10%/yr, liquidity Med/High)
+[M]  Monitor all positions
+[P]  Performance summary & stats
+[Y]  Set min yield filter
+[1]  Switch expiry (daily / weekly)
+[2]  Switch asset
+[3]  Refresh market data
+[0]  Exit
 ```
+
+---
+
+## Automated Strategy Selection
+
+The tool can pick a trade for you and open the paper position automatically.
+
+### What it does
+1. Runs the scanner across every supported asset and OTM level.
+2. Filters candidates by:
+   - **Annualised yield ≥ 10 %/yr** (configurable)
+   - **Liquidity tag of Medium or High** (Low and unrated excluded)
+3. Skips strategies that conflict with positions you already have open (e.g. won't try to open a second strangle).
+4. Picks the candidate with the **highest probability of profit** (yield breaks ties).
+5. Opens the paper trade, persists the per-asset state file, and logs the row to the Excel workbook with an `AUTO` note.
+6. **If no candidate qualifies, it does nothing and exits cleanly.** Run it again later (an hourly schedule is the intended pattern).
+
+### Run it interactively
+From the main menu, press `A` to invoke the automator once with the currently-selected asset and expiry.
+
+### Run it from the shell
+```bash
+python automate.py                       # defaults: ETH, 7d, min yield 10%, Med+High liq
+python automate.py --asset BTC --days 1
+python automate.py --min-yield 15 --liquidity High
+```
+
+### Schedule it hourly
+Any scheduler that runs `python automate.py` every hour from this directory will produce the "try again in 1 hour if nothing qualifies" behaviour described above.
+
+Examples:
+
+**cron (Linux/macOS)** — runs at the top of every hour:
+```cron
+0 * * * * cd /path/to/optionsStrat && /usr/bin/python3 automate.py >> automate.log 2>&1
+```
+
+**Windows Task Scheduler**: create a Basic Task with trigger _Daily, repeat every 1 hour for 24 hours_, action _Start a program_ → `python.exe`, arguments `automate.py`, start-in your repo path.
+
+**Cowork scheduled task** (this app): create a scheduled task with cron `0 * * * *` and a prompt that runs `python automate.py` from the repo and reports the outcome.
 
 ---
 
