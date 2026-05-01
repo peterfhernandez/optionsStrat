@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 
 from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
-    CALENDAR_FAR_DAYS,
+    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
 )
 from pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
 from display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
@@ -185,6 +185,9 @@ def _build_candidates(
     spot:  float,
     iv:    float,
     days:  int,
+    *,
+    cal_near_days: int | None = None,
+    cal_far_days:  int | None = None,
 ) -> list[Candidate]:
     """
     Build all (strategy, OTM level) candidates for one asset.
@@ -192,8 +195,17 @@ def _build_candidates(
     Generates 3 propositions per strategy (one per OTM level),
     matching the analysis tables in show_strikes() and show_strangle_analysis().
 
+    The wheel/strangle propositions use the global ``days`` near-expiry.
+    Calendar propositions use their own dedicated near + far horizons,
+    independent of ``days`` — defaults come from
+    ``config.CALENDAR_NEAR_DAYS`` (7) and ``config.CALENDAR_FAR_DAYS`` (30)
+    and can be overridden per call.
+
     Returns a flat list of Candidate objects.
     """
+    cal_near = cal_near_days if cal_near_days is not None else CALENDAR_NEAR_DAYS
+    cal_far  = cal_far_days  if cal_far_days  is not None else CALENDAR_FAR_DAYS
+
     T   = days / 365.0
     r   = RISK_FREE_RATE
     cfg = SUPPORTED_ASSETS[asset]

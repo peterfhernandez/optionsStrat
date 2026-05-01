@@ -35,7 +35,7 @@ from datetime import date, timedelta
 
 from config import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
-    CALENDAR_FAR_DAYS, CALENDAR_STOP_PCT,
+    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, CALENDAR_STOP_PCT,
 )
 from pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
 from display import (
@@ -228,27 +228,37 @@ def show_calendar_analysis(
     asset: str,
     spot: float,
     iv: float,
-    days: int,
+    days: int                      = None,
+    *,
+    near_days: int | None          = None,
+    far_days:  int | None          = None,
 ) -> None:
     """
     Display a table of calendar spread options with net debit, max profit,
     profit zone, and estimated probability of profit.
 
-    Near leg uses the current `days` setting; far leg uses CALENDAR_FAR_DAYS.
-    Offers to display an ASCII P&L chart for the ATM strike.
+    The calendar has its own near/far horizons (independent of the global
+    wheel/strangle expiry). Defaults come from
+    ``config.CALENDAR_NEAR_DAYS`` (7) and ``config.CALENDAR_FAR_DAYS`` (30)
+    and can be overridden per-call or via main-menu toggles [4] and [5].
 
     Parameters
     ----------
-    asset : str   Underlying asset symbol (e.g. "ETH")
-    spot  : float Current spot price
-    iv    : float Implied volatility (decimal)
-    days  : int   Days to near expiry
+    asset     : str   Underlying asset symbol (e.g. "ETH")
+    spot      : float Current spot price
+    iv        : float Implied volatility (decimal)
+    days      : int   Backwards-compatible alias for ``near_days``
+    near_days : int   Short-leg horizon (overrides ``days`` if given)
+    far_days  : int   Long-leg  horizon (defaults to CALENDAR_FAR_DAYS)
     """
-    far_days = CALENDAR_FAR_DAYS
+    near_days = near_days if near_days is not None else (days if days is not None else CALENDAR_NEAR_DAYS)
+    far_days  = far_days  if far_days  is not None else CALENDAR_FAR_DAYS
+    days      = near_days  # internal name used throughout the function
+
     if days >= far_days:
         warn(
             f"Near expiry ({days}d) must be shorter than far expiry ({far_days}d). "
-            f"Switch to a shorter expiry first  (menu option [1])."
+            f"Adjust horizons via main-menu options [4] / [5]."
         )
         return
 
@@ -350,7 +360,10 @@ def calendar_paper_menu(
     spot: float,
     iv: float,
     wb,
-    days: int,
+    days: int                      = None,
+    *,
+    near_days: int | None          = None,
+    far_days:  int | None          = None,
 ) -> None:
     """
     Interactive paper trading simulator for the calendar spread strategy.
@@ -358,20 +371,29 @@ def calendar_paper_menu(
     Manages state across sessions via a per-asset JSON file.
     Supports opening, monitoring, closing at near expiry, and early-closing.
 
+    Calendar horizons default to ``config.CALENDAR_NEAR_DAYS`` (7d short
+    leg) and ``config.CALENDAR_FAR_DAYS`` (30d long leg). The main menu
+    [4] / [5] toggles cycle through ``CALENDAR_NEAR_OPTIONS`` and
+    ``CALENDAR_FAR_OPTIONS`` and pass the selected values in here.
+
     Parameters
     ----------
-    asset : str              Underlying asset symbol
-    spot  : float            Current spot price
-    iv    : float            Implied volatility (decimal)
-    wb    : openpyxl.Workbook
-    days  : int              Days to near-leg expiry
+    asset     : str              Underlying asset symbol
+    spot      : float            Current spot price
+    iv        : float            Implied volatility (decimal)
+    wb        : openpyxl.Workbook
+    days      : int              Backwards-compatible alias for ``near_days``
+    near_days : int              Short-leg horizon (overrides ``days``)
+    far_days  : int              Long-leg horizon
     """
-    far_days = CALENDAR_FAR_DAYS
+    near_days = near_days if near_days is not None else (days if days is not None else CALENDAR_NEAR_DAYS)
+    far_days  = far_days  if far_days  is not None else CALENDAR_FAR_DAYS
+    days      = near_days
 
     if days >= far_days:
         warn(
             f"Near expiry ({days}d) ≥ far expiry ({far_days}d).  "
-            f"Switch to a shorter expiry first  (menu option [1])."
+            f"Adjust horizons via main-menu options [4] / [5]."
         )
         return
 

@@ -81,8 +81,15 @@ STOP_WARN_MULTIPLIER = 1.5  # warn when value reaches 1.5x premium received
 
 # ── Calendar Spread ───────────────────────────────────────────────────────────
 
-CALENDAR_FAR_DAYS = 30    # far leg expiry for calendar spreads (days)
-CALENDAR_STOP_PCT = 0.50  # stop if spread value drops to 50% of net debit paid
+CALENDAR_NEAR_DAYS = 7    # near (short) leg expiry for calendar spreads (days)
+CALENDAR_FAR_DAYS  = 30   # far  (long)  leg expiry for calendar spreads (days)
+CALENDAR_STOP_PCT  = 0.50 # stop if spread value drops to 50% of net debit paid
+
+# Cycle order for the main-menu toggles ([4] near leg, [5] far leg).
+# Pressing the toggle steps through these in order; when the current
+# value isn't in the list the toggle resets to the first one.
+CALENDAR_NEAR_OPTIONS = [1, 3, 7, 14]              # short-leg horizon choices
+CALENDAR_FAR_OPTIONS  = [14, 30, 60, 90]           # long-leg horizon choices
 
 # ── Files ─────────────────────────────────────────────────────────────────────
 
