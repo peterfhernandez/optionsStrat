@@ -34,8 +34,9 @@ from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
 )
-from pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
-from display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
+from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
+from ui.display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
+from market.market_data import get_spot_price, get_deribit_iv, _deribit_instrument, _fetch_order_book
 
 
 # ── Minimum yield threshold for "high probability" ranking ───────────────────
@@ -163,7 +164,6 @@ def _fetch_liquidity(
     twice, once with the near-leg ``days`` and once with
     ``CALENDAR_FAR_DAYS``.
     """
-    from market_data import _deribit_instrument, _fetch_order_book
 
     spot_adj = spot * (1 - otm) if side == "put" else spot * (1 + otm)
     opt_type = "P" if side == "put" else "C"
@@ -504,7 +504,6 @@ def run_scanner(
     active_asset : str    Currently selected asset
     days         : int    Days to expiry
     """
-    from market_data import get_spot_price, get_deribit_iv
  
     hdr("Trade Recommendation Scanner")
     print(f"  {GY}Fetching live data and liquidity for all candidates...{R}")

@@ -31,12 +31,12 @@ from datetime import date, timedelta
 from config        import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
 )
-from pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call
-from display       import (
+from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call
+from ui.display       import (
     hdr, sub, inf, ok, warn,
     GR, RD, CY, YL, GY, WH, R,
 )
-from excel_tracker import append_trade_row
+from excel.excel_tracker import append_trade_row
 
 
 # ── State persistence ─────────────────────────────────────────────────────────

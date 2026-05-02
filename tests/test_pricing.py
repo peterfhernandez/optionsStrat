@@ -15,7 +15,7 @@ prob_otm_*  : range [0,1], ATM ≈ 0.5, deep OTM/ITM limits,
 
 import math
 import pytest
-from pricing import ncdf, _d1, _d2, bs_put, bs_call, prob_otm_put, prob_otm_call
+from market.pricing import ncdf, _d1, _d2, bs_put, bs_call, prob_otm_put, prob_otm_call
 
 
 # ── Tolerance ─────────────────────────────────────────────────────────────────

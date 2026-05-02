@@ -35,7 +35,7 @@ try:
 except ImportError:
     pass  # colorama missing — colours may not render on Windows
 
-from pricing import prob_otm_put, prob_otm_call
+from market.pricing import prob_otm_put, prob_otm_call
 from config  import RISK_FREE_RATE, STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER
 
 
@@ -331,7 +331,7 @@ def draw_calendar_zone(
     iv          : float  Implied volatility (decimal)
     option_type : str    "Call" or "Put"
     """
-    from pricing import bs_call as _bs_call, bs_put as _bs_put
+    from market.pricing import bs_call as _bs_call, bs_put as _bs_put
 
     T_rem = max(far_days - near_days, 1) / 365.0
 

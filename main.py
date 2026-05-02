@@ -7,11 +7,17 @@ Orchestrates the CLI menu and delegates to strategy/helper modules.
 
 Current module layout
 ---------------------
-config.py           Configuration file. Contain Global Variables ← DONE
-pricing.py          Black-Scholes pricing & probability helpers  ← DONE
-market_data.py      ETH price + IV fetching                      ← DONE
-display.py          ANSI colour helpers, ASCII chart             ← DONE
-excel_tracker.py    openpyxl workbook setup & row helpers        ← DONE
+automate.py         Auto-enter best paper trade based on scanner results  ← IN PROGRESS
+automation
+    automator.py
+configuration
+    config.py       Configuration file. Contain Global Variables ← IN PROGRESS
+excel
+    excel_tracker.py  openpyxl workbook setup & row helpers        ← DONE
+market
+    cache.py        Simple in-memory cache for market data (not yet used)
+    pricing.py      Black-Scholes pricing & probability helpers  ← DONE
+    market_data.py  ETH price + IV fetching                      ← DONE
 strategies/
     wheel.py        Wheel paper trading simulator                ← DONE
     strangle.py     Short strangle paper trading + stop-loss     ← DONE
@@ -19,6 +25,13 @@ strategies/
     summary.py      Cross-sheet reporting                        ← DONE
     monitor.py      Monitor trades and automatically close       ← DONE
     scannner.py     Recommend across strategies and instruments  ← DONE
+trading
+    executor.py     Place orders via Deribit API (paper trading)  ← IN PROGRESS
+    portfolio.py    Track open positions and P&L across strategies   ← IN PROGRESS
+    position.py     Position class with Greeks, P&L etc.              ← IN PROGRESS
+ui
+    display.py          ANSI colour helpers, ASCII chart             ← DONE
+    menus.py            Strategy sub-menus (wheel, strangle, calendar)  ← IN PROGRESS
 
 Run
 ---
@@ -54,15 +67,15 @@ from config      import (
     DEFAULT_ASSET, SUPPORTED_ASSETS,
 )
 #from pricing     import bs_put, bs_call, prob_otm_put, prob_otm_call  # noqa: F401
-from market_data import get_spot_price, get_deribit_iv
-from display     import hdr, sub, inf, ok, warn, err, draw_profit_zone
-from excel_tracker import setup_excel, append_trade_row, append_strangle_row  # noqa: F401
+from market.market_data import get_spot_price, get_deribit_iv
+from ui.display     import hdr, sub, inf, ok, warn, err, draw_profit_zone
+from excel.excel_tracker import setup_excel, append_trade_row, append_strangle_row  # noqa: F401
 from strategies.wheel    import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.calendar import show_calendar_analysis, calendar_paper_menu
 from strategies.summary  import show_summary
 from strategies.monitor  import run_monitor
-from strategies.automator import run_automation
+from automation.automator import run_automation
 import strategies.scanner as scanner
 
 

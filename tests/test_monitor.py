@@ -529,8 +529,8 @@ class TestRunMonitor:
         """Active asset spot/IV should be reused, not fetched again."""
         with patch("strategies.monitor._check_strangle", return_value=False), \
              patch("strategies.monitor._check_wheel",    return_value=False), \
-             patch("market_data.get_spot_price") as mock_price, \
-             patch("market_data.get_deribit_iv") as mock_iv:
+             patch("market.market_data.get_spot_price") as mock_price, \
+             patch("market.market_data.get_deribit_iv") as mock_iv:
             run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
         eth_calls = [c for c in mock_price.call_args_list
                      if c.args and c.args[0] == "ETH"]
@@ -540,8 +540,8 @@ class TestRunMonitor:
         """Non-active assets should have their price fetched."""
         with patch("strategies.monitor._check_strangle", return_value=False), \
              patch("strategies.monitor._check_wheel",    return_value=False), \
-             patch("market_data.get_spot_price",  return_value=80000.0) as mock_price, \
-             patch("market_data.get_deribit_iv",  return_value=0.60):
+             patch("market.market_data.get_spot_price",  return_value=80000.0) as mock_price, \
+             patch("market.market_data.get_deribit_iv",  return_value=0.60):
             run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
         fetched = {c.args[0] for c in mock_price.call_args_list}
         assert "BTC" in fetched or "SOL" in fetched
@@ -549,16 +549,16 @@ class TestRunMonitor:
     def test_failed_price_fetch_skips_asset(self, mock_wb):
         """If price fetch fails for non-active assets, run_monitor completes without error."""
         with patch("strategies.monitor._load_state", return_value=None), \
-             patch("market_data.get_spot_price", return_value=None), \
-             patch("market_data.get_deribit_iv", return_value=0.60):
+             patch("market.market_data.get_spot_price", return_value=None), \
+             patch("market.market_data.get_deribit_iv", return_value=0.60):
             result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
         assert result is None
 
     def test_registry_called_for_each_asset(self, mock_wb):
         """run_monitor processes all assets without error when prices are available."""
         with patch("strategies.monitor._load_state", return_value=None), \
-             patch("market_data.get_spot_price", return_value=80000.0), \
-             patch("market_data.get_deribit_iv", return_value=0.60):
+             patch("market.market_data.get_spot_price", return_value=80000.0), \
+             patch("market.market_data.get_deribit_iv", return_value=0.60):
             result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
         assert result is None
 
@@ -572,8 +572,8 @@ class TestRunMonitor:
 
         active_iv = 0.80
         with patch.object(monitor_module, "_REGISTRY", [tracking_checker]), \
-             patch("market_data.get_spot_price", return_value=80000.0), \
-             patch("market_data.get_deribit_iv", return_value=None):
+             patch("market.market_data.get_spot_price", return_value=80000.0), \
+             patch("market.market_data.get_deribit_iv", return_value=None):
             run_monitor(active_iv, active_iv, mock_wb, 7, "ETH", silent=True)
 
         non_eth = [(a, iv) for a, iv in used_ivs if a != "ETH"]

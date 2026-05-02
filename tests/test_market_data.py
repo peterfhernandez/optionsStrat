@@ -1,7 +1,7 @@
 """
-tests/test_market_data.py
+tests/test_market.market_data.py
 =========================
-Tests for market_data.py — spot price fetching, IV fetching, and
+Tests for market.market_data.py — spot price fetching, IV fetching, and
 Deribit instrument name construction.
 
 Test strategy
@@ -28,7 +28,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from market_data import (
+from market.market_data import (
     _atm_strike,
     _expiry_date,
     _deribit_instrument,
@@ -176,37 +176,37 @@ class TestPriceFromBinance:
 
     def test_success(self):
         mock = _mock_response(200, {"symbol": "ETHUSDT", "price": "2314.13"})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _price_from_binance("ETH")
         assert result == pytest.approx(2314.13)
 
     def test_bad_status_returns_none(self):
         mock = _mock_response(404, {})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _price_from_binance("ETH")
         assert result is None
 
     def test_missing_price_key_returns_none(self):
         mock = _mock_response(200, {"symbol": "ETHUSDT"})  # no "price" key
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _price_from_binance("ETH")
         assert result is None
 
     def test_exception_returns_none(self):
-        with patch("market_data.requests.get", side_effect=ConnectionError("timeout")):
+        with patch("market.market_data.requests.get", side_effect=ConnectionError("timeout")):
             result = _price_from_binance("ETH")
         assert result is None
 
     def test_returns_float(self):
         mock = _mock_response(200, {"price": "2314.13"})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _price_from_binance("ETH")
         assert isinstance(result, float)
 
     def test_btc_symbol_used(self):
         """Verify the correct Binance symbol is used for BTC."""
         mock = _mock_response(200, {"price": "77600.0"})
-        with patch("market_data.requests.get", return_value=mock) as mock_get:
+        with patch("market.market_data.requests.get", return_value=mock) as mock_get:
             _price_from_binance("BTC")
         call_kwargs = mock_get.call_args
         assert "BTCUSDT" in str(call_kwargs)
@@ -218,20 +218,20 @@ class TestPriceFromCoinGecko:
 
     def test_success(self):
         mock = _mock_response(200, {"ethereum": {"usd": 2318.35}})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _price_from_coingecko("ETH")
         assert result == pytest.approx(2318.35)
 
     def test_bad_status_returns_none(self):
         mock = _mock_response(500, {})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _price_from_coingecko("ETH")
         assert result is None
 
     def test_missing_coin_id_returns_none(self):
         """Response doesn't contain the expected coin ID."""
         mock = _mock_response(200, {})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _price_from_coingecko("ETH")
         assert result is None
 
@@ -239,21 +239,21 @@ class TestPriceFromCoinGecko:
         """On 429, should wait and retry — second call succeeds."""
         rate_limited = _mock_response(429, {})
         success      = _mock_response(200, {"ethereum": {"usd": 2318.35}})
-        with patch("market_data.requests.get", side_effect=[rate_limited, success]):
-            with patch("market_data.time.sleep"):   # don't actually sleep
+        with patch("market.market_data.requests.get", side_effect=[rate_limited, success]):
+            with patch("market.market_data.time.sleep"):   # don't actually sleep
                 result = _price_from_coingecko("ETH")
         assert result == pytest.approx(2318.35)
 
     def test_429_twice_returns_none(self):
         """Two consecutive 429s should return None."""
         rate_limited = _mock_response(429, {})
-        with patch("market_data.requests.get", return_value=rate_limited):
-            with patch("market_data.time.sleep"):
+        with patch("market.market_data.requests.get", return_value=rate_limited):
+            with patch("market.market_data.time.sleep"):
                 result = _price_from_coingecko("ETH")
         assert result is None
 
     def test_exception_returns_none(self):
-        with patch("market_data.requests.get", side_effect=Exception("network error")):
+        with patch("market.market_data.requests.get", side_effect=Exception("network error")):
             result = _price_from_coingecko("ETH")
         assert result is None
 
@@ -265,32 +265,32 @@ class TestFetchMarkIv:
     def test_success_converts_to_decimal(self):
         """mark_iv of 80.0 should return 0.80."""
         mock = _mock_response(200, {"result": {"mark_iv": 80.0}})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _fetch_mark_iv("ETH-1MAY26-2300-P")
         assert result == pytest.approx(0.80)
 
     def test_bad_status_returns_none(self):
         mock = _mock_response(400, {})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _fetch_mark_iv("ETH-1MAY26-2300-P")
         assert result is None
 
     def test_zero_iv_returns_none(self):
         """mark_iv of 0 should return None (invalid)."""
         mock = _mock_response(200, {"result": {"mark_iv": 0}})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _fetch_mark_iv("ETH-1MAY26-2300-P")
         assert result is None
 
     def test_missing_result_returns_none(self):
         mock = _mock_response(200, {})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _fetch_mark_iv("ETH-1MAY26-2300-P")
         assert result is None
 
     def test_returns_float(self):
         mock = _mock_response(200, {"result": {"mark_iv": 52.5}})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _fetch_mark_iv("ETH-1MAY26-2300-P")
         assert isinstance(result, float)
         assert result == pytest.approx(0.525)
@@ -312,45 +312,45 @@ class TestFetchOrderBook:
         }})
 
     def test_success_returns_dict(self):
-        with patch("market_data.requests.get", return_value=self._full_response()):
+        with patch("market.market_data.requests.get", return_value=self._full_response()):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         assert isinstance(result, dict)
 
     def test_mark_iv_converted_to_decimal(self):
-        with patch("market_data.requests.get", return_value=self._full_response()):
+        with patch("market.market_data.requests.get", return_value=self._full_response()):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         assert result["mark_iv"] == pytest.approx(0.5267)
 
     def test_iv_spread_calculated(self):
         """iv_spread = (ask_iv - bid_iv) / 100."""
-        with patch("market_data.requests.get", return_value=self._full_response()):
+        with patch("market.market_data.requests.get", return_value=self._full_response()):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         assert result["iv_spread"] == pytest.approx((53.54 - 51.50) / 100, abs=1e-4)
 
     def test_open_interest_present(self):
-        with patch("market_data.requests.get", return_value=self._full_response()):
+        with patch("market.market_data.requests.get", return_value=self._full_response()):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         assert result["open_interest"] == pytest.approx(4791.0)
 
     def test_volume_usd_present(self):
-        with patch("market_data.requests.get", return_value=self._full_response()):
+        with patch("market.market_data.requests.get", return_value=self._full_response()):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         assert result["volume_usd"] == pytest.approx(84365.8)
 
     def test_bad_status_returns_none(self):
         mock = _mock_response(400, {})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         assert result is None
 
     def test_missing_mark_iv_returns_none(self):
         mock = _mock_response(200, {"result": {"open_interest": 100}})
-        with patch("market_data.requests.get", return_value=mock):
+        with patch("market.market_data.requests.get", return_value=mock):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         assert result is None
 
     def test_all_expected_keys_present(self):
-        with patch("market_data.requests.get", return_value=self._full_response()):
+        with patch("market.market_data.requests.get", return_value=self._full_response()):
             result = _fetch_order_book("ETH-1MAY26-2300-P")
         expected_keys = {"mark_iv", "bid_iv", "ask_iv", "iv_spread",
                          "open_interest", "volume_usd", "best_bid", "best_ask"}
@@ -363,20 +363,20 @@ class TestGetSpotPrice:
 
     def test_binance_success(self):
         """Returns Binance price when available."""
-        with patch("market_data._price_from_binance", return_value=2314.13):
+        with patch("market.market_data._price_from_binance", return_value=2314.13):
             result = get_spot_price("ETH")
         assert result == pytest.approx(2314.13)
 
     def test_falls_back_to_coingecko(self, capsys):
         """When Binance fails, falls back to CoinGecko."""
-        with patch("market_data._price_from_binance",   return_value=None):
-            with patch("market_data._price_from_coingecko", return_value=2318.35):
+        with patch("market.market_data._price_from_binance",   return_value=None):
+            with patch("market.market_data._price_from_coingecko", return_value=2318.35):
                 result = get_spot_price("ETH")
         assert result == pytest.approx(2318.35)
 
     def test_both_fail_returns_none(self, capsys):
-        with patch("market_data._price_from_binance",    return_value=None):
-            with patch("market_data._price_from_coingecko", return_value=None):
+        with patch("market.market_data._price_from_binance",    return_value=None):
+            with patch("market.market_data._price_from_coingecko", return_value=None):
                 result = get_spot_price("ETH")
         assert result is None
 
@@ -386,17 +386,17 @@ class TestGetSpotPrice:
 
     def test_lowercase_asset_accepted(self):
         """Asset symbol should be case-insensitive."""
-        with patch("market_data._price_from_binance", return_value=2314.13):
+        with patch("market.market_data._price_from_binance", return_value=2314.13):
             result = get_spot_price("eth")
         assert result == pytest.approx(2314.13)
 
     def test_btc_supported(self):
-        with patch("market_data._price_from_binance", return_value=77600.0):
+        with patch("market.market_data._price_from_binance", return_value=77600.0):
             result = get_spot_price("BTC")
         assert result == pytest.approx(77600.0)
 
     def test_sol_supported(self):
-        with patch("market_data._price_from_binance", return_value=86.41):
+        with patch("market.market_data._price_from_binance", return_value=86.41):
             result = get_spot_price("SOL")
         assert result == pytest.approx(86.41)
 
@@ -407,18 +407,18 @@ class TestGetDeribitIv:
 
     def test_put_succeeds(self):
         """Returns IV from put when put fetch succeeds."""
-        with patch("market_data._fetch_mark_iv", return_value=0.80):
+        with patch("market.market_data._fetch_mark_iv", return_value=0.80):
             result = get_deribit_iv("ETH", 2300.0, 7)
         assert result == pytest.approx(0.80)
 
     def test_put_fails_tries_call(self):
         """When put returns None, tries call."""
-        with patch("market_data._fetch_mark_iv", side_effect=[None, 0.75]):
+        with patch("market.market_data._fetch_mark_iv", side_effect=[None, 0.75]):
             result = get_deribit_iv("ETH", 2300.0, 7)
         assert result == pytest.approx(0.75)
 
     def test_both_fail_returns_none(self):
-        with patch("market_data._fetch_mark_iv", return_value=None):
+        with patch("market.market_data._fetch_mark_iv", return_value=None):
             result = get_deribit_iv("ETH", 2300.0, 7)
         assert result is None
 
@@ -427,28 +427,28 @@ class TestGetDeribitIv:
             get_deribit_iv("DOGE", 1.0, 7)
 
     def test_lowercase_asset_accepted(self):
-        with patch("market_data._fetch_mark_iv", return_value=0.80):
+        with patch("market.market_data._fetch_mark_iv", return_value=0.80):
             result = get_deribit_iv("eth", 2300.0, 7)
         assert result == pytest.approx(0.80)
 
     def test_returns_decimal_not_percentage(self):
         """IV should be returned as decimal (0.80) not percentage (80.0)."""
-        with patch("market_data._fetch_mark_iv", return_value=0.80):
+        with patch("market.market_data._fetch_mark_iv", return_value=0.80):
             result = get_deribit_iv("ETH", 2300.0, 7)
         assert result < 10.0, f"IV looks like a percentage, not a decimal: {result}"
 
     def test_btc_uses_correct_ticker(self):
         """BTC should use 'BTC' as the Deribit ticker."""
-        with patch("market_data._fetch_mark_iv", return_value=0.60) as mock_iv:
-            with patch("market_data._deribit_instrument", return_value="BTC-1MAY26-78000-P") as mock_inst:
+        with patch("market.market_data._fetch_mark_iv", return_value=0.60) as mock_iv:
+            with patch("market.market_data._deribit_instrument", return_value="BTC-1MAY26-78000-P") as mock_inst:
                 get_deribit_iv("BTC", 77600.0, 7)
         call_args = mock_inst.call_args_list[0]
         assert call_args.kwargs.get("ticker") == "BTC" or "BTC" in str(call_args)
 
     def test_sol_uses_sol_usdc_ticker(self):
         """SOL should use 'SOL_USDC' as the Deribit ticker."""
-        with patch("market_data._fetch_mark_iv", return_value=0.55):
-            with patch("market_data._deribit_instrument", return_value="SOL_USDC-1MAY26-86-P") as mock_inst:
+        with patch("market.market_data._fetch_mark_iv", return_value=0.55):
+            with patch("market.market_data._deribit_instrument", return_value="SOL_USDC-1MAY26-86-P") as mock_inst:
                 get_deribit_iv("SOL", 86.41, 7)
         call_args = mock_inst.call_args_list[0]
         assert "SOL_USDC" in str(call_args)

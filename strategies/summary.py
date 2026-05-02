@@ -13,7 +13,7 @@ show_summary(wb)    Print win rate, premium totals, and trade counts
                     for Paper Trades, Live Trades, and Strangles.
 """
 
-from display import hdr, sub, inf
+from ui.display import hdr, sub, inf
 
 
 # Sheet name → (col_result, col_prem) — zero-based index into iter_rows tuple.

@@ -29,10 +29,10 @@ import argparse
 import sys
 
 from config        import DEFAULT_ASSET, IV_FALLBACK, WEEKLY_DAYS
-from market_data   import get_spot_price, get_deribit_iv
-from excel_tracker import setup_excel
-from display       import hdr, inf, ok, warn, err
-from strategies.automator import (
+from market.market_data   import get_spot_price, get_deribit_iv
+from excel.excel_tracker import setup_excel
+from ui.display       import hdr, inf, ok, warn, err
+from automation.automator import (
     run_automation, DEFAULT_MIN_YIELD, DEFAULT_ALLOWED_LIQUIDITY,
 )
 

@@ -34,13 +34,13 @@ from config        import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
 )
-from pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call
-from display       import (
+from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call
+from ui.display       import (
     hdr, sub, inf, ok, warn,
     draw_profit_zone, print_stop_loss_status,
     GR, RD, CY, YL, GY, WH, R,
 )
-from excel_tracker import append_strangle_row
+from excel.excel_tracker import append_strangle_row
 
 
 # ── State persistence ─────────────────────────────────────────────────────────

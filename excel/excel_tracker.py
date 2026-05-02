@@ -41,7 +41,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils  import get_column_letter
 
 from config  import EXCEL_FILE, BUDGET_USD
-from display import ok
+from ui.display import ok
 
 
 # ── Colour palette (Excel hex, no leading #) ──────────────────────────────────

@@ -37,9 +37,9 @@ from config  import (
     STOP_LOSS_MULTIPLIER, BUDGET_USD,
     CALENDAR_STOP_PCT,
 )
-from pricing import bs_put, bs_call
-from display import ok, warn, err, hdr, inf, sub, GR, RD, YL, CY, WH, GY, R
-from excel_tracker import append_strangle_row, append_trade_row, append_calendar_row
+from market.pricing import bs_put, bs_call
+from ui.display import ok, warn, err, hdr, inf, sub, GR, RD, YL, CY, WH, GY, R
+from excel.excel_tracker import append_strangle_row, append_trade_row, append_calendar_row
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -436,7 +436,7 @@ def run_monitor(
     asset  : str    Currently selected asset (used for spot/IV context)
     silent : bool   True = only print on trigger; False = print all statuses
     """
-    from market_data import get_spot_price, get_deribit_iv
+    from market.market_data import get_spot_price, get_deribit_iv
 
     if not silent:
         hdr("Position Monitor")

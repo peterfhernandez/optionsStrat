@@ -46,9 +46,9 @@ from typing      import Iterable
 from config       import (
     BUDGET_USD, RISK_FREE_RATE, CALENDAR_FAR_DAYS, SUPPORTED_ASSETS,
 )
-from pricing      import bs_put, bs_call
-from display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
-from excel_tracker import (
+from market.pricing      import bs_put, bs_call
+from ui.display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
+from excel.excel_tracker import (
     append_trade_row, append_strangle_row, append_calendar_row,
 )
 
@@ -365,7 +365,7 @@ def run_automation(
         considered : int       — how many candidates were generated
         eligible   : int       — how many passed the filters before ranking
     """
-    from market_data import get_spot_price, get_deribit_iv
+    from market.market_data import get_spot_price, get_deribit_iv
 
     if not silent:
         hdr("Auto-Strategy Runner")

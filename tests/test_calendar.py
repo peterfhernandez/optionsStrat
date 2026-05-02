@@ -81,7 +81,7 @@ def T_far(far_days):
 def open_position(strike_atm, qty, near_days, far_days):
     """A standard open ATM call calendar position dict."""
     from config import BUDGET_USD
-    from pricing import bs_call
+    from market.pricing import bs_call
     spot = 2000.0
     iv   = 0.80
     T_n  = near_days / 365.0
@@ -163,7 +163,7 @@ class TestPnlAtNearExpiry:
 
     def test_spot_at_strike_is_best_case(self, spot, strike_atm, near_days, far_days, r, iv, qty):
         """Spot pinning the strike at near expiry → near expires worthless → max P&L."""
-        from pricing import bs_call
+        from market.pricing import bs_call
         T_rem = max(far_days - near_days, 1) / 365.0
         T_near = near_days / 365.0
         T_far  = far_days  / 365.0
@@ -183,7 +183,7 @@ class TestPnlAtNearExpiry:
         K = spot   # ATM
         T_near = near_days / 365.0
         T_far  = far_days  / 365.0
-        from pricing import bs_call
+        from market.pricing import bs_call
         net_debit = (bs_call(spot, K, T_far, r, iv) - bs_call(spot, K, T_near, r, iv)) * qty
         spot_high = spot * 1.40
         pnl = _pnl_at_near_expiry(spot_high, K, near_days, far_days, r, iv, qty, net_debit, "Call")
@@ -194,7 +194,7 @@ class TestPnlAtNearExpiry:
         K = spot
         T_near = near_days / 365.0
         T_far  = far_days  / 365.0
-        from pricing import bs_put
+        from market.pricing import bs_put
         net_debit = (bs_put(spot, K, T_far, r, iv) - bs_put(spot, K, T_near, r, iv)) * qty
         spot_low = spot * 0.60
         pnl = _pnl_at_near_expiry(spot_low, K, near_days, far_days, r, iv, qty, net_debit, "Put")
@@ -205,7 +205,7 @@ class TestPnlAtNearExpiry:
         K = spot
         T_near = near_days / 365.0
         T_far  = far_days  / 365.0
-        from pricing import bs_call
+        from market.pricing import bs_call
         net_debit = (bs_call(spot, K, T_far, r, iv) - bs_call(spot, K, T_near, r, iv)) * qty
         # At spot = 0 (extreme down for call), far call worthless, near worthless → loss = debit
         pnl_zero = _pnl_at_near_expiry(1.0, K, near_days, far_days, r, iv, qty, net_debit, "Call")
@@ -223,7 +223,7 @@ class TestPnlAtNearExpiry:
 class TestFindBreakevens:
 
     def _make_debit(self, spot, strike, near_days, far_days, r, iv, qty, option_type):
-        from pricing import bs_call, bs_put
+        from market.pricing import bs_call, bs_put
         T_near = near_days / 365.0
         T_far  = far_days  / 365.0
         if option_type == "Call":

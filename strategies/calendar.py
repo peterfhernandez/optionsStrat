@@ -37,13 +37,13 @@ from config import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, CALENDAR_STOP_PCT,
 )
-from pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
-from display import (
+from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
+from ui.display import (
     hdr, sub, inf, ok, warn,
     draw_calendar_zone,
     GR, RD, CY, YL, GY, WH, R,
 )
-from excel_tracker import append_calendar_row
+from excel.excel_tracker import append_calendar_row
 
 
 # ── State persistence ─────────────────────────────────────────────────────────
