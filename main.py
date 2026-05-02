@@ -10,8 +10,7 @@ Current module layout
 automate.py         Auto-enter best paper trade based on scanner results  ← IN PROGRESS
 automation
     automator.py
-configuration
-    config.py       Configuration file. Contain Global Variables ← IN PROGRESS
+config.py       Configuration file. Contain Global Variables ← IN PROGRESS
 excel
     excel_tracker.py  openpyxl workbook setup & row helpers        ← DONE
 market
