@@ -11,7 +11,7 @@ Usage
 Behaviour
 ---------
 * Fetches live spot + IV for the active asset
-* Calls strategies.automator.run_automation
+* Calls automation.automator.run_automation
 * If a candidate qualifies it opens a paper trade and persists state
 * If no candidate qualifies it exits cleanly with code 0 — a scheduled
   task wrapper is expected to invoke this every hour

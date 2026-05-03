@@ -527,10 +527,13 @@ class TestRunMonitor:
 
     def test_active_asset_not_refetched(self, mock_wb):
         """Active asset spot/IV should be reused, not fetched again."""
-        with patch("strategies.monitor._check_strangle", return_value=False), \
-             patch("strategies.monitor._check_wheel",    return_value=False), \
-             patch("strategies.monitor._check_calendar", return_value=False), \
-             patch("excel.excel_tracker.append_calendar_row", MagicMock()), \
+        import strategies.monitor as monitor_module
+
+        with patch.object(monitor_module, "_REGISTRY", [
+                MagicMock(return_value=False),
+                MagicMock(return_value=False),
+                MagicMock(return_value=False),
+            ]), \
              patch("market.market_data.get_spot_price", return_value=None) as mock_price, \
              patch("market.market_data.get_deribit_iv", return_value=0.60) as mock_iv:
             run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
