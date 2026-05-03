@@ -2,7 +2,7 @@
 TL;DR: Reorganize into organized packages (automation, trading, strategies, excel, market, ui), implement portfolio management with position listing and manual/auto close, add live/paper trading switch (prepared for future Deribit API), and clean up root folder to entry points only.
 
 Steps (6 phases, 22 steps)
-# PHASE 1: Create New Package Structure (parallel steps 1-5)
+# PHASE 1: Create New Package Structure (parallel steps 1-5) - DONE
 1. Create automation/ package — move automator.py here
 2. Create trading/ package with executor.py (trade execution), portfolio.py (position aggregation), position.py (base classes)
 3. Create excel/ package — move excel_tracker.py, add templates.py
@@ -10,7 +10,7 @@ Steps (6 phases, 22 steps)
 5. Create ui/ package — move display.py, add menus.py for menu system
 
 # PHASE 2: Restructure Main Entry Points (depends on Phase 1)
-6. Refactor main.py (600 lines → ~150 lines) — import from ui.menus, add [P] Portfolio and [L] Live/Paper Mode menus
+6. Refactor main.py (600 lines → ~150 lines) — import from ui.menus, add [P] Portfolio and [L] Live/Paper Mode menus - DONE
 7. Refactor automate.py (90 lines → ~20 lines) — import from automation.automator
 
 # PHASE 3: Update Strategy Modules (parallel steps 8-12, depend on Phase 2)

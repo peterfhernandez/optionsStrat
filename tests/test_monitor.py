@@ -529,17 +529,22 @@ class TestRunMonitor:
         """Active asset spot/IV should be reused, not fetched again."""
         with patch("strategies.monitor._check_strangle", return_value=False), \
              patch("strategies.monitor._check_wheel",    return_value=False), \
-             patch("market.market_data.get_spot_price") as mock_price, \
-             patch("market.market_data.get_deribit_iv") as mock_iv:
+             patch("strategies.monitor._check_calendar", return_value=False), \
+             patch("excel.excel_tracker.append_calendar_row", MagicMock()), \
+             patch("market.market_data.get_spot_price", return_value=None) as mock_price, \
+             patch("market.market_data.get_deribit_iv", return_value=0.60) as mock_iv:
             run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
         eth_calls = [c for c in mock_price.call_args_list
                      if c.args and c.args[0] == "ETH"]
         assert len(eth_calls) == 0
+        eth_iv_calls = [c for c in mock_iv.call_args_list
+                        if c.args and c.args[0] == "ETH"]
+        assert len(eth_iv_calls) == 0
 
     def test_other_assets_are_fetched(self, mock_wb):
         """Non-active assets should have their price fetched."""
-        with patch("strategies.monitor._check_strangle", return_value=False), \
-             patch("strategies.monitor._check_wheel",    return_value=False), \
+        import strategies.monitor as monitor_module
+        with patch.object(monitor_module, "_REGISTRY", [MagicMock(return_value=False)]), \
              patch("market.market_data.get_spot_price",  return_value=80000.0) as mock_price, \
              patch("market.market_data.get_deribit_iv",  return_value=0.60):
             run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)

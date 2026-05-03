@@ -9,15 +9,27 @@ Built to practice the **Wheel Strategy** and **Short Strangle** before trading w
 
 | File | Purpose |
 |---|---|
-| `main.py` | Main interactive tool — run this |
+| `main.py` | Main entry point — delegates to `ui.menus` (29 lines) |
 | `automate.py` | One-shot automated strategy runner (cron / scheduler entry point) |
+| `config.py` | Central configuration — all settings in one place |
 | `crypto_options_trade_tracker.xlsx` | Excel workbook — auto-updated by the tool |
 | `paper_state_<ASSET>.json` | Wheel paper trading state (auto-created) |
 | `strangle_state_<ASSET>.json` | Strangle paper trading state (auto-created) |
 | `calendar_state_<ASSET>.json` | Calendar spread paper trading state (auto-created) |
-| `strategies/automator.py` | Auto-selects highest-probability candidate and opens the trade |
 
-> `paper_state.json` and `strangle_state.json` are excluded from git (see `.gitignore`) — they store local paper trading progress only.
+### Packages
+
+| Package | Purpose |
+|---|---|
+| `automation/` | Strategy automation (`automator.py`) |
+| `trading/` | Order execution and portfolio management (Phase 2) |
+| `excel/` | Excel workbook helpers (`excel_tracker.py`, templates coming) |
+| `market/` | Market data fetching (`market_data.py`, `pricing.py`), caching (coming) |
+| `ui/` | User interface (`display.py`, `menus.py`) |
+| `strategies/` | Trading strategy implementations (wheel, strangle, calendar, monitor, scanner) |
+| `tests/` | Comprehensive test suite (360 tests) |
+
+> `paper_state_<ASSET>.json` and `strangle_state_<ASSET>.json` are excluded from git (see `.gitignore`) — they store local paper trading progress only.
 
 ---
 

@@ -1,7 +1,7 @@
 """
 tests/test_automator.py
 =======================
-Tests for strategies/automator.py.
+Tests for automation/automator.py.
 
 Tier 1 — pure selection logic (no I/O, no network)
     select_best_candidate
