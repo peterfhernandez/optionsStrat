@@ -100,3 +100,7 @@ STRANGLE_STATE_FILE  = "strangle_state.json"
 # ── Scanner ───────────────────────────────────────────────────────────────────
 
 MIN_YIELD_PCT = 20.0    # minimum annualised yield for ranking ① in scanner
+
+# ── Paper/Live ────────────────────────────────────────────────────────────────
+
+TRADING_MODE = "paper"  # "paper" or "live" - affects which state file is used and whether stop-loss is enforced
