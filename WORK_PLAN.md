@@ -2,16 +2,16 @@
 TL;DR: Reorganize into organized packages (automation, trading, strategies, excel, market, ui), implement portfolio management with position listing and manual/auto close, add live/paper trading switch (prepared for future Deribit API), and clean up root folder to entry points only.
 
 Steps (6 phases, 22 steps)
-# PHASE 1: Create New Package Structure (parallel steps 1-5) - DONE
+# PHASE 1: Create New Package Structure (parallel steps 1-5) - <font color="blue">DONE</font>
 1. Create automation/ package — move automator.py here
 2. Create trading/ package with executor.py (trade execution), portfolio.py (position aggregation), position.py (base classes)
 3. Create excel/ package — move excel_tracker.py, add templates.py
 4. Create market/ package — move market_data.py, pricing.py, add cache.py for session price caching
 5. Create ui/ package — move display.py, add menus.py for menu system
 
-# PHASE 2: Restructure Main Entry Points (depends on Phase 1)
+# PHASE 2: Restructure Main Entry Points (depends on Phase 1) - <font color="blue">DONE</font>
 6. Refactor main.py (600 lines → ~150 lines) — import from ui.menus, add [P] Portfolio and [L] Live/Paper Mode menus - DONE
-7. Refactor automate.py (90 lines → ~20 lines) — import from automation.automator
+7. Refactor automate.py (90 lines → ~20 lines) — import from automation.automator - DONE
 
 # PHASE 3: Update Strategy Modules (parallel steps 8-12, depend on Phase 2)
 8. Update wheel.py — replace _save/_load with trading.executor calls
@@ -32,7 +32,7 @@ Steps (6 phases, 22 steps)
 19. Verify no circular dependencies — clean root module imports
 
 # PHASE 6: New Features (depends on Phase 2)
-20. Implement portfolio listing UI — display all open positions in table, P&L per position
+20. Implement portfolio listing UI — display all open positions in table, P&L per position - <font color="blue">DONE</font>
 21. Implement live/paper toggle UI — switch mode, validate credentials for live
 22. Wire up manual close in strategy menus — user can close any position manually
 
@@ -63,7 +63,8 @@ Decisions
 ✅ Manual + auto close: Both options available; manual via portfolio menu, auto via monitor.py
 ✅ Root folder cleaned: Only entry points and config remain
 ✅ Legacy compat: crypto_options_trade.py kept but not imported (reference only)
-Further Considerations
+
+# Further Considerations
 Price cache expiry: Manual-refresh only (via menu option [3]), valid for entire session — balances freshness with simplicity
 Portfolio P&L display: Show last-fetched price (matches current calc), add timestamp "Last updated: 2 min ago"
 Live trading guard: NotImplementedError raised if live mode attempted without Deribit creds configured — prevents accidents

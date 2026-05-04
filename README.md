@@ -40,6 +40,7 @@ Built to practice the **Wheel Strategy** and **Short Strangle** before trading w
 - **Strike & premium analysis** — shows 10%, 15%, 20% OTM options with estimated premiums, annualised yield and probability of profit
 - **Wheel paper trading simulator** — tracks the full Put → Assign → Call cycle
 - **Short Strangle paper trading** — sell both sides, with a live profit zone chart
+- **Portfolio view** — list open positions with live unrealised P&L
 - **Stop-loss monitor** — warns at 1.5x and triggers at 2.0x premium (adjustable)
 - **Daily or weekly expiry** — switchable in the menu
 - **Excel tracker** — all trades written automatically to `crypto_options_trade_tracker.xlsx`

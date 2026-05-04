@@ -16,13 +16,14 @@ from config import (
     TRADING_MODE,
 )
 from market.market_data import get_spot_price, get_deribit_iv
-from ui.display import hdr, sub, inf, ok, warn, err
+from ui.display import hdr, sub, inf, ok, warn, err, GR, RD, R
 import strategies.scanner as scanner
 from strategies.wheel import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.calendar import show_calendar_analysis, calendar_paper_menu
 from strategies.summary import show_summary
 from strategies.monitor import run_monitor
+from trading.portfolio import collect_open_positions
 from automation.automator import run_automation
 
 
@@ -91,10 +92,38 @@ def set_yield_filter() -> None:
 
 def show_portfolio(wb) -> None:
     """
-    Display all open positions across all strategies with P&L summary.
-    (Placeholder for Phase 6 implementation)
+    Display all open positions across all strategies with live P&L.
     """
-    inf("Portfolio feature coming in Phase 6 — displays all open positions & P&L")
+    hdr("Open Portfolio Positions")
+
+    positions = collect_open_positions()
+    if not positions:
+        inf("Open positions", "None found")
+        return
+
+    print(
+        "\n  Asset  Strategy    Position             Strike(s)          Days  Premium     Value       Unrealised P&L"
+    )
+    print("  " + "─" * 102)
+
+    total_pnl = 0.0
+    for pos in positions:
+        pnl = pos["unrealised_pnl"]
+        pnl_text = f"${pnl:,.2f}" if pnl is not None else "N/A"
+        pnl_col = GR if pnl is not None and pnl >= 0 else RD
+        value_text = f"${pos['current_value']:,.2f}" if pos["current_value"] is not None else "N/A"
+
+        print(
+            f"  {pos['asset']:<5}  {pos['strategy']:<10}  {pos['position']:<20}  "
+            f"{pos['strike']:<18}  {pos['days_left']:>4}  "
+            f"${pos['premium']:>8.2f}  {value_text:>11}  {pnl_col}{pnl_text:>14}{R}"
+        )
+        if pnl is not None:
+            total_pnl += pnl
+
+    print()
+    inf("Open positions", str(len(positions)))
+    inf("Total unrealised P&L", f"{GR if total_pnl >= 0 else RD}${total_pnl:,.2f}{R}")
 
 
 # ── Trading mode toggle ───────────────────────────────────────────────────────
@@ -187,6 +216,7 @@ def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, 
   {CY}[A]{R}  Auto-enter best paper trade  {GY}(yield ≥10%/yr, liq Med/High){R}
   {CY}[M]{R}  Monitor all positions
   {CY}[P]{R}  Performance summary & stats
+  {CY}[O]{R}  Portfolio positions & P&L
   {CY}[L]{R}  Trading mode (paper/live)
   {CY}[Y]{R}  Set min yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[1]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
@@ -210,6 +240,9 @@ def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, 
 
     elif choice == "P":
         show_summary(wb)
+
+    elif choice == "O":
+        show_portfolio(wb)
 
     elif choice == "L":
         toggle_trading_mode()
