@@ -44,7 +44,8 @@ from datetime    import date, timedelta
 from typing      import Iterable
 
 from config       import (
-    BUDGET_USD, RISK_FREE_RATE, CALENDAR_FAR_DAYS, SUPPORTED_ASSETS,
+    BUDGET_USD, RISK_FREE_RATE, CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
+    SUPPORTED_ASSETS,
 )
 from market.pricing      import bs_put, bs_call
 from ui.display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
@@ -343,6 +344,9 @@ def run_automation(
     min_yield:         float          = DEFAULT_MIN_YIELD,
     allowed_liquidity: Iterable[str]  = DEFAULT_ALLOWED_LIQUIDITY,
     silent:            bool           = False,
+    *,
+    cal_near_days:     int | None      = None,
+    cal_far_days:      int | None      = None,
 ) -> dict:
     """
     Build candidates across all supported assets, pick the best eligible one,
@@ -373,6 +377,7 @@ def run_automation(
         inf("Liquidity filter", "/".join(allowed_liquidity))
         inf("Active asset",     active_asset)
         inf("Days to expiry",   f"{days}d")
+        inf("Calendar legs",    f"{cal_near_days or CALENDAR_NEAR_DAYS}d/{cal_far_days or CALENDAR_FAR_DAYS}d")
 
     all_candidates: list[Candidate] = []
     for asset in SUPPORTED_ASSETS:
@@ -386,7 +391,13 @@ def run_automation(
                     warn(f"Skipping {asset} — price fetch failed")
                 continue
             iv = get_deribit_iv(asset, spot, days) or active_iv
-        all_candidates.extend(_build_candidates(asset, spot, iv, days))
+        all_candidates.extend(
+            _build_candidates(
+                asset, spot, iv, days,
+                cal_near_days=cal_near_days,
+                cal_far_days=cal_far_days,
+            )
+        )
 
     blocked = set()
     for asset in SUPPORTED_ASSETS:

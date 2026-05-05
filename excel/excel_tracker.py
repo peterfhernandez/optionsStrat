@@ -323,6 +323,30 @@ def _create_calendar_sheet(wb) -> None:
     c.alignment = Alignment(horizontal="center", vertical="center")
 
 
+def _headers(ws):
+    """Return a mapping of header text to column index for row 3."""
+    return {
+        str(ws.cell(row=3, column=col).value).strip(): col
+        for col in range(2, ws.max_column + 1)
+        if ws.cell(row=3, column=col).value is not None
+    }
+
+
+def _ensure_asset_column(ws) -> bool:
+    """Insert an Asset column for legacy sheets that still use old header layout."""
+    headers = _headers(ws)
+    if "Asset" in headers:
+        return False
+
+    # Legacy sheet layout: Date, Type, ... with no Asset column.
+    if headers.get("Type") == 3:
+        ws.insert_cols(3)
+        ws.cell(row=3, column=3, value="Asset")
+        return True
+
+    return False
+
+
 def _create_summary_sheet(wb) -> None:
     """Build the 📈 Summary sheet header (rows are populated at runtime)."""
     ws = wb.create_sheet("📈 Summary")
@@ -360,6 +384,11 @@ def setup_excel():
         if "📅 Calendars" not in wb.sheetnames:
             _create_calendar_sheet(wb)
             changed = True
+
+        for sheet_name in ["📋 Live Trades", "📝 Paper Trades", "🔀 Strangles", "📅 Calendars"]:
+            if sheet_name in wb.sheetnames and _ensure_asset_column(wb[sheet_name]):
+                changed = True
+
         if changed:
             wb.save(EXCEL_FILE)
     else:
@@ -401,26 +430,46 @@ def append_trade_row(wb, sheet_name: str, trade: dict) -> None:
             break
         row += 1
 
+    headers = _headers(ws)
+    has_asset = "Asset" in headers
     result = trade.get("result", "")
     bg = "1a3a1a" if result == "Win" else "3a1a1a" if result == "Loss" else _MID
     fg = _GREEN_C  if result == "Win" else _RED_C   if result == "Loss" else _LIGHT
 
-    values = [
-        trade.get("date",       ""),
-        trade.get("asset",      ""),
-        trade.get("type",       ""),
-        trade.get("stage",      ""),
-        trade.get("days",       7),
-        trade.get("strike",     0),
-        trade.get("spot_open",  0),
-        trade.get("spot_close", ""),
-        trade.get("premium",    0),
-        trade.get("pnl",        ""),
-        result,
-        f"=SUM($K$4:K{row})",
-        "", "", "",
-        trade.get("notes", ""),
-    ]
+    if has_asset:
+        values = [
+            trade.get("date",       ""),
+            trade.get("asset",      ""),
+            trade.get("type",       ""),
+            trade.get("stage",      ""),
+            trade.get("days",       7),
+            trade.get("strike",     0),
+            trade.get("spot_open",  0),
+            trade.get("spot_close", ""),
+            trade.get("premium",    0),
+            trade.get("pnl",        ""),
+            result,
+            f"=SUM($K$4:K{row})",
+            "", "", "",
+            trade.get("notes", ""),
+        ]
+    else:
+        values = [
+            trade.get("date",       ""),
+            trade.get("type",       ""),
+            trade.get("stage",      ""),
+            trade.get("days",       7),
+            trade.get("strike",     0),
+            trade.get("spot_open",  0),
+            trade.get("spot_close", ""),
+            trade.get("premium",    0),
+            trade.get("pnl",        ""),
+            result,
+            f"=SUM($J$4:J{row})",
+            "", "", "",
+            trade.get("notes", ""),
+        ]
+
     fmts = {7: "$#,##0", 8: "$#,##0.00", 9: "$#,##0.00",
             10: "$#,##0.00", 12: "$#,##0.00"}
 
@@ -462,6 +511,8 @@ def append_strangle_row(wb, trade: dict) -> None:
             break
         row += 1
 
+    headers = _headers(ws)
+    has_asset = "Asset" in headers
     result = trade.get("result", "")
     bg = "1a3a1a" if result == "Win" else "3a1a1a" if result == "Loss" else _MID
     fg = _GREEN_C  if result == "Win" else _RED_C   if result == "Loss" else _LIGHT
@@ -476,22 +527,40 @@ def append_strangle_row(wb, trade: dict) -> None:
     be_lo         = Kp - prem_per_unit
     be_hi         = Kc + prem_per_unit
 
-    values = [
-        trade.get("date",       ""),
-        trade.get("asset",      ""),
-        trade.get("type",       ""),
-        Kp,
-        Kc,
-        trade.get("spot_open",  ""),
-        trade.get("spot_close", ""),
-        trade.get("days",       7),
-        prem,
-        trade.get("pnl",        ""),
-        be_lo,
-        be_hi,
-        result,
-        trade.get("notes",      ""),
-    ]
+    if has_asset:
+        values = [
+            trade.get("date",       ""),
+            trade.get("asset",      ""),
+            trade.get("type",       ""),
+            Kp,
+            Kc,
+            trade.get("spot_open",  ""),
+            trade.get("spot_close", ""),
+            trade.get("days",       7),
+            prem,
+            trade.get("pnl",        ""),
+            be_lo,
+            be_hi,
+            result,
+            trade.get("notes",      ""),
+        ]
+    else:
+        values = [
+            trade.get("date",       ""),
+            trade.get("type",       ""),
+            Kp,
+            Kc,
+            trade.get("spot_open",  ""),
+            trade.get("spot_close", ""),
+            trade.get("days",       7),
+            prem,
+            trade.get("pnl",        ""),
+            be_lo,
+            be_hi,
+            result,
+            trade.get("notes",      ""),
+        ]
+
     fmts = {
         5: "$#,##0", 6: "$#,##0", 7: "$#,##0.00", 8: "$#,##0.00",
         10: "$#,##0.00", 11: "$#,##0.00", 12: "$#,##0.00", 13: "$#,##0.00",
@@ -535,25 +604,44 @@ def append_calendar_row(wb, trade: dict) -> None:
             break
         row += 1
 
+    headers = _headers(ws)
+    has_asset = "Asset" in headers
     result = trade.get("result", "")
     bg = "1a3a1a" if result == "Win" else "3a1a1a" if "Loss" in result else _MID
     fg = _GREEN_C  if result == "Win" else _RED_C   if "Loss" in result else _LIGHT
 
-    values = [
-        trade.get("date",        ""),
-        trade.get("asset",       ""),
-        trade.get("type",        ""),
-        trade.get("strike",      0),
-        trade.get("option_type", ""),
-        trade.get("spot_open",   ""),
-        trade.get("spot_close",  ""),
-        trade.get("near_days",   7),
-        trade.get("far_days",    30),
-        trade.get("net_debit",   0),
-        trade.get("pnl",         ""),
-        result,
-        trade.get("notes",       ""),
-    ]
+    if has_asset:
+        values = [
+            trade.get("date",        ""),
+            trade.get("asset",       ""),
+            trade.get("type",        ""),
+            trade.get("strike",      0),
+            trade.get("option_type", ""),
+            trade.get("spot_open",   ""),
+            trade.get("spot_close",  ""),
+            trade.get("near_days",   7),
+            trade.get("far_days",    30),
+            trade.get("net_debit",   0),
+            trade.get("pnl",         ""),
+            result,
+            trade.get("notes",       ""),
+        ]
+    else:
+        values = [
+            trade.get("date",        ""),
+            trade.get("type",        ""),
+            trade.get("strike",      0),
+            trade.get("option_type", ""),
+            trade.get("spot_open",   ""),
+            trade.get("spot_close",  ""),
+            trade.get("near_days",   7),
+            trade.get("far_days",    30),
+            trade.get("net_debit",   0),
+            trade.get("pnl",         ""),
+            result,
+            trade.get("notes",       ""),
+        ]
+
     fmts = {
         5: "$#,##0", 7: "$#,##0.00", 8: "$#,##0.00",
         11: "$#,##0.00", 12: "$#,##0.00",

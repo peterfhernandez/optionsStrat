@@ -44,7 +44,8 @@ Built to practice the **Wheel Strategy**, **Short Strangle**, and **Calendar Spr
 - **Portfolio view** — list open positions with live unrealised P&L
 - **Stop-loss monitor** — warns at 1.5x and triggers at 2.0x premium (adjustable)
 - **Daily or weekly expiry** — switchable in the menu
-- **Excel tracker** — all trades written automatically to `crypto_options_trade_tracker.xlsx`
+- **Separate calendar near/far expiry control** — choose calendar legs independently
+- **Excel tracker** — all trades written automatically to `crypto_options_trade_tracker.xlsx`, with older workbooks auto-upgraded to preserve previous rows and add the missing Asset column.
 
 ### Excel Workbook Sheets
 
@@ -123,7 +124,7 @@ pip install requests openpyxl
 
 ### Run
 ```bash
-python crypto_options_trade.py
+python main.py
 ```
 
 ### First run
@@ -149,6 +150,8 @@ The tool will:
 [1]  Switch expiry (daily / weekly)
 [2]  Switch asset
 [3]  Refresh market data
+[4]  Cycle calendar near-leg expiry
+[5]  Cycle calendar far-leg expiry
 [0]  Exit
 ```
 

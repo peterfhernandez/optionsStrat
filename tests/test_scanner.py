@@ -451,6 +451,19 @@ class TestBuildCandidates:
             assert c.liquidity_tag == "High"
             assert c.open_interest == liquid_book["open_interest"]
 
+    def test_calendar_candidates_use_custom_horizons(self):
+        """Custom calendar near/far horizons should be passed through to candidates."""
+        with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
+            results = _build_candidates(
+                "ETH", 2000.0, 0.80, 7,
+                cal_near_days=3, cal_far_days=30,
+            )
+        cals = [c for c in results if c.strategy.startswith("Cal")]
+        assert len(cals) == 2
+        assert all(c.days == 3 for c in cals)
+        assert all(c.far_days == 30 for c in cals)
+        assert {c.strategy for c in cals} == {"Cal-C", "Cal-P"}
+
     def test_strangle_downgrades_when_one_leg_thin(self):
         """If only the call leg is illiquid, the strangle's tag must drop to Low."""
         thin_call = {

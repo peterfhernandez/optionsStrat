@@ -328,9 +328,9 @@ def _build_candidates(
         ))
 
     # ── Calendar Spreads (ATM only — added once per asset, not per OTM level) ─
-    if days < CALENDAR_FAR_DAYS:
-        T_far  = CALENDAR_FAR_DAYS / 365.0
-        T_rem  = max(CALENDAR_FAR_DAYS - days, 1) / 365.0
+    if cal_near < cal_far:
+        T_far  = cal_far / 365.0
+        T_rem  = max(cal_far - cal_near, 1) / 365.0
         qty_c  = BUDGET_USD / spot
         K_atm  = _round_strike(spot, strike_round)
 
@@ -338,7 +338,7 @@ def _build_candidates(
             ("Cal-C", bs_call, bs_call, "call"),
             ("Cal-P", bs_put,  bs_put,  "put"),
         ):
-            near_prem = bs_near(spot, K_atm, T,     r, iv) * qty_c
+            near_prem = bs_near(spot, K_atm, cal_near / 365.0, r, iv) * qty_c
             far_prem  = bs_far (spot, K_atm, T_far, r, iv) * qty_c
             net_debit = far_prem - near_prem
             # Max profit: spot pins the strike at near expiry
@@ -347,19 +347,19 @@ def _build_candidates(
             max_profit = max_far - net_debit
 
             # Yield = max_profit / net_debit * annualised (based on near days)
-            yld_cal = (max_profit / net_debit * (365 / days) * 100) if net_debit > 0 else 0.0
+            yld_cal = (max_profit / net_debit * (365 / cal_near) * 100) if net_debit > 0 else 0.0
 
             # Rough P(profit): probability spot stays within ±max_profit/net_debit band
             # Use numeric breakeven scan (fast pure-math function)
             from strategies.calendar import _find_breakevens as _cal_be
             be_lo_c, be_hi_c = _cal_be(
-                spot, K_atm, days, CALENDAR_FAR_DAYS, r, iv, qty_c, net_debit,
+                spot, K_atm, cal_near, cal_far, r, iv, qty_c, net_debit,
                 "Call" if cal_type == "Cal-C" else "Put",
             )
             if be_lo_c > 0 and be_hi_c > 0:
                 p_cal = max(0.0, (
-                    prob_otm_put (spot, be_lo_c, T, r, iv) +
-                    prob_otm_call(spot, be_hi_c, T, r, iv) - 1
+                    prob_otm_put (spot, be_lo_c, cal_near / 365.0, r, iv) +
+                    prob_otm_call(spot, be_hi_c, cal_near / 365.0, r, iv) - 1
                 ) * 100)
             else:
                 p_cal = 0.0
@@ -368,10 +368,10 @@ def _build_candidates(
             # for the appropriate option side.  A calendar is only as
             # fillable as the worse of its two legs.
             near_book = _fetch_liquidity(
-                ticker, spot, days,              strike_round, 0.0, side,
+                ticker, spot, cal_near, strike_round, 0.0, side,
             )
             far_book  = _fetch_liquidity(
-                ticker, spot, CALENDAR_FAR_DAYS, strike_round, 0.0, side,
+                ticker, spot, cal_far, strike_round, 0.0, side,
             )
             liq_cal = _combine_liquidity_legs(near_book, far_book)
 
@@ -385,8 +385,8 @@ def _build_candidates(
                 premium     = round(net_debit, 2),   # net debit = max loss
                 yield_ann   = round(yld_cal, 1),
                 prob_profit = round(p_cal, 1),
-                days        = days,
-                far_days    = CALENDAR_FAR_DAYS,
+                days        = cal_near,
+                far_days    = cal_far,
                 max_profit  = round(max_profit, 2),
                 open_interest = liq_cal["open_interest"],
                 volume_usd    = liq_cal["volume_usd"],
@@ -504,6 +504,9 @@ def run_scanner(
     active_iv:    float,
     active_asset: str,
     days:         int,
+    *,
+    cal_near_days: int | None = None,
+    cal_far_days:  int | None = None,
 ) -> None:
     """
     Scan every (asset, strategy, OTM level) combination and display
@@ -537,8 +540,17 @@ def run_scanner(
                 warn(f"Could not fetch {asset} IV — using fallback")
                 iv = active_iv
  
-        ok(f"{asset}: spot=${spot:,.2f}  IV={iv*100:.0f}%  — scanning {len(OTM_LEVELS)*3} candidates...")
-        all_candidates.extend(_build_candidates(asset, spot, iv, days))
+        ok(
+            f"{asset}: spot=${spot:,.2f}  IV={iv*100:.0f}%  "
+            f"— scanning {len(OTM_LEVELS)*3 + 2} candidates..."
+        )
+        all_candidates.extend(
+            _build_candidates(
+                asset, spot, iv, days,
+                cal_near_days=cal_near_days,
+                cal_far_days=cal_far_days,
+            )
+        )
  
     if not all_candidates:
         warn("No candidates generated — check your connection.")

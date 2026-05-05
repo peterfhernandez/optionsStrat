@@ -12,6 +12,8 @@ from typing import Tuple
 from config import (
     IV_FALLBACK,
     DAILY_DAYS, WEEKLY_DAYS,
+    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
+    CALENDAR_NEAR_OPTIONS, CALENDAR_FAR_OPTIONS,
     DEFAULT_ASSET, SUPPORTED_ASSETS,
     TRADING_MODE,
 )
@@ -73,6 +75,28 @@ def select_asset() -> str:
 
 
 # ── Yield filter ──────────────────────────────────────────────────────────────
+
+def _next_calendar_near(current: int, far: int) -> int:
+    """Cycle the near-leg calendar horizon to the next valid value."""
+    for value in CALENDAR_NEAR_OPTIONS:
+        if value > current and value < far:
+            return value
+    for value in CALENDAR_NEAR_OPTIONS:
+        if value < far:
+            return value
+    return current
+
+
+def _next_calendar_far(current: int, near: int) -> int:
+    """Cycle the far-leg calendar horizon to the next valid value."""
+    for value in CALENDAR_FAR_OPTIONS:
+        if value > current and value > near:
+            return value
+    for value in CALENDAR_FAR_OPTIONS:
+        if value > near:
+            return value
+    return current
+
 
 def set_yield_filter() -> None:
     """Prompt user to update the scanner minimum yield filter."""
@@ -140,7 +164,15 @@ def toggle_trading_mode() -> None:
 
 # ── Strategies submenu ────────────────────────────────────────────────────────
 
-def strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
+def strategies_menu(
+    asset: str,
+    spot: float,
+    iv: float,
+    wb,
+    days: int,
+    calendar_near: int,
+    calendar_far: int,
+) -> None:
     """
     Sub-menu grouping all strategy options.
     Returns to the main menu when the user selects Back.
@@ -178,10 +210,18 @@ def strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
             strangle_paper_menu(asset, spot, iv, wb, days)
 
         elif choice == "5":
-            show_calendar_analysis(asset, spot, iv, days)
+            show_calendar_analysis(
+                asset, spot, iv, days,
+                near_days=calendar_near,
+                far_days=calendar_far,
+            )
 
         elif choice == "6":
-            calendar_paper_menu(asset, spot, iv, wb, days)
+            calendar_paper_menu(
+                asset, spot, iv, wb, days,
+                near_days=calendar_near,
+                far_days=calendar_far,
+            )
 
         elif choice == "7":
             warn("Live trade recording not yet wired — use the original tool for now.")
@@ -193,7 +233,11 @@ def strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
             set_yield_filter()
 
         elif choice == "R":
-            scanner.run_scanner(spot, iv, asset, days)
+            scanner.run_scanner(
+                spot, iv, asset, days,
+                cal_near_days=calendar_near,
+                cal_far_days=calendar_far,
+            )
 
         elif choice == "0":
             break
@@ -204,11 +248,19 @@ def strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
 
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
-def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, str, float, float, int]:
+def main_menu(
+    asset: str,
+    spot: float,
+    iv: float,
+    wb,
+    days: int,
+    calendar_near: int,
+    calendar_far: int,
+) -> Tuple[bool, str, float, float, int, int, int]:
     """
     Display main menu and process user choice.
     
-    Returns (should_continue, asset, spot, iv, days)
+    Returns (should_continue, asset, spot, iv, days, calendar_near, calendar_far)
     """
     print(f"""
 {CY}{'─' * 54}{R}
@@ -226,19 +278,32 @@ def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, 
   {CY}[Y]{R}  Set min yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[1]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
   {CY}[2]{R}  Switch asset   {GY}(currently {asset}){R}
+  {CY}[4]{R}  Calendar near leg  {GY}(currently {calendar_near}d){R}
+  {CY}[5]{R}  Calendar far leg   {GY}(currently {calendar_far}d){R}
   {CY}[3]{R}  Refresh market data
   {CY}[0]{R}  Exit
 """)
     choice = input(f"  {YL}Choice: {R}").strip().upper()
 
     if choice == "S":
-        strategies_menu(asset, spot, iv, wb, days)
+        strategies_menu(
+            asset, spot, iv, wb, days,
+            calendar_near, calendar_far,
+        )
 
     elif choice == "R":
-        scanner.run_scanner(spot, iv, asset, days)
+        scanner.run_scanner(
+            spot, iv, asset, days,
+            cal_near_days=calendar_near,
+            cal_far_days=calendar_far,
+        )
 
     elif choice == "A":
-        run_automation(spot, iv, asset, days, wb)
+        run_automation(
+            spot, iv, asset, days, wb,
+            cal_near_days=calendar_near,
+            cal_far_days=calendar_far,
+        )
 
     elif choice == "M":
         run_monitor(spot, iv, wb, days, asset, silent=False)
@@ -288,13 +353,21 @@ def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, 
         else:
             warn("IV refresh failed — keeping previous value")
 
+    elif choice == "4":
+        calendar_near = _next_calendar_near(calendar_near, calendar_far)
+        ok(f"Calendar near leg set to {calendar_near}d")
+
+    elif choice == "5":
+        calendar_far = _next_calendar_far(calendar_far, calendar_near)
+        ok(f"Calendar far leg set to {calendar_far}d")
+
     elif choice == "0":
-        return (False, asset, spot, iv, days)
+        return (False, asset, spot, iv, days, calendar_near, calendar_far)
 
     else:
-        warn("Invalid choice — enter 0–3, S, Y, L, R, A, M, P, O or H")
+        warn("Invalid choice — enter 0–5, S, Y, L, R, A, M, P, O or H")
 
-    return (True, asset, spot, iv, days)
+    return (True, asset, spot, iv, days, calendar_near, calendar_far)
 
 
 # ── Application entry point ───────────────────────────────────────────────────
@@ -321,6 +394,8 @@ def run_app() -> None:
         print(f"  {YL}⚠ IV fetch failed — using fallback {IV_FALLBACK*100:.0f}%{R}")
 
     days = DAILY_DAYS  # default expiry; user can switch via menu
+    calendar_near = CALENDAR_NEAR_DAYS
+    calendar_far = CALENDAR_FAR_DAYS
 
     from excel.excel_tracker import setup_excel
     wb = setup_excel()
@@ -331,7 +406,10 @@ def run_app() -> None:
         run_monitor(spot, iv, wb, days, asset, silent=True)
 
         # Show menu and get response
-        should_continue, asset, spot, iv, days = main_menu(asset, spot, iv, wb, days)
+        should_continue, asset, spot, iv, days, calendar_near, calendar_far = main_menu(
+            asset, spot, iv, wb, days,
+            calendar_near, calendar_far,
+        )
         
         if not should_continue:
             print(f"\n  Goodbye.\n")
