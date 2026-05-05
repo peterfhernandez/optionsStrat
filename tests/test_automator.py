@@ -52,6 +52,7 @@ from automation.automator import (
     run_automation,
     _blocked_strategies,
     DEFAULT_MIN_YIELD,
+    DEFAULT_MIN_PROB,
     DEFAULT_ALLOWED_LIQUIDITY,
 )
 
@@ -114,41 +115,54 @@ class TestSelectBestCandidate:
             _make(prob_profit=85.0, yield_ann=20.0),
             _make(prob_profit=60.0, yield_ann=20.0),
         ]
-        best = select_best_candidate(cands)
+        best = select_best_candidate(cands, min_prob=0.0)
         assert best.prob_profit == 85.0
 
     def test_yield_breaks_ties_in_prob(self):
         a = _make(prob_profit=80.0, yield_ann=20.0)
         b = _make(prob_profit=80.0, yield_ann=50.0)
-        best = select_best_candidate([a, b])
+        best = select_best_candidate([a, b], min_prob=0.0)
         assert best is b
 
     def test_yield_filter_excludes_below_threshold(self):
         low  = _make(prob_profit=99.0, yield_ann=5.0)   # high prob, low yield
         high = _make(prob_profit=70.0, yield_ann=15.0)
-        best = select_best_candidate([low, high], min_yield=10.0)
+        best = select_best_candidate([low, high], min_yield=10.0, min_prob=0.0)
         assert best is high
 
     def test_yield_filter_inclusive_at_threshold(self):
         c = _make(prob_profit=70.0, yield_ann=10.0)
-        assert select_best_candidate([c], min_yield=10.0) is c
+        assert select_best_candidate([c], min_yield=10.0, min_prob=0.0) is c
 
     def test_liquidity_filter_excludes_low(self):
         low  = _make(prob_profit=99.0, yield_ann=50.0, liq="Low")
         med  = _make(prob_profit=70.0, yield_ann=20.0, liq="Med")
-        best = select_best_candidate([low, med])
+        best = select_best_candidate([low, med], min_prob=0.0)
         assert best is med
 
     def test_liquidity_filter_excludes_empty_tag(self):
         empty = _make(prob_profit=99.0, yield_ann=50.0, liq="")
         med   = _make(prob_profit=70.0, yield_ann=20.0, liq="Med")
-        best  = select_best_candidate([empty, med])
+        best  = select_best_candidate([empty, med], min_prob=0.0)
         assert best is med
 
     def test_default_thresholds_match_constants(self):
-        """Sanity — the public defaults are still 10%/Med+High."""
+        """Sanity — the public defaults are still 10%/Med+High and 90% probability."""
         assert DEFAULT_MIN_YIELD == 10.0
+        assert DEFAULT_MIN_PROB == 90.0
         assert set(DEFAULT_ALLOWED_LIQUIDITY) == {"Med", "High"}
+
+    def test_probability_filter_excludes_equal_threshold(self):
+        low_prob = _make(prob_profit=90.0, yield_ann=80.0)
+        high_prob = _make(prob_profit=91.0, yield_ann=20.0)
+        best = select_best_candidate([low_prob, high_prob], min_prob=90.0)
+        assert best is high_prob
+
+    def test_probability_filter_applies_default_threshold(self):
+        below_default = _make(prob_profit=90.0, yield_ann=80.0)
+        above_default = _make(prob_profit=92.0, yield_ann=20.0)
+        best = select_best_candidate([below_default, above_default])
+        assert best is above_default
 
     def test_blocked_strategies_filter(self):
         a = _make(strategy="CSP",  prob_profit=99.0, yield_ann=50.0)
@@ -156,6 +170,7 @@ class TestSelectBestCandidate:
                   put_strike=1800.0, call_strike=2200.0)
         best = select_best_candidate(
             [a, b],
+            min_prob=0.0,
             blocked_strategies=("CSP",),
         )
         assert best.strategy == "Strangle"
@@ -173,7 +188,7 @@ class TestSelectBestCandidate:
             _make(prob_profit=85.0, yield_ann=20.0),
         ]
         before = [(c.prob_profit, c.yield_ann) for c in cands]
-        select_best_candidate(cands)
+        select_best_candidate(cands, min_prob=0.0)
         after = [(c.prob_profit, c.yield_ann) for c in cands]
         assert before == after
 
@@ -368,6 +383,36 @@ class TestRunAutomation:
         assert result["status"] == "no_candidate"
         row.assert_not_called()
 
+    def test_candidate_below_probability_is_not_entered(self):
+        wb = MagicMock()
+        cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=90.0, liq="High")
+        with patch("automation.automator._build_candidates", return_value=[cand]), \
+             patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("automation.automator.append_trade_row") as row, \
+             patch("market.market_data.get_spot_price",  return_value=2000.0), \
+             patch("market.market_data.get_deribit_iv",  return_value=0.80):
+            result = run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, wb=wb, silent=True,
+            )
+        assert result["status"] == "no_candidate"
+        row.assert_not_called()
+
+    def test_candidate_below_probability_is_not_entered(self):
+        wb = MagicMock()
+        cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=90.0, liq="High")
+        with patch("automation.automator._build_candidates", return_value=[cand]), \
+             patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("automation.automator.append_trade_row") as row, \
+             patch("market.market_data.get_spot_price",  return_value=2000.0), \
+             patch("market.market_data.get_deribit_iv",  return_value=0.80):
+            result = run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, wb=wb, silent=True,
+            )
+        assert result["status"] == "no_candidate"
+        row.assert_not_called()
+
     def test_low_liquidity_is_not_entered(self):
         wb = MagicMock()
         cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=85.0,
@@ -387,7 +432,7 @@ class TestRunAutomation:
     def test_eligible_csp_is_entered(self):
         wb = MagicMock()
         cand = _make(strategy="CSP", strike_str="$1800",
-                     yield_ann=80.0, prob_profit=85.0, liq="High")
+                     yield_ann=80.0, prob_profit=95.0, liq="High")
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
              patch("automation.automator.append_trade_row") as row, \
@@ -409,7 +454,7 @@ class TestRunAutomation:
     def test_picks_highest_probability_when_multiple_qualify(self):
         wb = MagicMock()
         a = _make(strategy="Strangle", strike_str="$1800/$2200",
-                  yield_ann=80.0, prob_profit=70.0, liq="High",
+                  yield_ann=80.0, prob_profit=91.0, liq="High",
                   put_strike=1800.0, call_strike=2200.0)
         b = _make(strategy="CSP", strike_str="$1800",
                   yield_ann=20.0, prob_profit=92.0, liq="Med")
@@ -431,7 +476,7 @@ class TestRunAutomation:
         wb = MagicMock()
         cand = _make(
             strategy="Strangle", strike_str="$1800/$2200",
-            yield_ann=120.0, prob_profit=80.0, liq="High",
+            yield_ann=120.0, prob_profit=95.0, liq="High",
             put_strike=1800.0, call_strike=2200.0,
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
@@ -472,7 +517,7 @@ class TestRunAutomation:
         wb = MagicMock()
         cand = _make(
             strategy="Cal-C", strike_str="$2000 ATM",
-            yield_ann=40.0, prob_profit=65.0, liq="Med", far_days=30,
+            yield_ann=40.0, prob_profit=95.0, liq="Med", far_days=30,
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
@@ -500,7 +545,7 @@ class TestRunAutomation:
         wb = MagicMock()
         csp = _make(strategy="CSP", yield_ann=80.0, prob_profit=99.0)
         stg = _make(strategy="Strangle", strike_str="$1800/$2200",
-                    yield_ann=50.0, prob_profit=75.0, liq="High",
+                    yield_ann=50.0, prob_profit=95.0, liq="High",
                     put_strike=1800.0, call_strike=2200.0)
         with patch("automation.automator._build_candidates", return_value=[csp, stg]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \

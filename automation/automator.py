@@ -61,20 +61,22 @@ from strategies          import wheel, strangle, calendar
 # tests and the CLI can override them.
 DEFAULT_MIN_YIELD       = 10.0
 DEFAULT_ALLOWED_LIQUIDITY = ("Med", "High")
-
+DEFAULT_MIN_PROB        = 90.0
 
 # ── Candidate selection ──────────────────────────────────────────────────────
 
 def select_best_candidate(
     candidates:         Iterable[Candidate],
     min_yield:          float            = DEFAULT_MIN_YIELD,
+    min_prob:           float            = DEFAULT_MIN_PROB,
     allowed_liquidity:  Iterable[str]    = DEFAULT_ALLOWED_LIQUIDITY,
     blocked_strategies: Iterable[str]    = (),
 ) -> Candidate | None:
     """
     Return the candidate with the highest probability of profit that
-    satisfies ``yield_ann >= min_yield`` and has its ``liquidity_tag``
-    in ``allowed_liquidity``. Ties are broken by ``yield_ann`` desc.
+    satisfies ``yield_ann >= min_yield``, ``prob_profit > min_prob`` and
+    has its ``liquidity_tag`` in ``allowed_liquidity``. Ties are broken by
+    ``yield_ann`` desc.
 
     ``blocked_strategies`` lets callers exclude strategies that cannot
     currently be entered (e.g. ``"CSP"`` if the wheel already holds an
@@ -89,6 +91,7 @@ def select_best_candidate(
         c for c in candidates
         if c.liquidity_tag in allowed_set
         and c.yield_ann   >= min_yield
+        and c.prob_profit > min_prob
         and c.strategy   not in blocked_set
     ]
     if not eligible:
@@ -342,6 +345,7 @@ def run_automation(
     days:              int,
     wb,
     min_yield:         float          = DEFAULT_MIN_YIELD,
+    min_prob:          float          = DEFAULT_MIN_PROB,
     allowed_liquidity: Iterable[str]  = DEFAULT_ALLOWED_LIQUIDITY,
     silent:            bool           = False,
     *,
@@ -356,6 +360,7 @@ def run_automation(
     ---------------
     * liquidity_tag in ``allowed_liquidity``       (default Med + High)
     * yield_ann     >= ``min_yield``                (default 10 %/yr)
+    * prob_profit   >  ``min_prob``                 (default 90 %)
     * strategy not currently blocked by an open position
 
     Ranking: highest probability of profit, ties broken by annualised yield.
@@ -374,6 +379,7 @@ def run_automation(
     if not silent:
         hdr("Auto-Strategy Runner")
         inf("Min yield",        f"{min_yield:.0f}%/yr")
+        inf("Min prob",         f">{min_prob:.0f}%")
         inf("Liquidity filter", "/".join(allowed_liquidity))
         inf("Active asset",     active_asset)
         inf("Days to expiry",   f"{days}d")
@@ -406,6 +412,7 @@ def run_automation(
     pick = select_best_candidate(
         all_candidates,
         min_yield          = min_yield,
+        min_prob           = min_prob,
         allowed_liquidity  = allowed_liquidity,
         blocked_strategies = blocked,
     )
@@ -414,6 +421,7 @@ def run_automation(
         1 for c in all_candidates
         if c.liquidity_tag in set(allowed_liquidity)
         and c.yield_ann   >= min_yield
+        and c.prob_profit > min_prob
         and c.strategy   not in blocked
     )
 

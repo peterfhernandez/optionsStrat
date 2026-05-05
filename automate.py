@@ -33,7 +33,8 @@ from market.market_data   import get_spot_price, get_deribit_iv
 from excel.excel_tracker import setup_excel
 from ui.display       import hdr, inf, ok, warn, err
 from automation.automator import (
-    run_automation, DEFAULT_MIN_YIELD, DEFAULT_ALLOWED_LIQUIDITY,
+    run_automation, DEFAULT_MIN_YIELD, DEFAULT_MIN_PROB,
+    DEFAULT_ALLOWED_LIQUIDITY,
 )
 
 
@@ -48,6 +49,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help=f"Days to near expiry (default {WEEKLY_DAYS})")
     p.add_argument("--min-yield", type=float, default=DEFAULT_MIN_YIELD,
                    help=f"Minimum annualised yield in %% (default {DEFAULT_MIN_YIELD})")
+    p.add_argument("--min-probability", type=float, default=DEFAULT_MIN_PROB,
+                   help=f"Minimum probability of profit in %% (default {DEFAULT_MIN_PROB})")
     p.add_argument("--liquidity", default=",".join(DEFAULT_ALLOWED_LIQUIDITY),
                    help='Comma-separated liquidity tags allowed '
                         '(default "Med,High")')
@@ -74,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         days              = args.days,
         wb                = wb,
         min_yield         = args.min_yield,
+        min_prob          = args.min_probability,
         allowed_liquidity = allowed,
     )
 

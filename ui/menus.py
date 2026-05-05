@@ -26,7 +26,7 @@ from strategies.calendar import show_calendar_analysis, calendar_paper_menu
 from strategies.summary import show_summary
 from strategies.monitor import run_monitor
 from trading.portfolio import collect_open_positions
-from automation.automator import run_automation
+from automation.automator import run_automation, DEFAULT_MIN_PROB
 
 
 # ── Color codes ───────────────────────────────────────────────────────────────
@@ -162,6 +162,24 @@ def toggle_trading_mode() -> None:
     warn(msg)
 
 
+def prompt_min_probability(default: float = DEFAULT_MIN_PROB) -> float:
+    """Prompt the user to update the auto-enter minimum probability threshold."""
+    raw = input(
+        f"  {YL}Minimum probability of profit [{default:.0f}%]: {R}"
+    ).strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        warn("Invalid probability — enter a number like 91")
+        return default
+    if value < 0 or value > 100:
+        warn("Probability must be between 0 and 100")
+        return default
+    return value
+
+
 # ── Strategies submenu ────────────────────────────────────────────────────────
 
 def strategies_menu(
@@ -269,7 +287,7 @@ def main_menu(
 
   {CY}[S]{R}  Strategies
   {CY}[R]{R}  Recommendations scanner
-  {CY}[A]{R}  Auto-enter best paper trade  {GY}(yield ≥10%/yr, liq Med/High){R}
+  {CY}[A]{R}  Auto-enter best paper trade  {GY}(prob >90%, yield ≥10%/yr, liq Med/High){R}
   {CY}[M]{R}  Monitor all positions
   {CY}[P]{R}  Performance summary & stats
   {CY}[O]{R}  Portfolio positions & P&L
@@ -299,8 +317,10 @@ def main_menu(
         )
 
     elif choice == "A":
+        min_prob = prompt_min_probability()
         run_automation(
             spot, iv, asset, days, wb,
+            min_prob=min_prob,
             cal_near_days=calendar_near,
             cal_far_days=calendar_far,
         )

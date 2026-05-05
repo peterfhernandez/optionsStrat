@@ -140,7 +140,7 @@ The tool will:
 ```
 [S]  Strategies (sub-menu)
 [R]  Recommendations scanner
-[A]  Auto-enter best paper trade  (yield ≥10%/yr, liquidity Med/High)
+[A]  Auto-enter best paper trade  (prob >90%, yield ≥10%/yr, liquidity Med/High)
 [M]  Monitor all positions  (available in both main and strategies menus)
 [P]  Performance summary & stats
 [O]  Portfolio positions & P&L
@@ -165,6 +165,7 @@ The tool can pick a trade for you and open the paper position automatically.
 1. Runs the scanner across every supported asset and OTM level.
 2. Filters candidates by:
    - **Annualised yield ≥ 10 %/yr** (configurable)
+   - **Probability of profit > 90 %** (configurable)
    - **Liquidity tag of Medium or High** (Low and unrated excluded)
 3. Skips strategies that conflict with positions you already have open (e.g. won't try to open a second strangle).
 4. Picks the candidate with the **highest probability of profit** (yield breaks ties).
@@ -192,7 +193,7 @@ You'll see the same `OI / Vol24h / Spread / Liq` columns in the scanner table fo
 every strategy, including strangle and calendar rows.
 
 ### Run it interactively
-From the main menu, press `A` to invoke the automator once with the currently-selected asset and expiry.
+From the main menu, press `A` to invoke the automator once with the currently-selected asset and expiry; you can override the default minimum probability threshold when prompted.
 
 ### Run it from the shell
 ```bash
