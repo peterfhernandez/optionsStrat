@@ -8,6 +8,7 @@ without needing an explicit import.
 """
 
 import pytest
+from unittest.mock import MagicMock
 
 
 # ── Standard market parameters ────────────────────────────────────────────────
@@ -68,4 +69,11 @@ def std_params(spot, T_weekly, r, iv):
     Convenience bundle of standard pricing parameters.
     Returns (S, T, r, v) — strike must be supplied per test.
     """
+    return spot, T_weekly, r, iv
+
+
+@pytest.fixture
+def mock_wb():
+    """A mock openpyxl workbook — never actually written to."""
+    return MagicMock()
     return spot, T_weekly, r, iv

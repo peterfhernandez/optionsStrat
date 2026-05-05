@@ -138,7 +138,7 @@ The tool will:
 [S]  Strategies (sub-menu)
 [R]  Recommendations scanner
 [A]  Auto-enter best paper trade  (yield ≥10%/yr, liquidity Med/High)
-[M]  Monitor all positions
+[M]  Monitor all positions  (available in both main and strategies menus)
 [P]  Performance summary & stats
 [Y]  Set min yield filter
 [1]  Switch expiry (daily / weekly)

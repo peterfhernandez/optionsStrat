@@ -158,6 +158,7 @@ def strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
   {CY}[5]{R}  Calendar Spread — analysis + P&L chart
   {CY}[6]{R}  Calendar Spread — paper trading simulator
   {CY}[7]{R}  Record live trade  {GY}(wheel){R}
+  {CY}[M]{R}  Monitor all positions
   {CY}[Y]{R}  Set minimum yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[R]{R}  Recommendations scanner
   {CY}[0]{R}  Back
@@ -184,6 +185,9 @@ def strategies_menu(asset: str, spot: float, iv: float, wb, days: int) -> None:
 
         elif choice == "7":
             warn("Live trade recording not yet wired — use the original tool for now.")
+
+        elif choice == "M":
+            run_monitor(spot, iv, wb, days, asset, silent=False)
 
         elif choice == "Y":
             set_yield_filter()
