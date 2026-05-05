@@ -202,20 +202,20 @@ def _create_trade_sheet(wb, name: str) -> None:
     """
     ws = wb.create_sheet(name)
     ws.sheet_view.showGridLines = False
-    _col_widths(ws, [3, 13, 22, 18, 10, 13, 14, 14, 13, 13, 10, 18, 12, 12, 12, 28])
+    _col_widths(ws, [3, 7, 13, 22, 18, 10, 13, 14, 14, 13, 13, 10, 18, 12, 12, 12, 28])
 
     # Hidden summary formulas (read by Dashboard)
     ws.row_dimensions[2].height = 1
-    ws["K2"] = "=IF(COUNTA(I4:I5000)=0,0,SUM(I4:I5000))"
-    ws["L2"] = '=IF(COUNTA(J4:J5000)=0,0,COUNTIF(J4:J5000,"Win")/COUNTA(J4:J5000))'
-    ws["M2"] = '=COUNTIF(C4:C5000,"Call Expired Worthless")'
+    ws["K2"] = "=IF(COUNTA(K4:K5000)=0,0,SUM(K4:K5000))"
+    ws["L2"] = '=IF(COUNTA(L4:L5000)=0,0,COUNTIF(L4:L5000,"Win")/COUNTA(L4:L5000))'
+    ws["M2"] = '=COUNTIF(D4:D5000,"Call Expired Worthless")'
     ws["K2"].number_format = "$#,##0.00"
     ws["L2"].number_format = "0.0%"
 
     # Column headers
     ws.row_dimensions[3].height = 34
     headers = [
-        "Date", "Type", "Stage", "Days", "Strike ($)", "Spot Open ($)",
+        "Date", "Asset", "Type", "Stage", "Days", "Strike ($)", "Spot Open ($)",
         "Spot Close ($)", "Premium ($)", "P&L ($)", "Result",
         "Cum. Premium ($)", "Win Rate", "Cycles", "", "Notes",
     ]
@@ -229,7 +229,7 @@ def _create_trade_sheet(wb, name: str) -> None:
 
     # Placeholder row
     ws.row_dimensions[4].height = 18
-    ws.merge_cells("B4:P4")
+    ws.merge_cells("B4:Q4")
     c = ws["B4"]
     c.value     = "← Trades will appear here as you use the tool"
     c.font      = Font(name="Arial", italic=True, color="666666", size=9)
@@ -245,12 +245,12 @@ def _create_strangle_sheet(wb) -> None:
     """
     ws = wb.create_sheet("🔀 Strangles")
     ws.sheet_view.showGridLines = False
-    _col_widths(ws, [3, 13, 14, 14, 14, 14, 14, 14, 12, 12, 16, 16, 28])
+    _col_widths(ws, [3, 7, 13, 14, 14, 14, 14, 14, 14, 12, 12, 16, 16, 28])
 
     # Hidden summary formulas (read by Dashboard)
     ws.row_dimensions[2].height = 1
-    ws["H2"] = "=IF(COUNTA(H4:H5000)=0,0,SUM(H4:H5000))"
-    ws["I2"] = '=IF(COUNTA(K4:K5000)=0,0,COUNTIF(K4:K5000,"Win")/COUNTA(K4:K5000))'
+    ws["H2"] = "=IF(COUNTA(I4:I5000)=0,0,SUM(I4:I5000))"
+    ws["I2"] = '=IF(COUNTA(L4:L5000)=0,0,COUNTIF(L4:L5000,"Win")/COUNTA(L4:L5000))'
     ws["J2"] = "=COUNTA(A4:A5000)"
     ws["H2"].number_format = "$#,##0.00"
     ws["I2"].number_format = "0.0%"
@@ -258,7 +258,7 @@ def _create_strangle_sheet(wb) -> None:
     # Column headers
     ws.row_dimensions[3].height = 34
     headers = [
-        "Date", "Type", "Put Strike", "Call Strike", "Spot Open", "Spot Close",
+        "Date", "Asset", "Type", "Put Strike", "Call Strike", "Spot Open", "Spot Close",
         "Days", "Premium ($)", "P&L ($)", "Lower B/E", "Upper B/E", "Result", "Notes",
     ]
     for col, header in enumerate(headers, 2):
@@ -271,7 +271,7 @@ def _create_strangle_sheet(wb) -> None:
 
     # Placeholder row
     ws.row_dimensions[4].height = 18
-    ws.merge_cells("B4:N4")
+    ws.merge_cells("B4:O4")
     c = ws["B4"]
     c.value     = "← Strangle trades will appear here as you paper trade"
     c.font      = Font(name="Arial", italic=True, color="666666", size=9)
@@ -289,12 +289,12 @@ def _create_calendar_sheet(wb) -> None:
     """
     ws = wb.create_sheet("📅 Calendars")
     ws.sheet_view.showGridLines = False
-    _col_widths(ws, [3, 13, 20, 12, 12, 14, 14, 11, 10, 13, 13, 12, 28])
+    _col_widths(ws, [3, 7, 13, 20, 12, 12, 14, 14, 11, 10, 13, 13, 12, 28])
 
     # Hidden summary formulas (read by Dashboard)
     ws.row_dimensions[2].height = 1
-    ws["H2"] = "=IF(COUNTA(J4:J5000)=0,0,SUM(J4:J5000))"   # total P&L
-    ws["I2"] = '=IF(COUNTA(K4:K5000)=0,0,COUNTIF(K4:K5000,"Win")/COUNTA(K4:K5000))'
+    ws["H2"] = "=IF(COUNTA(K4:K5000)=0,0,SUM(K4:K5000))"   # total P&L
+    ws["I2"] = '=IF(COUNTA(L4:L5000)=0,0,COUNTIF(L4:L5000,"Win")/COUNTA(L4:L5000))'
     ws["J2"] = "=COUNTA(A4:A5000)"                          # trade count
     ws["H2"].number_format = "$#,##0.00"
     ws["I2"].number_format = "0.0%"
@@ -302,7 +302,7 @@ def _create_calendar_sheet(wb) -> None:
     # Column headers
     ws.row_dimensions[3].height = 34
     headers = [
-        "Date", "Type", "Strike ($)", "Option", "Spot Open ($)", "Spot Close ($)",
+        "Date", "Asset", "Type", "Strike ($)", "Option", "Spot Open ($)", "Spot Close ($)",
         "Near Days", "Far Days", "Net Debit ($)", "P&L ($)", "Result", "Notes",
     ]
     for col, header in enumerate(headers, 2):
@@ -315,7 +315,7 @@ def _create_calendar_sheet(wb) -> None:
 
     # Placeholder row
     ws.row_dimensions[4].height = 18
-    ws.merge_cells("B4:M4")
+    ws.merge_cells("B4:O4")
     c = ws["B4"]
     c.value     = "← Calendar spread trades will appear here as you paper trade"
     c.font      = Font(name="Arial", italic=True, color="666666", size=9)
@@ -407,6 +407,7 @@ def append_trade_row(wb, sheet_name: str, trade: dict) -> None:
 
     values = [
         trade.get("date",       ""),
+        trade.get("asset",      ""),
         trade.get("type",       ""),
         trade.get("stage",      ""),
         trade.get("days",       7),
@@ -416,12 +417,12 @@ def append_trade_row(wb, sheet_name: str, trade: dict) -> None:
         trade.get("premium",    0),
         trade.get("pnl",        ""),
         result,
-        f"=SUM($I$4:I{row})",
+        f"=SUM($K$4:K{row})",
         "", "", "",
         trade.get("notes", ""),
     ]
-    fmts = {5: "$#,##0", 6: "$#,##0.00", 7: "$#,##0.00",
-            8: "$#,##0.00", 9: "$#,##0.00", 11: "$#,##0.00"}
+    fmts = {7: "$#,##0", 8: "$#,##0.00", 9: "$#,##0.00",
+            10: "$#,##0.00", 12: "$#,##0.00"}
 
     for col_idx, val in enumerate(values, 2):
         c = ws.cell(row=row, column=col_idx, value=val)
@@ -457,7 +458,7 @@ def append_strangle_row(wb, trade: dict) -> None:
         if cell_val is None:
             break
         if isinstance(cell_val, str) and "←" in cell_val:
-            _unmerge_row(ws, row, max_col=14)
+            _unmerge_row(ws, row, max_col=15)
             break
         row += 1
 
@@ -477,6 +478,7 @@ def append_strangle_row(wb, trade: dict) -> None:
 
     values = [
         trade.get("date",       ""),
+        trade.get("asset",      ""),
         trade.get("type",       ""),
         Kp,
         Kc,
@@ -491,8 +493,8 @@ def append_strangle_row(wb, trade: dict) -> None:
         trade.get("notes",      ""),
     ]
     fmts = {
-        4: "$#,##0", 5: "$#,##0", 6: "$#,##0.00", 7: "$#,##0.00",
-        8: "$#,##0.00", 9: "$#,##0.00", 10: "$#,##0", 11: "$#,##0",
+        5: "$#,##0", 6: "$#,##0", 7: "$#,##0.00", 8: "$#,##0.00",
+        10: "$#,##0.00", 11: "$#,##0.00", 12: "$#,##0.00", 13: "$#,##0.00",
     }
 
     for col_idx, val in enumerate(values, 2):
@@ -529,7 +531,7 @@ def append_calendar_row(wb, trade: dict) -> None:
         if cell_val is None:
             break
         if isinstance(cell_val, str) and "←" in cell_val:
-            _unmerge_row(ws, row, max_col=13)
+            _unmerge_row(ws, row, max_col=15)
             break
         row += 1
 
@@ -539,6 +541,7 @@ def append_calendar_row(wb, trade: dict) -> None:
 
     values = [
         trade.get("date",        ""),
+        trade.get("asset",       ""),
         trade.get("type",        ""),
         trade.get("strike",      0),
         trade.get("option_type", ""),
@@ -552,8 +555,8 @@ def append_calendar_row(wb, trade: dict) -> None:
         trade.get("notes",       ""),
     ]
     fmts = {
-        4: "$#,##0", 6: "$#,##0.00", 7: "$#,##0.00",
-        10: "$#,##0.00", 11: "$#,##0.00",
+        5: "$#,##0", 7: "$#,##0.00", 8: "$#,##0.00",
+        11: "$#,##0.00", 12: "$#,##0.00",
     }
 
     for col_idx, val in enumerate(values, 2):

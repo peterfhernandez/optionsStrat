@@ -29,3 +29,16 @@ def test_strategy_menu_monitor_option_calls_run_monitor(mock_wb):
         strategies_menu("ETH", 2000.0, 0.80, mock_wb, 7)
 
     mock_monitor.assert_called_once_with(2000.0, 0.80, mock_wb, 7, "ETH", silent=False)
+
+
+def test_main_menu_trade_history_calls_show_trade_history(mock_wb):
+    with patch("ui.menus.show_trade_history") as mock_history, \
+         patch("builtins.input", return_value="H"):
+        should_continue, asset, spot, iv, days = main_menu("ETH", 2000.0, 0.80, mock_wb, 7)
+
+    mock_history.assert_called_once_with(mock_wb)
+    assert should_continue is True
+    assert asset == "ETH"
+    assert spot == 2000.0
+    assert iv == 0.80
+    assert days == 7

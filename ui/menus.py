@@ -16,7 +16,7 @@ from config import (
     TRADING_MODE,
 )
 from market.market_data import get_spot_price, get_deribit_iv
-from ui.display import hdr, sub, inf, ok, warn, err, GR, RD, R
+from ui.display import hdr, sub, inf, ok, warn, err, GR, RD, R, show_trade_history
 import strategies.scanner as scanner
 from strategies.wheel import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
@@ -221,6 +221,7 @@ def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, 
   {CY}[M]{R}  Monitor all positions
   {CY}[P]{R}  Performance summary & stats
   {CY}[O]{R}  Portfolio positions & P&L
+  {CY}[H]{R}  Trade history & cumulative P&L
   {CY}[L]{R}  Trading mode (paper/live)
   {CY}[Y]{R}  Set min yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[1]{R}  Switch expiry  {GY}(currently {days}d — {'daily' if days == 1 else 'weekly'}){R}
@@ -247,6 +248,9 @@ def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, 
 
     elif choice == "O":
         show_portfolio(wb)
+
+    elif choice == "H":
+        show_trade_history(wb)
 
     elif choice == "L":
         toggle_trading_mode()
@@ -288,7 +292,7 @@ def main_menu(asset: str, spot: float, iv: float, wb, days: int) -> Tuple[bool, 
         return (False, asset, spot, iv, days)
 
     else:
-        warn("Invalid choice — enter 0–3, S, Y, L, R, A, M or P")
+        warn("Invalid choice — enter 0–3, S, Y, L, R, A, M, P, O or H")
 
     return (True, asset, spot, iv, days)
 

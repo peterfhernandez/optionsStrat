@@ -158,6 +158,7 @@ def _check_strangle(
 
     append_strangle_row(wb, {
         "date":        str(date.today()),
+        "asset":       op.get("asset", asset),
         "type":        f"Short Strangle — Auto Close ({trigger})",
         "put_strike":  Kp,
         "call_strike": Kc,
@@ -258,6 +259,7 @@ def _check_wheel(
 
     append_trade_row(wb, "📝 Paper Trades", {
         "date":        str(date.today()),
+        "asset":       op.get("asset", asset),
         "type":        f"{opt_type} — Auto Close ({trigger})",
         "stage":       "Closed",
         "days":        op.get("days", 7),
@@ -372,6 +374,7 @@ def _check_calendar(
 
     append_calendar_row(wb, {
         "date":        str(date.today()),
+        "asset":       op.get("asset", asset),
         "type":        f"{opt_type} Calendar — Auto Close ({trigger})",
         "strike":      K,
         "option_type": opt_type,

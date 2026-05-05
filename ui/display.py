@@ -447,3 +447,106 @@ def draw_calendar_zone(
     filled = int(p_in / 100 * bar_w)
     bar    = f"{GR}{'█' * filled}{GY}{'░' * (bar_w - filled)}{R}"
     print(f"  {WH}Est. Prob of Profit: {bar}  {GR}{p_in:.0f}%{R}\n")
+
+
+# ── Trade History Display ─────────────────────────────────────────────────────
+
+def show_trade_history(wb) -> None:
+    """
+    Display a list of all trades with per-trade P&L and cumulative P&L.
+
+    Reads from Excel sheets: 📝 Paper Trades, 🔀 Strangles, 📅 Calendars.
+    Sorts trades by date, displays table with running total.
+    """
+    from datetime import datetime
+
+    def _headers(ws):
+        headers = {}
+        for col in range(2, ws.max_column + 1):
+            value = ws.cell(row=3, column=col).value
+            if isinstance(value, str) and value.strip():
+                headers[value.strip()] = col
+        return headers
+
+    def _is_placeholder(value):
+        return isinstance(value, str) and value.startswith("←")
+
+    def _to_float(value):
+        if value is None or value == "":
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            return float(str(value).replace(",", ""))
+        except (ValueError, TypeError):
+            return 0.0
+
+    trades = []
+    for sheet_name in ["📝 Paper Trades", "🔀 Strangles", "📅 Calendars"]:
+        if sheet_name not in wb.sheetnames:
+            continue
+
+        ws = wb[sheet_name]
+        headers = _headers(ws)
+        if not headers:
+            continue
+
+        date_col = headers.get("Date", 2)
+        asset_col = headers.get("Asset")
+        type_col = headers.get("Type", 3)
+        pnl_col = headers.get("P&L ($)", headers.get("P&L", 10))
+        result_col = headers.get("Result")
+        notes_col = headers.get("Notes")
+
+        for row in range(4, ws.max_row + 1):
+            date_val = ws.cell(row=row, column=date_col).value
+            if not date_val or _is_placeholder(date_val):
+                continue
+
+            trade = {
+                "date": date_val,
+                "asset": ws.cell(row=row, column=asset_col).value if asset_col else "",
+                "type": ws.cell(row=row, column=type_col).value or "",
+                "pnl": _to_float(ws.cell(row=row, column=pnl_col).value),
+                "result": ws.cell(row=row, column=result_col).value if result_col else "",
+                "notes": ws.cell(row=row, column=notes_col).value if notes_col else "",
+            }
+            trades.append(trade)
+
+    def parse_date(d):
+        if isinstance(d, str):
+            try:
+                return datetime.strptime(d, "%Y-%m-%d")
+            except ValueError:
+                return datetime.min
+        return d or datetime.min
+
+    trades.sort(key=lambda t: parse_date(t["date"]))
+
+    if not trades:
+        print(f"\n  {YL}No trades found in Excel workbook.{R}\n")
+        return
+
+    hdr("Trade History")
+    print(
+        f"\n  {WH}Asset  Date       Type                          P&L         Cumulative{R}"
+    )
+    print(f"  {CY}{'─' * 80}{R}")
+
+    cumulative = 0.0
+    for trade in trades:
+        pnl = trade["pnl"]
+        cumulative += pnl
+        pnl_text = f"${pnl:>9.2f}"
+        cum_text = f"${cumulative:>10.2f}"
+        pnl_col = GR if pnl >= 0 else RD
+        cum_col = GR if cumulative >= 0 else RD
+
+        print(
+            f"  {str(trade['asset']):<5}  {str(trade['date']):<10}  {trade['type']:<30}  {pnl_col}{pnl_text}{R}  {cum_col}{cum_text}{R}"
+        )
+
+    print(f"  {CY}{'─' * 80}{R}")
+    inf("Total trades", str(len(trades)))
+    inf("Total P&L", f"{GR if cumulative >= 0 else RD}${cumulative:,.2f}{R}")
+    print()

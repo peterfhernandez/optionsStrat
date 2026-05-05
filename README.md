@@ -140,6 +140,9 @@ The tool will:
 [A]  Auto-enter best paper trade  (yield ≥10%/yr, liquidity Med/High)
 [M]  Monitor all positions  (available in both main and strategies menus)
 [P]  Performance summary & stats
+[O]  Portfolio positions & P&L
+[H]  Trade history & cumulative P&L
+[L]  Trading mode (paper/live)
 [Y]  Set min yield filter
 [1]  Switch expiry (daily / weekly)
 [2]  Switch asset
