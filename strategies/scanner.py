@@ -30,6 +30,8 @@ _display_ranked(label, candidates)        Print a ranked recommendation block
 
 from dataclasses import dataclass, field
 
+import math
+
 from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
@@ -142,6 +144,18 @@ def _combine_liquidity_legs(*books) -> dict:
         "liquidity_tag": _liquidity_tag(worst_oi, worst_vol, worst_spd),
     }
  
+
+def _round_strike(price: float, strike_round: float) -> float:
+    """Round a strike to the asset's configured strike increment."""
+    rounded = round(price / strike_round) * strike_round
+    return max(rounded, strike_round)
+
+
+def _format_strike(strike: float, strike_round: float) -> str:
+    """Format a strike string with the correct decimal precision for the asset."""
+    decimals = 0 if strike_round >= 1 else int(round(-math.log10(strike_round)))
+    return f"${strike:,.{decimals}f}"
+ 
  
  # ── Liquidity fetcher ─────────────────────────────────────────────────────────
  
@@ -214,8 +228,8 @@ def _build_candidates(
     candidates = []
 
     for otm in OTM_LEVELS:
-        Kp = round(spot * (1 - otm) / 10) * 10
-        Kc = round(spot * (1 + otm) / 10) * 10
+        Kp = _round_strike(spot * (1 - otm), strike_round)
+        Kc = _round_strike(spot * (1 + otm), strike_round)
  
         # Fetch liquidity for put and call strikes
         put_book  = _fetch_liquidity(ticker, spot, days, strike_round, otm, "put")
@@ -226,7 +240,6 @@ def _build_candidates(
         call_iv = call_book["mark_iv"] if call_book else iv
 
         # ── Cash-Secured Put ──────────────────────────────────────────────────
-        Kp  = round(spot * (1 - otm) / 10) * 10
         qty_p = BUDGET_USD / Kp
         pp    = bs_put(spot, Kp, T, r, put_iv) * qty_p
         yld_p = (pp / BUDGET_USD) * (365 / days) * 100
@@ -240,7 +253,7 @@ def _build_candidates(
             otm_pct     = otm,
             spot        = spot,
             iv          = put_iv,
-            strike      = f"${Kp:,.0f}",
+            strike      = _format_strike(Kp, strike_round),
             premium     = round(pp, 2),
             yield_ann   = round(yld_p, 1),
             prob_profit = round(pop_p, 1),
@@ -252,7 +265,6 @@ def _build_candidates(
         ))
 
         # ── Covered Call ──────────────────────────────────────────────────────
-        Kc    = round(spot * (1 + otm) / 10) * 10
         qty_c = BUDGET_USD / spot
         cp    = bs_call(spot, Kc, T, r, call_iv) * qty_c
         yld_c = (cp / BUDGET_USD) * (365 / days) * 100
@@ -267,7 +279,7 @@ def _build_candidates(
             otm_pct     = otm,
             spot        = spot,
             iv          = call_iv,
-            strike      = f"${Kc:,.0f}",
+            strike      = _format_strike(Kc, strike_round),
             premium     = round(cp, 2),
             yield_ann   = round(yld_c, 1),
             prob_profit = round(pop_c, 1),
@@ -300,7 +312,7 @@ def _build_candidates(
             otm_pct     = otm,
             spot        = spot,
             iv          = iv,
-            strike      = f"${Kp:,.0f}/${Kc:,.0f}",
+            strike      = f"{_format_strike(Kp, strike_round)}/{_format_strike(Kc, strike_round)}",
             premium     = round(tot, 2),
             yield_ann   = round(yld3, 1),
             prob_profit = round(pop3, 1),
@@ -320,7 +332,7 @@ def _build_candidates(
         T_far  = CALENDAR_FAR_DAYS / 365.0
         T_rem  = max(CALENDAR_FAR_DAYS - days, 1) / 365.0
         qty_c  = BUDGET_USD / spot
-        K_atm  = round(spot / 10) * 10
+        K_atm  = _round_strike(spot, strike_round)
 
         for cal_type, bs_near, bs_far, side in (
             ("Cal-C", bs_call, bs_call, "call"),
@@ -369,7 +381,7 @@ def _build_candidates(
                 otm_pct     = 0.00,
                 spot        = spot,
                 iv          = iv,
-                strike      = f"${K_atm:,.0f} ATM",
+                strike      = f"{_format_strike(K_atm, strike_round)} ATM",
                 premium     = round(net_debit, 2),   # net debit = max loss
                 yield_ann   = round(yld_cal, 1),
                 prob_profit = round(p_cal, 1),

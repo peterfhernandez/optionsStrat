@@ -1,7 +1,8 @@
 # Crypto Options Trading Tool
 
-Personal paper trading and planning tool for ETH options strategies on Deribit.
-Built to practice the **Wheel Strategy** and **Short Strangle** before trading with real money.
+Personal paper trading and planning tool for crypto options strategies on Deribit.
+Supports **ETH**, **BTC**, **SOL**, and **XRP** strategies.
+Built to practice the **Wheel Strategy**, **Short Strangle**, and **Calendar Spreads** before trading with real money.
 
 ---
 
@@ -35,7 +36,7 @@ Built to practice the **Wheel Strategy** and **Short Strangle** before trading w
 
 ## What It Does
 
-- **Fetches live ETH price** from CoinGecko (free, no API key)
+- **Fetches live crypto prices** from Binance (primary) and CoinGecko (fallback) for ETH, BTC, SOL, XRP
 - **Fetches live Implied Volatility** from Deribit's public API
 - **Strike & premium analysis** — shows 10%, 15%, 20% OTM options with estimated premiums, annualised yield and probability of profit
 - **Wheel paper trading simulator** — tracks the full Put → Assign → Call cycle
@@ -65,30 +66,31 @@ A two-leg income strategy suited to assets you're happy to hold long-term.
 ```
 Step 1 → Sell a Cash-Secured Put below current price. Collect premium.
 Step 2 → If it expires worthless: keep premium, repeat Step 1.
-Step 3 → If assigned: you buy ETH at the strike price.
+Step 3 → If assigned: you buy the asset at the strike price.
 Step 4 → Sell a Covered Call above your cost basis. Collect premium.
 Step 5 → If it expires worthless: keep premium, repeat Step 4.
-Step 6 → If called away: sell ETH at strike. Cycle complete. Go to Step 1.
+Step 6 → If called away: sell the asset at strike. Cycle complete. Go to Step 1.
 ```
 
 **Key settings used:**
-- Budget: $250 USD
+- Budget: $250 USD per trade
 - Strike target: 15% OTM (adjustable)
 - Expiry: weekly (7-day)
 - Platform: Deribit (cash-settled) or Coinbase Advanced (physically settled)
+- Supported assets: ETH, BTC, SOL, XRP
 
-**Note on Deribit:** ETH options on Deribit are *cash-settled* — you don't automatically receive ETH on assignment. If assigned, buy ETH spot manually to continue the wheel.
+**Note on Deribit:** Most options on Deribit are *cash-settled* — you don't automatically receive the asset on assignment. If assigned, buy the asset spot manually to continue the wheel.
 
 ---
 
 ### 2. Short Strangle
-Sell an OTM put AND an OTM call simultaneously. Profit when ETH stays within a range.
+Sell an OTM put AND an OTM call simultaneously. Profit when the asset stays within a range.
 
 ```
 Sell Put (15% below spot)  +  Sell Call (15% above spot)
 → Collect combined premium from both sides
-→ Profit if ETH stays between the two breakevens at expiry
-→ Loss if ETH breaks out hard in either direction
+→ Profit if asset stays between the two breakevens at expiry
+→ Loss if asset breaks out hard in either direction
 ```
 
 **Profit zone:**
@@ -108,7 +110,7 @@ Loss   |   Profit zone   |   Loss
 **Expected stats (15% OTM, weekly, ~80% IV):**
 - ~86% probability of profit
 - ~38% annualised yield on budget
-- Breakeven range: roughly ±20% from current ETH price
+- Breakeven range: roughly ±20% from current spot price
 
 ---
 
@@ -126,9 +128,9 @@ python crypto_options_trade.py
 
 ### First run
 The tool will:
-1. Fetch live ETH price and IV automatically
+1. Fetch live crypto price and IV automatically (ETH by default)
 2. Create `crypto_options_trade_tracker.xlsx` if it doesn't exist
-3. Drop you into the main menu
+3. Drop you into the main menu — use `[2]` to switch between ETH, BTC, SOL, and XRP
 
 ---
 

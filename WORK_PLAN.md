@@ -37,8 +37,9 @@ Steps (6 phases, 22 steps)
 22. Wire up manual close in strategy menus — user can close any position manually - <font color="blue">DONE</font>
 23. Wire up automatic manual close in main and strategy menus — the correct positions are closed, due to end of strategy, or stop loss - <font color="blue">DONE</font>
 24. Implement trades list, with p/l per trade, and cumulative p/l - <font color="blue">DONE</font>
-25. Implement the same for 1 or 2 more Coins
-26. Implement 1 or 2 more options strategies
+25. Implement the same for 1 or 2 more Coins - <font color="green">DONE for XRP - ALL DONE</font>
+26. Implement 1 or 2 more options strategies - <font color="red">TO DO for Credit spread</font>
+27. Remove the Wheel from Strategies and automate.py
 
 # Relevant Files
 main.py — refactor to use ui.menus

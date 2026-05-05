@@ -379,6 +379,14 @@ class TestBuildCandidates:
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
         assert all(c.asset == "ETH" for c in results)
 
+    def test_low_price_asset_uses_strike_round(self):
+        """Low-priced assets like XRP should still produce valid non-zero strikes."""
+        with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
+            results = _build_candidates("XRP", 1.40, 0.47, 7)
+        assert len(results) == len(OTM_LEVELS) * 3 + 2
+        assert all(c.asset == "XRP" for c in results)
+        assert all("$0" not in c.strike for c in results if c.strategy in {"CSP", "CC", "Strangle"})
+
     def test_premium_positive(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)

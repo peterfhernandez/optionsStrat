@@ -9,7 +9,7 @@ edit this file — no need to touch strategy or display code.
 Settings
 --------
 SUPPORTED_ASSETS        Per-asset config: CoinGecko ID, Deribit ticker, strike rounding
-DEFAULT_ASSET           Asset used on startup (ETH, BTC, or SOL)
+DEFAULT_ASSET           Asset used on startup (ETH, BTC, SOL, or XRP)
 BUDGET_USD              Capital allocated to each trade (USD)
 EXCEL_FILE              Output workbook filename
 RISK_FREE_RATE          Annualised risk-free rate (decimal)
@@ -33,11 +33,12 @@ MIN_YIELD_PCT           Default minimum annualised yield to qualify for recommen
 #   strike_round  : int    Round ATM strike to nearest N dollars
 #
 # Deribit ticker notes:
-#   BTC, ETH  — inverse (USD-settled) contracts, ticker = asset symbol
+#   BTC, ETH, XRP  — inverse (USD-settled) contracts, ticker = asset symbol
 #   SOL       — linear USDC-settled contracts, ticker = "SOL_USDC"
 #   BTC strike increments: ~$90k price → $1000 increments
 #   ETH strike increments: ~$2k  price → $100  increments
 #   SOL strike increments: ~$150 price → $1    increments
+#   XRP strike increments: ~$2.5 price → $0.10 increments
  
 SUPPORTED_ASSETS = {
     "ETH": {
@@ -57,6 +58,12 @@ SUPPORTED_ASSETS = {
         "coingecko_id":   "solana",
         "deribit_ticker": "SOL_USDC",
         "strike_round":   1,
+    },
+    "XRP": {
+        "binance_symbol": "XRPUSDT",
+        "coingecko_id":   "ripple",
+        "deribit_ticker": "XRP",
+        "strike_round":   0.10,
     },
 }
  

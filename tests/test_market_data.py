@@ -400,6 +400,16 @@ class TestGetSpotPrice:
             result = get_spot_price("SOL")
         assert result == pytest.approx(86.41)
 
+    def test_xrp_supported(self):
+        with patch("market.market_data._price_from_binance", return_value=2.51):
+            result = get_spot_price("XRP")
+        assert result == pytest.approx(2.51)
+
+    def test_xrp_supported(self):
+        with patch("market.market_data._price_from_binance", return_value=2.51):
+            result = get_spot_price("XRP")
+        assert result == pytest.approx(2.51)
+
 
 # ── get_deribit_iv ────────────────────────────────────────────────────────────
 
@@ -452,3 +462,11 @@ class TestGetDeribitIv:
                 get_deribit_iv("SOL", 86.41, 7)
         call_args = mock_inst.call_args_list[0]
         assert "SOL_USDC" in str(call_args)
+
+    def test_xrp_uses_correct_ticker(self):
+        """XRP should use 'XRP' as the Deribit ticker."""
+        with patch("market.market_data._fetch_mark_iv", return_value=0.70):
+            with patch("market.market_data._deribit_instrument", return_value="XRP-1MAY26-2.5-P") as mock_inst:
+                get_deribit_iv("XRP", 2.5, 7)
+        call_args = mock_inst.call_args_list[0]
+        assert call_args.kwargs.get("ticker") == "XRP" or "XRP" in str(call_args)

@@ -269,6 +269,11 @@ def get_sol_price() -> float | None:
     return get_spot_price("SOL")
 
 
+def get_xrp_price() -> float | None:
+    """Convenience wrapper for get_spot_price('XRP'). Keeps existing call sites working."""
+    return get_spot_price("XRP")
+
+
 def get_deribit_iv(asset: str, spot: float, days: int) -> float | None:
     """
     Fetch the ATM implied volatility for any supported asset from Deribit.

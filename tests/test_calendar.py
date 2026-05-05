@@ -118,11 +118,14 @@ class TestStateFile:
     def test_sol_filename(self):
         assert _state_file("SOL") == "calendar_state_SOL.json"
 
+    def test_xrp_filename(self):
+        assert _state_file("XRP") == "calendar_state_XRP.json"
+
     def test_lowercase_uppercased(self):
         assert _state_file("eth") == "calendar_state_ETH.json"
 
     def test_format_consistent(self):
-        for asset in ("ETH", "BTC", "SOL"):
+        for asset in ("ETH", "BTC", "SOL", "XRP"):
             name = _state_file(asset)
             assert name.startswith("calendar_state_")
             assert name.endswith(".json")
