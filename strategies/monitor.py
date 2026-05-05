@@ -46,7 +46,10 @@ from excel.excel_tracker import append_strangle_row, append_trade_row, append_ca
 
 # Take-profit: auto-close when position retains less than this fraction
 # of original premium (i.e. nearly worthless — lock in the gain)
-TAKE_PROFIT_THRESHOLD = 0.10   # 10% of premium remaining → close
+TAKE_PROFIT_THRESHOLD = 0.05   # 5% of premium remaining → close (was 10%)
+
+# Minimum days before expiry to allow take-profit closes (prevent premature closure)
+MIN_DAYS_FOR_TP = 2            # Don't auto-close puts/calls within 2 days of expiry
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -136,7 +139,7 @@ def _check_strangle(
         result  = "Loss (Auto Stop)"
         note    = f"Auto stop-loss at {mult:.2f}x premium. P&L: ${pnl:.2f}"
 
-    elif cur_val <= p0 * TAKE_PROFIT_THRESHOLD:
+    elif cur_val <= p0 * TAKE_PROFIT_THRESHOLD and days_left >= MIN_DAYS_FOR_TP:
         trigger = "TAKE-PROFIT"
         result  = "Win (Auto TP)"
         note    = f"Auto take-profit — {(1-mult)*100:.0f}% of premium captured. P&L: ${pnl:.2f}"
@@ -238,7 +241,7 @@ def _check_wheel(
         result  = "Loss (Auto Stop)"
         note    = f"Auto stop-loss at {mult:.2f}x premium. P&L: ${pnl:.2f}"
 
-    elif cur <= p0 * TAKE_PROFIT_THRESHOLD:
+    elif cur <= p0 * TAKE_PROFIT_THRESHOLD and days_left >= MIN_DAYS_FOR_TP:
         trigger = "TAKE-PROFIT"
         result  = "Win (Auto TP)"
         note    = f"Auto take-profit — {(1-mult)*100:.0f}% captured. P&L: ${pnl:.2f}"
@@ -471,7 +474,7 @@ def run_monitor(
             print(f"\n  {GY}No positions required action.{R}")
         print(f"\n  {GY}Thresholds:  "
               f"Stop-loss {STOP_LOSS_MULTIPLIER:.1f}x strangle  |  "
-              f"Take-profit <{TAKE_PROFIT_THRESHOLD*100:.0f}% remaining  |  "
+              f"Take-profit <{TAKE_PROFIT_THRESHOLD*100:.0f}% remaining (>{MIN_DAYS_FOR_TP}d from expiry)  |  "
               f"Calendar stop {CALENDAR_STOP_PCT*100:.0f}% of debit{R}\n")
 
     elif any_triggered:

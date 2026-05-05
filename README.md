@@ -42,7 +42,7 @@ Built to practice the **Wheel Strategy**, **Short Strangle**, and **Calendar Spr
 - **Wheel paper trading simulator** — tracks the full Put → Assign → Call cycle
 - **Short Strangle paper trading** — sell both sides, with a live profit zone chart
 - **Portfolio view** — list open positions with live unrealised P&L
-- **Stop-loss monitor** — warns at 1.5x and triggers at 2.0x premium (adjustable)
+- **Stop-loss monitor** — warns at 1.5x and triggers at 2.0x premium (adjustable), take-profit at 5% remaining value (>2 days from expiry)
 - **Daily or weekly expiry** — switchable in the menu
 - **Separate calendar near/far expiry control** — choose calendar legs independently
 - **Excel tracker** — all trades written automatically to `crypto_options_trade_tracker.xlsx`, with older workbooks auto-upgraded to preserve previous rows and add the missing Asset column.
