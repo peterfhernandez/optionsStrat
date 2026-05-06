@@ -44,8 +44,9 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from strategies.scanner   import Candidate
-from strategies           import wheel, strangle, calendar
+from database import load_wheel_state, save_wheel_state
+from strategies.scanner import Candidate
+from strategies import wheel, strangle, calendar
 from automation.automator import (
     select_best_candidate,
     run_automation,
@@ -208,22 +209,22 @@ class TestBlockedStrategies:
         assert "Cal-P" not in blocked
 
     def test_holding_blocks_csp_allows_cc(self):
-        s = wheel._load("ETH")
+        s = load_wheel_state("ETH")
         s["stage"] = "holding"
         s["asset_held"] = 0.13
         s["cost_basis"] = 1900
-        wheel._save("ETH", s)
+        save_wheel_state("ETH", s)
 
         blocked = _blocked_strategies("ETH")
         assert "CSP" in blocked
         assert "CC" not in blocked
 
     def test_short_put_blocks_both_wheel_legs(self):
-        s = wheel._load("ETH")
+        s = load_wheel_state("ETH")
         s["stage"] = "short_put"
-        s["open"]  = {"type": "Put", "strike": 1800,
-                      "premium": 5.0, "qty": 0.13, "days": 7}
-        wheel._save("ETH", s)
+        s["open"] = {"type": "Put", "strike": 1800,
+                     "premium": 5.0, "qty": 0.13, "days": 7}
+        save_wheel_state("ETH", s)
 
         blocked = _blocked_strategies("ETH")
         assert "CSP" in blocked
@@ -261,16 +262,16 @@ class TestBlockedStrategies:
 class TestEnterTrade:
 
     def test_csp_writes_wheel_state(self):
-        c  = _make(strategy="CSP", strike_str="$1800")
+        c = _make(strategy="CSP", strike_str="$1800")
         wb = MagicMock()
         with patch("trading.executor.append_trade_row") as row:
             opened = enter_trade(c, wb)
 
-        s = wheel._load("ETH")
+        s = load_wheel_state("ETH")
         assert s["stage"] == "short_put"
-        assert s["open"]["type"]   == "Put"
+        assert s["open"]["type"] == "Put"
         assert s["open"]["strike"] == 1800.0
-        assert s["total_premium"]  > 0
+        assert s["total_premium"] > 0
         row.assert_called_once()
         # Sheet name is the second positional arg
         assert row.call_args.args[1] == "📝 Paper Trades"
@@ -284,18 +285,18 @@ class TestEnterTrade:
                 enter_trade(c, wb)
 
     def test_cc_uses_asset_held_qty(self):
-        s = wheel._load("ETH")
+        s = load_wheel_state("ETH")
         s["stage"] = "holding"
         s["asset_held"] = 0.20
         s["cost_basis"] = 2000.0
-        wheel._save("ETH", s)
+        save_wheel_state("ETH", s)
 
-        c  = _make(strategy="CC", strike_str="$2200")
+        c = _make(strategy="CC", strike_str="$2200")
         wb = MagicMock()
         with patch("trading.executor.append_trade_row"):
             opened = enter_trade(c, wb)
 
-        s2 = wheel._load("ETH")
+        s2 = load_wheel_state("ETH")
         assert s2["stage"] == "short_call"
         assert s2["open"]["type"] == "Call"
         assert s2["open"]["qty"]  == pytest.approx(0.20)
@@ -433,7 +434,7 @@ class TestRunAutomation:
         assert result["position"]["strike"] == 1800.0
         row.assert_called_once()
 
-        s = wheel._load("ETH")
+        s = load_wheel_state("ETH")
         assert s["stage"] == "short_put"
 
     def test_picks_highest_probability_when_multiple_qualify(self):
@@ -521,11 +522,11 @@ class TestRunAutomation:
         """If the wheel already has a short put open, CSP is blocked, so
         the runner should fall through to a Strangle candidate."""
         # Pre-load wheel into 'short_put' state
-        s = wheel._load("ETH")
+        s = load_wheel_state("ETH")
         s["stage"] = "short_put"
-        s["open"]  = {"type": "Put", "strike": 1700.0,
-                      "premium": 5.0, "qty": 0.14, "days": 7}
-        wheel._save("ETH", s)
+        s["open"] = {"type": "Put", "strike": 1700.0,
+                     "premium": 5.0, "qty": 0.14, "days": 7}
+        save_wheel_state("ETH", s)
 
         wb = MagicMock()
         csp = _make(strategy="CSP", yield_ann=80.0, prob_profit=99.0)

@@ -11,63 +11,26 @@ Public API
 show_strikes(asset, spot, iv, days)
     Display put and call strike tables with premiums and probabilities.
 
-wheel_paper_menu(asset, spot, iv, wb, days)
+wheel_paper_menu(asset, spot, iv, days)
     Interactive paper trading simulator for the wheel strategy.
 
-show_summary(wb)
-    Print a performance summary across all trade sheets.
-
-Internal helpers
-----------------
-_state_file(asset)      Asset-specific JSON state file path
-_load(asset)            Load wheel state from disk
-_save(asset, state)     Persist wheel state to disk
+show_summary()
+    Print a performance summary of all wheel trades.
 """
 
-import json
-import os
 from datetime import date, timedelta
 
-from config        import (
-    BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
+from config import BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS
+from database import (
+    load_wheel_state,
+    save_wheel_state,
+    create_single_trade,
+    close_single_trade,
+    get_wheel_stats,
 )
-from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call
-from ui.display       import (
-    hdr, sub, inf, ok, warn,
-    GR, RD, CY, YL, GY, WH, R,
-)
-from excel.excel_tracker import append_trade_row
-
-
-# ── State persistence ─────────────────────────────────────────────────────────
-
-def _state_file(asset: str) -> str:
-    """Return asset-specific state file path e.g. 'paper_state_ETH.json'."""
-    return f"paper_state_{asset.upper()}.json"
-
-
-def _load(asset: str) -> dict:
-    """Load wheel state from disk, or return a fresh default state."""
-    path = _state_file(asset)
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return {
-        "stage":         "no_position",
-        "open":          None,
-        "asset_held":    0.0,
-        "cost_basis":    0.0,
-        "total_premium": 0.0,
-        "wins":          0,
-        "losses":        0,
-        "cycles":        0,
-    }
-
-
-def _save(asset: str, state: dict) -> None:
-    """Persist wheel state to disk."""
-    with open(_state_file(asset), "w") as f:
-        json.dump(state, f, indent=2)
+from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
+from models import get_session, Single
+from ui.display import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 
 
 # ── Strike analysis ───────────────────────────────────────────────────────────
@@ -132,30 +95,23 @@ def show_strikes(
 
 # ── Paper trading simulator ───────────────────────────────────────────────────
 
-def wheel_paper_menu(
-    asset: str,
-    spot: float,
-    iv: float,
-    wb,
-    days: int,
-) -> None:
+def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
     """
     Interactive paper trading simulator for the wheel strategy.
 
-    Manages position state across sessions via a per-asset JSON file.
+    Manages position state across sessions via the SQLite database.
     Walks through the four wheel stages: no position → short put →
     holding asset → short call → back to no position (one full cycle).
 
     Parameters
     ----------
-    asset : str              Underlying asset symbol
-    spot  : float            Current spot price
-    iv    : float            Implied volatility (decimal)
-    wb    : openpyxl.Workbook
-    days  : int              Days to expiry
+    asset : str   Underlying asset symbol
+    spot  : float Current spot price
+    iv    : float Implied volatility (decimal)
+    days  : int   Days to expiry
     """
     T = days / 365.0
-    s = _load(asset)
+    s = load_wheel_state(asset)
 
     stage_labels = {
         "no_position": f"No Position — ready to sell a Put",
@@ -221,32 +177,36 @@ def wheel_paper_menu(
         premium = bs_put(spot, K, T, RISK_FREE_RATE, iv) * qty
         expiry  = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
 
-        s["stage"]           = "short_put"
-        s["open"]            = {
-            "type":    "Put",
-            "strike":  K,
-            "expiry":  expiry,
+        s["stage"] = "short_put"
+        s["open"] = {
+            "type": "Put",
+            "strike": K,
+            "expiry": expiry,
             "premium": round(premium, 4),
             "spot_open": spot,
-            "qty":     qty,
-            "days":    days,
-            "asset":   asset,
+            "qty": qty,
+            "days": days,
+            "asset": asset,
         }
-        s["total_premium"]  += premium
-        _save(asset, s)
-        ok(f"Sell Put @ ${K:,.0f}  |  Premium: ${premium:.2f}")
+        s["total_premium"] += premium
+        save_wheel_state(asset, s)
 
-        append_trade_row(wb, "📝 Paper Trades", {
-            "date":      str(date.today()),
-            "type":      "Sell Cash-Secured Put",
-            "stage":     "Short Put",
-            "days":      days,
-            "strike":    K,
-            "spot_open": spot,
-            "premium":   round(premium, 4),
-            "result":    "Open",
-            "notes":     f"{asset} paper, {days}d",
-        })
+        # Insert into database
+        trade = create_single_trade(
+            asset=asset,
+            date_open=date.today(),
+            option_type="Put",
+            strike=K,
+            expiry=expiry,
+            spot_open=spot,
+            premium=round(premium, 4),
+            qty=qty,
+            days=days,
+            stage="short_put",
+            notes=f"{asset} paper, {days}d",
+        )
+
+        ok(f"Sell Put @ ${K:,.0f}  |  Premium: ${premium:.2f}")
 
     # [2] Expire position
     elif choice == "2":
@@ -264,7 +224,7 @@ def wheel_paper_menu(
         expired = spot_close > K if op["type"] == "Put" else spot_close < K
 
         if expired:
-            pnl    = p0
+            pnl = p0
             result = "Win"
             s["wins"] += 1
             ok(f"Expired worthless ✓  P&L: +${pnl:.2f}")
@@ -273,36 +233,50 @@ def wheel_paper_menu(
                 s["cycles"] += 1
         else:
             intrinsic = abs(spot_close - K) * qty
-            pnl       = p0 - intrinsic
-            result    = "Loss"
+            pnl = p0 - intrinsic
+            result = "Loss"
             s["losses"] += 1
             warn(f"Expired ITM.  P&L: ${pnl:.2f}")
             s["stage"] = "no_position"
 
-        append_trade_row(wb, "📝 Paper Trades", {
-            **op,
-            "date":        str(date.today()),
-            "type":        f"{'Put' if op['type']=='Put' else 'Call'} → Expired",
-            "stage":       "Closed",
-            "spot_close":  spot_close,
-            "pnl":         round(pnl, 4),
-            "result":      result,
-            "notes":       f"{asset} paper expired {days}d",
-        })
+        # Find the open trade in the database and close it
+        session = get_session()
+        open_trade = (
+            session.query(Single)
+            .filter(
+                Single.asset == asset,
+                Single.stage == "short_put" if op["type"] == "Put" else "short_call",
+                Single.date_close.is_(None),
+            )
+            .order_by(Single.date_open.desc())
+            .first()
+        )
+        session.close()
+
+        if open_trade:
+            close_single_trade(
+                trade_id=open_trade.id,
+                date_close=date.today(),
+                spot_close=spot_close,
+                pnl=round(pnl, 4),
+                result=result,
+                notes=f"{asset} paper expired {days}d",
+            )
+
         s["open"] = None
-        _save(asset, s)
+        save_wheel_state(asset, s)
 
     # [3] Assign put — take asset
     elif choice == "3":
         if s["stage"] != "short_put":
             warn("Not in short put stage.")
             return
-        op               = s["open"]
-        s["asset_held"]  = op.get("qty", BUDGET_USD / op["strike"])
-        s["cost_basis"]  = op["strike"]
-        s["stage"]       = "holding"
-        s["open"]        = None
-        _save(asset, s)
+        op = s["open"]
+        s["asset_held"] = op.get("qty", BUDGET_USD / op["strike"])
+        s["cost_basis"] = op["strike"]
+        s["stage"] = "holding"
+        s["open"] = None
+        save_wheel_state(asset, s)
         ok(f"Assigned! {s['asset_held']:.4f} {asset} @ ${op['strike']:,.0f}")
 
     # [4] Sell Covered Call
@@ -321,72 +295,84 @@ def wheel_paper_menu(
         premium = bs_call(spot, K, T, RISK_FREE_RATE, iv) * qty
         expiry  = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
 
-        s["stage"]          = "short_call"
-        s["open"]           = {
-            "type":      "Call",
-            "strike":    K,
-            "expiry":    expiry,
-            "premium":   round(premium, 4),
+        s["stage"] = "short_call"
+        s["open"] = {
+            "type": "Call",
+            "strike": K,
+            "expiry": expiry,
+            "premium": round(premium, 4),
             "spot_open": spot,
-            "qty":       qty,
-            "days":      days,
-            "asset":     asset,
+            "qty": qty,
+            "days": days,
+            "asset": asset,
         }
         s["total_premium"] += premium
-        _save(asset, s)
-        ok(f"Sell Call @ ${K:,.0f}  |  Premium: ${premium:.2f}")
+        save_wheel_state(asset, s)
 
-        append_trade_row(wb, "📝 Paper Trades", {
-            "date":      str(date.today()),
-            "type":      "Sell Covered Call",
-            "stage":     "Short Call",
-            "days":      days,
-            "strike":    K,
-            "spot_open": spot,
-            "premium":   round(premium, 4),
-            "result":    "Open",
-            "notes":     f"{asset} paper, {days}d",
-        })
+        # Insert into database
+        trade = create_single_trade(
+            asset=asset,
+            date_open=date.today(),
+            option_type="Call",
+            strike=K,
+            expiry=expiry,
+            spot_open=spot,
+            premium=round(premium, 4),
+            qty=qty,
+            days=days,
+            stage="short_call",
+            notes=f"{asset} paper, {days}d",
+        )
+
+        ok(f"Sell Call @ ${K:,.0f}  |  Premium: ${premium:.2f}")
 
 
 # ── Performance summary ───────────────────────────────────────────────────────
 
-def show_summary(wb) -> None:
-    """
-    Print a performance summary across all trade sheets in the workbook.
+def show_summary() -> None:
+    """Print a performance summary of all wheel (singles) trades from the database."""
+    hdr("Wheel Strategy — Performance Summary")
+    session = get_session()
 
-    Covers Paper Trades (wheel), Live Trades (wheel), and Strangles.
-    """
-    hdr("Performance Summary")
+    try:
+        # Get all singles (wheel trades) by asset
+        singles = session.query(Single).filter(Single.result.in_(["Win", "Loss"])).all()
 
-    sheet_configs = {
-        "📝 Paper Trades": {"col_result": 9,  "col_prem": 7},
-        "📋 Live Trades":  {"col_result": 9,  "col_prem": 7},
-        "🔀 Strangles":    {"col_result": 11, "col_prem": 7},
-    }
+        if not singles:
+            sub("No completed trades yet")
+            return
 
-    for sheet_name, cols in sheet_configs.items():
-        ws = wb[sheet_name]
-        sub(sheet_name)
+        # Group by asset
+        by_asset = {}
+        for trade in singles:
+            if trade.asset not in by_asset:
+                by_asset[trade.asset] = []
+            by_asset[trade.asset].append(trade)
 
-        rows = [
-            r for r in ws.iter_rows(min_row=4, values_only=True)
-            if r[0] and "←" not in str(r[0])
-        ]
-        if not rows:
-            inf("No trades yet", "")
-            continue
+        # Display per-asset stats
+        for asset in sorted(by_asset.keys()):
+            trades = by_asset[asset]
+            sub(f"{asset} Wheel Trades")
 
-        col_result = cols["col_result"]
-        col_prem   = cols["col_prem"]
+            wins = sum(1 for t in trades if t.result == "Win")
+            losses = sum(1 for t in trades if t.result == "Loss")
+            total = len(trades)
+            prems = [t.premium for t in trades if t.premium]
 
-        wins   = sum(1 for t in rows if t[col_result] == "Win")
-        losses = sum(1 for t in rows if t[col_result] == "Loss")
-        total  = wins + losses
-        prems  = [t[col_prem] for t in rows if isinstance(t[col_prem], (int, float))]
+            inf("Trades", str(total))
+            inf("Wins / Losses", f"{wins} / {losses}")
+            inf("Win Rate", f"{wins / total * 100:.1f}%" if total else "N/A")
+            inf("Total Premium", f"${sum(prems):.2f}" if prems else "$0")
+            inf("Avg Premium", f"${sum(prems) / len(prems):.2f}" if prems else "N/A")
+            print()
 
-        inf("Trades",        str(len(rows)))
-        inf("Wins / Losses", f"{wins} / {losses}")
-        inf("Win Rate",      f"{wins / total * 100:.1f}%" if total else "N/A")
-        inf("Total Premium", f"${sum(prems):.2f}"         if prems  else "$0")
-        inf("Avg Premium",   f"${sum(prems)/len(prems):.2f}" if prems else "N/A")
+        # Overall stats
+        sub("Overall")
+        stats = get_wheel_stats(session=session)
+        inf("All Trades", str(stats["trades"]))
+        inf("Wins / Losses", f"{stats['wins']} / {stats['losses']}")
+        inf("Win Rate", f"{stats['win_rate']:.1f}%" if stats["trades"] else "N/A")
+        inf("Total Premium", f"${stats['total_premium']:.2f}")
+        inf("Avg Premium", f"${stats['avg_premium']:.2f}" if stats["avg_premium"] else "$0")
+    finally:
+        session.close()

@@ -8,7 +8,11 @@ without needing an explicit import.
 """
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from models.base import Base, engine as real_engine, SessionLocal
 
 
 # ── Standard market parameters ────────────────────────────────────────────────
@@ -76,4 +80,24 @@ def std_params(spot, T_weekly, r, iv):
 def mock_wb():
     """A mock openpyxl workbook — never actually written to."""
     return MagicMock()
-    return spot, T_weekly, r, iv
+
+
+@pytest.fixture(autouse=True)
+def use_in_memory_db(monkeypatch):
+    """
+    Patch database functions to use an in-memory SQLite database.
+    This fixture runs for all tests automatically (autouse=True).
+    """
+    # Create in-memory engine and session factory
+    mem_engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(mem_engine)
+    MemSessionLocal = sessionmaker(bind=mem_engine)
+
+    # Patch the models.get_session function to use in-memory DB
+    def mock_get_session():
+        return MemSessionLocal()
+
+    monkeypatch.setattr("models.get_session", mock_get_session)
+    monkeypatch.setattr("database.wheel_db.get_session", mock_get_session)
+
+    yield

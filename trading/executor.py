@@ -21,11 +21,12 @@ from datetime import date, timedelta
 from config import (
     BUDGET_USD, RISK_FREE_RATE, CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
 )
+from database import load_wheel_state, save_wheel_state
 from market.pricing import bs_put, bs_call
 from excel.excel_tracker import (
     append_trade_row, append_strangle_row, append_calendar_row,
 )
-from strategies import wheel, strangle, calendar
+from strategies import strangle, calendar
 
 
 def _enter_csp(c, wb, T: float) -> dict:
@@ -35,7 +36,7 @@ def _enter_csp(c, wb, T: float) -> dict:
     premium = bs_put(c.spot, K, T, RISK_FREE_RATE, c.iv) * qty
     expiry  = (date.today() + timedelta(days=c.days)).strftime("%d-%b-%Y")
 
-    s = wheel._load(c.asset)
+    s = load_wheel_state(c.asset)
     s["stage"] = "short_put"
     s["open"]  = {
         "type":      "Put",
@@ -48,7 +49,7 @@ def _enter_csp(c, wb, T: float) -> dict:
         "asset":     c.asset,
     }
     s["total_premium"] = s.get("total_premium", 0.0) + premium
-    wheel._save(c.asset, s)
+    save_wheel_state(c.asset, s)
 
     append_trade_row(wb, "📝 Paper Trades", {
         "date":      str(date.today()),
@@ -68,7 +69,7 @@ def _enter_csp(c, wb, T: float) -> dict:
 
 def _enter_cc(c, wb, T: float) -> dict:
     """Open a Covered Call position. Requires wheel state in 'holding'."""
-    s = wheel._load(c.asset)
+    s = load_wheel_state(c.asset)
     if s["stage"] != "holding":
         raise RuntimeError(f"Cannot enter CC for {c.asset}: wheel stage={s['stage']}")
 
@@ -89,7 +90,7 @@ def _enter_cc(c, wb, T: float) -> dict:
         "asset":     c.asset,
     }
     s["total_premium"] = s.get("total_premium", 0.0) + premium
-    wheel._save(c.asset, s)
+    save_wheel_state(c.asset, s)
 
     append_trade_row(wb, "📝 Paper Trades", {
         "date":      str(date.today()),
