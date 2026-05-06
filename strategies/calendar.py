@@ -421,7 +421,7 @@ def calendar_paper_menu(
         near_exp    = op["expiry_near"]
         far_exp     = op["expiry_far"]
 
-        from strategies.monitor import _days_remaining
+        from automation.monitor import _days_remaining
         near_left = _days_remaining(near_exp)
         far_left  = _days_remaining(far_exp)
 
@@ -630,7 +630,7 @@ def calendar_paper_menu(
         net_debit   = op["net_debit"]
         q           = op["qty"]
 
-        from strategies.monitor import _days_remaining
+        from automation.monitor import _days_remaining
         near_left = _days_remaining(op["expiry_near"])
         far_left  = _days_remaining(op["expiry_far"])
 

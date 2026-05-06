@@ -24,7 +24,7 @@ from strategies.wheel import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.calendar import show_calendar_analysis, calendar_paper_menu
 from strategies.summary import show_summary
-from strategies.monitor import run_monitor
+from automation.monitor import run_monitor
 from trading.portfolio import collect_open_positions
 from automation.automator import run_automation, DEFAULT_MIN_PROB
 

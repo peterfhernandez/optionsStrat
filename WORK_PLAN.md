@@ -19,11 +19,11 @@ Steps (6 phases, 22+ steps)
 
 ## PHASE 3: Update Strategy Modules (parallel steps 8-12, depend on Phase 2)
 
-1. Update wheel.py — replace _save/_load with trading.executor calls - 📌 TO DO
+1. Update wheel.py — replace _save/_load with trading.executor calls - 🔄 IN PROGRESS
 2. Update strangle.py — same pattern - 📌 TO DO
 3. Update calendar.py — same pattern - 📌 TO DO
 4. Update monitor.py — use executor for auto-close - 📌 TO DO
-5. Move monitor.py to automation package - 🔄 IN PROGRESS
+5. Move monitor.py to automation package - ✅ DONE
 6. Update scanner.py — add price caching from market.cache - 📌 TO DO
 
 ## PHASE 4: Update Tests & Configuration (depends on Phase 3)

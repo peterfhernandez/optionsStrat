@@ -31,7 +31,7 @@ from unittest.mock import patch, MagicMock, call
 
 import pytest
 
-from strategies.monitor import (
+from automation.monitor import (
     _days_remaining,
     _check_strangle,
     _check_wheel,
@@ -201,21 +201,21 @@ class TestCheckStrangle:
                append_mock=None, save_mock=None):
         """Build a context manager stack for common patches."""
         return [
-            patch("strategies.monitor._load_state",        return_value=state),
-            patch("strategies.monitor._save_state",        save_mock or MagicMock()),
-            patch("strategies.monitor.bs_put",             return_value=bs_put_val),
-            patch("strategies.monitor.bs_call",            return_value=bs_call_val),
-            patch("strategies.monitor.append_strangle_row", append_mock or MagicMock()),
+            patch("automation.monitor._load_state",        return_value=state),
+            patch("automation.monitor._save_state",        save_mock or MagicMock()),
+            patch("automation.monitor.bs_put",             return_value=bs_put_val),
+            patch("automation.monitor.bs_call",            return_value=bs_call_val),
+            patch("automation.monitor.append_strangle_row", append_mock or MagicMock()),
         ]
 
     def test_no_state_file_returns_false(self, mock_wb):
-        with patch("strategies.monitor._load_state", return_value=None):
+        with patch("automation.monitor._load_state", return_value=None):
             result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
     def test_no_open_position_returns_false(self, mock_wb):
         state = {"open": None, "wins": 0, "losses": 0}
-        with patch("strategies.monitor._load_state", return_value=state):
+        with patch("automation.monitor._load_state", return_value=state):
             result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
@@ -228,11 +228,11 @@ class TestCheckStrangle:
         # Use 50% of premium as current value — safely in the middle
         # (bs_put + bs_call) * qty = p0 * 0.50 → per_unit = p0 * 0.50 / qty / 2
         per_unit = (p0 * 0.50) / qty / 2
-        with patch("strategies.monitor._load_state",         return_value=strangle_state), \
-             patch("strategies.monitor._save_state",         MagicMock()), \
-             patch("strategies.monitor.bs_put",              return_value=per_unit), \
-             patch("strategies.monitor.bs_call",             return_value=per_unit), \
-             patch("strategies.monitor.append_strangle_row", MagicMock()):
+        with patch("automation.monitor._load_state",         return_value=strangle_state), \
+             patch("automation.monitor._save_state",         MagicMock()), \
+             patch("automation.monitor.bs_put",              return_value=per_unit), \
+             patch("automation.monitor.bs_call",             return_value=per_unit), \
+             patch("automation.monitor.append_strangle_row", MagicMock()):
             result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
@@ -247,7 +247,7 @@ class TestCheckStrangle:
         append  = MagicMock()
         patches = self._patch(strangle_state, per_unit, per_unit, append)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with patch("strategies.monitor._save_state"):
+            with patch("automation.monitor._save_state"):
                 result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
@@ -259,7 +259,7 @@ class TestCheckStrangle:
         append  = MagicMock()
         patches = self._patch(strangle_state, per_unit, per_unit, append)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with patch("strategies.monitor._save_state"):
+            with patch("automation.monitor._save_state"):
                 _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         append.assert_called_once()
 
@@ -273,7 +273,7 @@ class TestCheckStrangle:
             saved_states.append(json.loads(json.dumps(state)))
         patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], \
-             patch("strategies.monitor._save_state", side_effect=capture_save), \
+             patch("automation.monitor._save_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
             _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert len(saved_states) > 0
@@ -289,7 +289,7 @@ class TestCheckStrangle:
             saved_states.append(json.loads(json.dumps(state)))
         patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], \
-             patch("strategies.monitor._save_state", side_effect=capture_save), \
+             patch("automation.monitor._save_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
             _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert saved_states[-1]["losses"] == 1
@@ -305,7 +305,7 @@ class TestCheckStrangle:
         append   = MagicMock()
         patches  = self._patch(strangle_state, per_unit, per_unit, append)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with patch("strategies.monitor._save_state"):
+            with patch("automation.monitor._save_state"):
                 result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
@@ -319,7 +319,7 @@ class TestCheckStrangle:
             saved_states.append(json.loads(json.dumps(state)))
         patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], \
-             patch("strategies.monitor._save_state", side_effect=capture_save), \
+             patch("automation.monitor._save_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
             _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert saved_states[-1]["wins"]   == 1
@@ -333,11 +333,11 @@ class TestCheckStrangle:
         saved_states = []
         def capture_save(path, state):
             saved_states.append(json.loads(json.dumps(state)))
-        with patch("strategies.monitor._load_state",         return_value=strangle_state), \
-             patch("strategies.monitor._save_state",         side_effect=capture_save), \
-             patch("strategies.monitor.bs_put",              return_value=0.1), \
-             patch("strategies.monitor.bs_call",             return_value=0.1), \
-             patch("strategies.monitor.append_strangle_row", MagicMock()):
+        with patch("automation.monitor._load_state",         return_value=strangle_state), \
+             patch("automation.monitor._save_state",         side_effect=capture_save), \
+             patch("automation.monitor.bs_put",              return_value=0.1), \
+             patch("automation.monitor.bs_call",             return_value=0.1), \
+             patch("automation.monitor.append_strangle_row", MagicMock()):
             result = _check_strangle("ETH", spot, 0.80, mock_wb, True)
         assert result is True
         assert saved_states[-1]["wins"] == 1
@@ -355,11 +355,11 @@ class TestCheckStrangle:
         saved_states = []
         def capture_save(path, state):
             saved_states.append(json.loads(json.dumps(state)))
-        with patch("strategies.monitor._load_state",         return_value=strangle_state), \
-             patch("strategies.monitor._save_state",         side_effect=capture_save), \
-             patch("strategies.monitor.bs_put",              return_value=0.1), \
-             patch("strategies.monitor.bs_call",             return_value=0.1), \
-             patch("strategies.monitor.append_strangle_row", MagicMock()):
+        with patch("automation.monitor._load_state",         return_value=strangle_state), \
+             patch("automation.monitor._save_state",         side_effect=capture_save), \
+             patch("automation.monitor.bs_put",              return_value=0.1), \
+             patch("automation.monitor.bs_call",             return_value=0.1), \
+             patch("automation.monitor.append_strangle_row", MagicMock()):
             result = _check_strangle("ETH", spot, 0.80, mock_wb, True)
         assert result is True
         assert saved_states[-1]["losses"] == 1
@@ -370,13 +370,13 @@ class TestCheckStrangle:
 class TestCheckWheel:
 
     def test_no_state_file_returns_false(self, mock_wb):
-        with patch("strategies.monitor._load_state", return_value=None):
+        with patch("automation.monitor._load_state", return_value=None):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
     def test_no_open_position_returns_false(self, mock_wb):
         state = {"open": None, "stage": "no_position", "wins": 0, "losses": 0}
-        with patch("strategies.monitor._load_state", return_value=state):
+        with patch("automation.monitor._load_state", return_value=state):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
@@ -390,10 +390,10 @@ class TestCheckWheel:
         #   per_unit * qty < p0 * STOP_LOSS_MULTIPLIER
         # Use 50% of premium as current value — safely in the middle
         per_unit = (p0 * 0.50) / qty
-        with patch("strategies.monitor._load_state",     return_value=wheel_state_put), \
-             patch("strategies.monitor.bs_put",          return_value=per_unit), \
-             patch("strategies.monitor.bs_call",         return_value=per_unit), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",     return_value=wheel_state_put), \
+             patch("automation.monitor.bs_put",          return_value=per_unit), \
+             patch("automation.monitor.bs_call",         return_value=per_unit), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
@@ -402,11 +402,11 @@ class TestCheckWheel:
         p0  = wheel_state_put["open"]["premium"]   # 25.0
         qty = wheel_state_put["open"]["qty"]       # 0.139
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_put), \
-             patch("strategies.monitor._save_state",    MagicMock()), \
-             patch("strategies.monitor.bs_put",         return_value=per_unit), \
-             patch("strategies.monitor.bs_call",        return_value=per_unit), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
+             patch("automation.monitor._save_state",    MagicMock()), \
+             patch("automation.monitor.bs_put",         return_value=per_unit), \
+             patch("automation.monitor.bs_call",        return_value=per_unit), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
@@ -415,11 +415,11 @@ class TestCheckWheel:
         p0  = wheel_state_call["open"]["premium"]   # 20.0
         qty = wheel_state_call["open"]["qty"]       # 0.125
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_call), \
-             patch("strategies.monitor._save_state",    MagicMock()), \
-             patch("strategies.monitor.bs_put",         return_value=per_unit), \
-             patch("strategies.monitor.bs_call",        return_value=per_unit), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_call), \
+             patch("automation.monitor._save_state",    MagicMock()), \
+             patch("automation.monitor.bs_put",         return_value=per_unit), \
+             patch("automation.monitor.bs_call",        return_value=per_unit), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
@@ -431,11 +431,11 @@ class TestCheckWheel:
         saved_states = []
         def capture_save(path, state):
             saved_states.append(json.loads(json.dumps(state)))
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_put), \
-             patch("strategies.monitor._save_state",    side_effect=capture_save), \
-             patch("strategies.monitor.bs_put",         return_value=per_unit), \
-             patch("strategies.monitor.bs_call",        return_value=per_unit), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
+             patch("automation.monitor._save_state",    side_effect=capture_save), \
+             patch("automation.monitor.bs_put",         return_value=per_unit), \
+             patch("automation.monitor.bs_call",        return_value=per_unit), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert saved_states[-1]["open"] is None
         assert saved_states[-1]["stage"] == "no_position"
@@ -445,11 +445,11 @@ class TestCheckWheel:
         p0  = wheel_state_put["open"]["premium"]
         qty = wheel_state_put["open"]["qty"]
         per_unit = (p0 * TAKE_PROFIT_THRESHOLD) / qty - 0.001
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_put), \
-             patch("strategies.monitor._save_state",    MagicMock()), \
-             patch("strategies.monitor.bs_put",         return_value=per_unit), \
-             patch("strategies.monitor.bs_call",        return_value=per_unit), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
+             patch("automation.monitor._save_state",    MagicMock()), \
+             patch("automation.monitor.bs_put",         return_value=per_unit), \
+             patch("automation.monitor.bs_call",        return_value=per_unit), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
@@ -460,11 +460,11 @@ class TestCheckWheel:
         saved_states = []
         def capture_save(path, state):
             saved_states.append(json.loads(json.dumps(state)))
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_put), \
-             patch("strategies.monitor._save_state",    side_effect=capture_save), \
-             patch("strategies.monitor.bs_put",         return_value=0.1), \
-             patch("strategies.monitor.bs_call",        return_value=0.1), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
+             patch("automation.monitor._save_state",    side_effect=capture_save), \
+             patch("automation.monitor.bs_put",         return_value=0.1), \
+             patch("automation.monitor.bs_call",        return_value=0.1), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             result = _check_wheel("ETH", spot, 0.80, mock_wb, True)
         assert result is True
         assert saved_states[-1]["wins"] == 1
@@ -481,11 +481,11 @@ class TestCheckWheel:
         saved_states = []
         def capture_save(path, state):
             saved_states.append(json.loads(json.dumps(state)))
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_put), \
-             patch("strategies.monitor._save_state",    side_effect=capture_save), \
-             patch("strategies.monitor.bs_put",         return_value=0.1), \
-             patch("strategies.monitor.bs_call",        return_value=0.1), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
+             patch("automation.monitor._save_state",    side_effect=capture_save), \
+             patch("automation.monitor.bs_put",         return_value=0.1), \
+             patch("automation.monitor.bs_call",        return_value=0.1), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             result = _check_wheel("ETH", spot, 0.80, mock_wb, True)
         assert result is True
         assert saved_states[-1]["losses"] == 1
@@ -497,11 +497,11 @@ class TestCheckWheel:
         saved_states = []
         def capture_save(path, state):
             saved_states.append(json.loads(json.dumps(state)))
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_put), \
-             patch("strategies.monitor._save_state",    side_effect=capture_save), \
-             patch("strategies.monitor.bs_put",         return_value=per_unit), \
-             patch("strategies.monitor.bs_call",        return_value=per_unit), \
-             patch("strategies.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
+             patch("automation.monitor._save_state",    side_effect=capture_save), \
+             patch("automation.monitor.bs_put",         return_value=per_unit), \
+             patch("automation.monitor.bs_call",        return_value=per_unit), \
+             patch("automation.monitor.append_trade_row", MagicMock()):
             _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert saved_states[-1]["losses"] == 1
         assert saved_states[-1]["wins"]   == 0
@@ -512,11 +512,11 @@ class TestCheckWheel:
         qty = wheel_state_put["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
         append = MagicMock()
-        with patch("strategies.monitor._load_state",    return_value=wheel_state_put), \
-             patch("strategies.monitor._save_state",    MagicMock()), \
-             patch("strategies.monitor.bs_put",         return_value=per_unit), \
-             patch("strategies.monitor.bs_call",        return_value=per_unit), \
-             patch("strategies.monitor.append_trade_row", append):
+        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
+             patch("automation.monitor._save_state",    MagicMock()), \
+             patch("automation.monitor.bs_put",         return_value=per_unit), \
+             patch("automation.monitor.bs_call",        return_value=per_unit), \
+             patch("automation.monitor.append_trade_row", append):
             _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         append.assert_called_once()
 
@@ -527,7 +527,7 @@ class TestRunMonitor:
 
     def test_active_asset_not_refetched(self, mock_wb):
         """Active asset spot/IV should be reused, not fetched again."""
-        import strategies.monitor as monitor_module
+        import automation.monitor as monitor_module
 
         with patch.object(monitor_module, "_REGISTRY", [
                 MagicMock(return_value=False),
@@ -546,7 +546,7 @@ class TestRunMonitor:
 
     def test_other_assets_are_fetched(self, mock_wb):
         """Non-active assets should have their price fetched."""
-        import strategies.monitor as monitor_module
+        import automation.monitor as monitor_module
         with patch.object(monitor_module, "_REGISTRY", [MagicMock(return_value=False)]), \
              patch("market.market_data.get_spot_price",  return_value=80000.0) as mock_price, \
              patch("market.market_data.get_deribit_iv",  return_value=0.60):
@@ -556,7 +556,7 @@ class TestRunMonitor:
 
     def test_failed_price_fetch_skips_asset(self, mock_wb):
         """If price fetch fails for non-active assets, run_monitor completes without error."""
-        with patch("strategies.monitor._load_state", return_value=None), \
+        with patch("automation.monitor._load_state", return_value=None), \
              patch("market.market_data.get_spot_price", return_value=None), \
              patch("market.market_data.get_deribit_iv", return_value=0.60):
             result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
@@ -564,7 +564,7 @@ class TestRunMonitor:
 
     def test_registry_called_for_each_asset(self, mock_wb):
         """run_monitor processes all assets without error when prices are available."""
-        with patch("strategies.monitor._load_state", return_value=None), \
+        with patch("automation.monitor._load_state", return_value=None), \
              patch("market.market_data.get_spot_price", return_value=80000.0), \
              patch("market.market_data.get_deribit_iv", return_value=0.60):
             result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
@@ -572,7 +572,7 @@ class TestRunMonitor:
 
     def test_iv_fallback_when_deribit_fails(self, mock_wb):
         """If IV fetch fails for a non-active asset, active IV is used as fallback."""
-        import strategies.monitor as monitor_module
+        import automation.monitor as monitor_module
         used_ivs = []
         def tracking_checker(asset, spot, iv, wb, silent):
             used_ivs.append((asset, iv))
