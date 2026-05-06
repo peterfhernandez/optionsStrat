@@ -50,8 +50,9 @@ from excel.excel_tracker import (
 )
 from trading.executor import enter_trade
 
-from strategies.scanner  import Candidate, _build_candidates
-from strategies          import wheel, strangle, calendar
+from database import load_wheel_state
+from strategies.scanner import Candidate, _build_candidates
+from strategies import strangle, calendar
 
 
 # Default automation thresholds — exposed as kwargs on run_automation so
@@ -101,7 +102,7 @@ def select_best_candidate(
 
 def _blocked_strategies(asset: str) -> set[str]:
     """
-    Inspect the on-disk state files for ``asset`` and return the set of
+    Inspect database state for ``asset`` and return the set of
     strategy tags that cannot be opened right now.
 
     Rules
@@ -117,7 +118,8 @@ def _blocked_strategies(asset: str) -> set[str]:
     """
     blocked: set[str] = set()
 
-    w = wheel._load(asset)
+    # Wheel state from database
+    w = load_wheel_state(asset)
     if w["stage"] == "no_position":
         blocked.add("CC")
     elif w["stage"] == "holding":
@@ -125,10 +127,12 @@ def _blocked_strategies(asset: str) -> set[str]:
     else:
         blocked.update({"CSP", "CC"})
 
+    # Strangle state (still uses JSON for now)
     s = strangle._load(asset)
     if s.get("open"):
         blocked.add("Strangle")
 
+    # Calendar state (still uses JSON for now)
     c = calendar._load(asset)
     if c.get("open"):
         blocked.update({"Cal-C", "Cal-P"})

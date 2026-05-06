@@ -10,27 +10,40 @@ Built to practice the **Wheel Strategy**, **Short Strangle**, and **Calendar Spr
 
 | File | Purpose |
 |---|---|
-| `main.py` | Main entry point — delegates to `ui.menus` (29 lines) |
+| `main.py` | Main entry point — delegates to `ui.menus` |
 | `automate.py` | One-shot automated strategy runner (cron / scheduler entry point) |
 | `config.py` | Central configuration — all settings in one place |
-| `crypto_options_trade_tracker.xlsx` | Excel workbook — auto-updated by the tool |
-| `paper_state_<ASSET>.json` | Wheel paper trading state (auto-created) |
-| `strangle_state_<ASSET>.json` | Strangle paper trading state (auto-created) |
-| `calendar_state_<ASSET>.json` | Calendar spread paper trading state (auto-created) |
+| `optionsStrat.db` | SQLite database — trade history, state, and ledger (excluded from git) |
+| `crypto_options_trade_tracker.xlsx` | Legacy Excel workbook (superseded by the SQLite DB) |
 
 ### Packages
 
 | Package | Purpose |
 |---|---|
+| `models/` | SQLAlchemy ORM models — trade tables and state (see below) |
 | `automation/` | Strategy automation (`automator.py`) |
 | `trading/` | Order execution and portfolio management (Phase 2) |
-| `excel/` | Excel workbook helpers (`excel_tracker.py`, templates coming) |
-| `market/` | Market data fetching (`market_data.py`, `pricing.py`), caching (coming) |
+| `excel/` | Excel workbook helpers (`excel_tracker.py`) |
+| `market/` | Market data fetching (`market_data.py`, `pricing.py`) |
 | `ui/` | User interface (`display.py`, `menus.py`) |
 | `strategies/` | Trading strategy implementations (wheel, strangle, calendar, monitor, scanner) |
-| `tests/` | Comprehensive test suite (360 tests) |
+| `tests/` | Comprehensive test suite |
 
-> `paper_state_<ASSET>.json` and `strangle_state_<ASSET>.json` are excluded from git (see `.gitignore`) — they store local paper trading progress only.
+### Database models (`models/`)
+
+All trade data is persisted in `optionsStrat.db` (SQLite). Call `models.init_db()` once on startup to create the schema.
+
+| Model | Table | Purpose |
+|---|---|---|
+| `Single` | `singles` | Wheel strategy trades — replaces the Paper Trades Excel tab |
+| `Strangle` | `strangles` | Short strangle trades — replaces the Strangles Excel tab |
+| `Calendar` | `calendars` | Calendar spread trades — replaces the Calendars Excel tab |
+| `TradeState` | `trade_state` | Per-strategy, per-asset runtime state — replaces `*_state_*.json` files |
+| `TradeLedger` | `trade_ledger` | Unified trade log used for open-position and trade-history views |
+
+`TradeLedger.with_cumulative_pnl(session)` returns all closed trades with a running cumulative P&L computed via a SQLite window function.
+
+> `optionsStrat.db` and the old `*_state_*.json` files are excluded from git — they store local trading state only.
 
 ---
 
@@ -272,4 +285,4 @@ This tool is for **personal paper trading and education only**.
 
 ---
 
-*Last updated: April 2026*
+*Last updated: May 2026*
