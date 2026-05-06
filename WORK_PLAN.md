@@ -19,8 +19,11 @@ Steps (6 phases, 22+ steps)
 
 ## PHASE 3: Update Strategy Modules (parallel steps 8-12, depend on Phase 2)
 
-1. Introduce trading.executor to execute trades. Refactor wheel.py - 🔄 IN PROGRESS
-2. Update wheel.py — replace _save/_load/_state_file with trading.trade_persistence calls - 📌 TO DO
+1. Introduce trading.executor to execute trades - 🔄 IN PROGRESS
+  a. execute trades with Deribit (paper only)
+  b. store data in db (refer PHASE 7)
+  c. remove anything pointing to Excel
+2. Update wheel.py — replace _save/_load/_state_file with trading.trade_persistence calls - trade persistense to be stored in db - 📌 TO DO
 3. Update strangle.py: refactor for trade_persistence and executor — same pattern - 📌 TO DO
 4. Update calendar.py — same pattern - 📌 TO DO
 5. Update monitor.py — use executor for auto-close - 📌 TO DO
@@ -39,6 +42,7 @@ Steps (6 phases, 22+ steps)
 
 1. Deprecate crypto_options_trade.py — add comment, don't import from it - 📌 TO DO
 2. Verify no circular dependencies — clean root module imports - 📌 TO DO
+3. Deprecate excel\excel.py
 
 ## PHASE 6: New Features (depends on Phase 2)
 
@@ -51,6 +55,23 @@ Steps (6 phases, 22+ steps)
 7. Implement 1 or 2 more options strategies - 📌 TO DO for Credit spread
 8. Remove the Wheel from Strategies and automate.py - 📌 TO DO
 9. Add trading fees (0.04% of underlying spot, or 0.0004BTC, whichever is lower, fee cannot be > 12.5% of option price) - 📌 TO DO
+
+## PHASE 7: Move tracking to db
+
+0. Add db access/ capability - 🔄 IN PROGRESS
+1. Track all strategy trades in db - strategy tables:
+  a. wheel
+  b. strangle
+  c. calendar spread
+  d. credit spread
+  e. Executor
+  f. Automator
+  g. Monitor
+  h. Scanner?
+2. Track trading state - 📌 TO DO
+3. Track open positions in db - portfolio - 📌 TO DO
+4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l  - 📌 TO DO
+5. Deprecate excel.excel - 📌 TO DO
 
 ## Relevant Files
 

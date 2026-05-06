@@ -9,6 +9,9 @@ debug*.py
 crypto_options_trade_tracker.xlsx
 ~$*.xlsx
 
+# sqlite db
+optionsStrat.db
+
 # Python cache
 __pycache__/
 *.pyc
