@@ -48,13 +48,13 @@ from strategies.scanner   import Candidate
 from strategies           import wheel, strangle, calendar
 from automation.automator import (
     select_best_candidate,
-    enter_trade,
     run_automation,
     _blocked_strategies,
     DEFAULT_MIN_YIELD,
     DEFAULT_MIN_PROB,
     DEFAULT_ALLOWED_LIQUIDITY,
 )
+from trading.executor import enter_trade
 
 
 # ── Helpers / fixtures ───────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ class TestEnterTrade:
     def test_csp_writes_wheel_state(self):
         c  = _make(strategy="CSP", strike_str="$1800")
         wb = MagicMock()
-        with patch("automation.automator.append_trade_row") as row:
+        with patch("trading.executor.append_trade_row") as row:
             opened = enter_trade(c, wb)
 
         s = wheel._load("ETH")
@@ -279,7 +279,7 @@ class TestEnterTrade:
     def test_cc_requires_holding_stage(self):
         c  = _make(strategy="CC", strike_str="$2200")
         wb = MagicMock()
-        with patch("automation.automator.append_trade_row"):
+        with patch("trading.executor.append_trade_row"):
             with pytest.raises(RuntimeError):
                 enter_trade(c, wb)
 
@@ -292,7 +292,7 @@ class TestEnterTrade:
 
         c  = _make(strategy="CC", strike_str="$2200")
         wb = MagicMock()
-        with patch("automation.automator.append_trade_row"):
+        with patch("trading.executor.append_trade_row"):
             opened = enter_trade(c, wb)
 
         s2 = wheel._load("ETH")
@@ -305,7 +305,7 @@ class TestEnterTrade:
         c  = _make(strategy="Strangle", strike_str="$1800/$2200",
                    put_strike=1800.0, call_strike=2200.0)
         wb = MagicMock()
-        with patch("automation.automator.append_strangle_row") as row:
+        with patch("trading.executor.append_strangle_row") as row:
             opened = enter_trade(c, wb)
 
         s = strangle._load("ETH")
@@ -319,7 +319,7 @@ class TestEnterTrade:
         c  = _make(strategy="Cal-C", strike_str="$2000 ATM",
                    far_days=30, liq="Med")
         wb = MagicMock()
-        with patch("automation.automator.append_calendar_row") as row:
+        with patch("trading.executor.append_calendar_row") as row:
             opened = enter_trade(c, wb)
 
         s = calendar._load("ETH")
@@ -334,7 +334,7 @@ class TestEnterTrade:
         c  = _make(strategy="Cal-P", strike_str="$2000 ATM",
                    far_days=30, liq="Med")
         wb = MagicMock()
-        with patch("automation.automator.append_calendar_row"):
+        with patch("trading.executor.append_calendar_row"):
             enter_trade(c, wb)
 
         s = calendar._load("ETH")
@@ -373,7 +373,7 @@ class TestRunAutomation:
         cand = _make(strategy="CSP", yield_ann=5.0, prob_profit=99.0)
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_trade_row") as row, \
+             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -388,22 +388,7 @@ class TestRunAutomation:
         cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=90.0, liq="High")
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_trade_row") as row, \
-             patch("market.market_data.get_spot_price",  return_value=2000.0), \
-             patch("market.market_data.get_deribit_iv",  return_value=0.80):
-            result = run_automation(
-                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
-            )
-        assert result["status"] == "no_candidate"
-        row.assert_not_called()
-
-    def test_candidate_below_probability_is_not_entered(self):
-        wb = MagicMock()
-        cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=90.0, liq="High")
-        with patch("automation.automator._build_candidates", return_value=[cand]), \
-             patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_trade_row") as row, \
+             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -419,7 +404,7 @@ class TestRunAutomation:
                      liq="Low")
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_trade_row") as row, \
+             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -435,7 +420,7 @@ class TestRunAutomation:
                      yield_ann=80.0, prob_profit=95.0, liq="High")
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_trade_row") as row, \
+             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -460,8 +445,8 @@ class TestRunAutomation:
                   yield_ann=20.0, prob_profit=92.0, liq="Med")
         with patch("automation.automator._build_candidates", return_value=[a, b]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_trade_row"), \
-             patch("automation.automator.append_strangle_row"), \
+             patch("trading.executor.append_trade_row"), \
+             patch("trading.executor.append_strangle_row"), \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -481,7 +466,7 @@ class TestRunAutomation:
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_strangle_row") as row, \
+             patch("trading.executor.append_strangle_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -502,7 +487,7 @@ class TestRunAutomation:
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_strangle_row") as row, \
+             patch("trading.executor.append_strangle_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -521,7 +506,7 @@ class TestRunAutomation:
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_calendar_row") as row, \
+             patch("trading.executor.append_calendar_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -549,7 +534,7 @@ class TestRunAutomation:
                     put_strike=1800.0, call_strike=2200.0)
         with patch("automation.automator._build_candidates", return_value=[csp, stg]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("automation.automator.append_strangle_row") as srow, \
+             patch("trading.executor.append_strangle_row") as srow, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(

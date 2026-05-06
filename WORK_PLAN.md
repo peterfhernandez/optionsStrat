@@ -19,12 +19,13 @@ Steps (6 phases, 22+ steps)
 
 ## PHASE 3: Update Strategy Modules (parallel steps 8-12, depend on Phase 2)
 
-1. Update wheel.py — replace _save/_load with trading.executor calls - 🔄 IN PROGRESS
-2. Update strangle.py — same pattern - 📌 TO DO
-3. Update calendar.py — same pattern - 📌 TO DO
-4. Update monitor.py — use executor for auto-close - 📌 TO DO
-5. Move monitor.py to automation package - ✅ DONE
-6. Update scanner.py — add price caching from market.cache - 📌 TO DO
+1. Introduce trading.executor to execute trades. Refactor wheel.py - 🔄 IN PROGRESS
+2. Update wheel.py — replace _save/_load/_state_file with trading.trade_persistence calls - 📌 TO DO
+3. Update strangle.py: refactor for trade_persistence and executor — same pattern - 📌 TO DO
+4. Update calendar.py — same pattern - 📌 TO DO
+5. Update monitor.py — use executor for auto-close - 📌 TO DO
+6. Move monitor.py to automation package - ✅ DONE
+7. Update scanner.py — add price caching from market.cache - 📌 TO DO
 
 ## PHASE 4: Update Tests & Configuration (depends on Phase 3)
 
