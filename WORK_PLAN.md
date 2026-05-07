@@ -58,16 +58,16 @@ Steps (6 phases, 22+ steps)
 
 ## PHASE 7: Move tracking to db
 
-0. Add db access/ capability - 🔄 IN PROGRESS
+0. Add db access/ capability - ✅ DONE
 1. Track all strategy trades in db - strategy tables:
-  a. wheel
-  b. strangle
-  c. calendar spread
-  d. credit spread
-  e. Executor
-  f. Automator
-  g. Monitor
-  h. Scanner?
+  a. wheel - ✅ DONE
+  b. strangle - ✅ DONE
+  c. calendar spread - ✅ DONE
+  d. credit spread - 🔄 IN PROGRESS
+  e. Executor - 📌 TO DO
+  f. Automator - 📌 TO DO
+  g. Monitor - 📌 TO DO
+  h. Scanner? - 📌 TO DO
 2. Track trading state - 📌 TO DO
 3. Track open positions in db - portfolio - 📌 TO DO
 4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l  - 📌 TO DO

@@ -5,12 +5,10 @@ Open position aggregation and P&L helpers for the Crypto Options Strategy Tool.
 
 Public API
 ----------
-collect_open_positions(base_dir=".")
-    Read open state files and return unified position summaries.
+collect_open_positions()
+    Query the database for open state and return unified position summaries.
 """
 
-import json
-import os
 from datetime import date, datetime
 from typing import Any
 
@@ -22,21 +20,9 @@ from config import (
 )
 from market.market_data import get_spot_price, get_deribit_iv
 from market.pricing import bs_put, bs_call
-
-
-_STATE_PATTERNS = {
-    "Wheel":    "paper_state_{asset}.json",
-    "Strangle": "strangle_state_{asset}.json",
-    "Calendar": "calendar_state_{asset}.json",
-}
-
-
-def _load_state(path: str) -> dict | None:
-    """Load a JSON state file, returning None if it does not exist."""
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        return json.load(f)
+from database.wheel_db import load_wheel_state
+from database.strangle_db import load_strangle_state
+from database.calendar_db import load_calendar_state
 
 
 def _parse_expiry(expiry_str: str) -> date | None:
@@ -143,6 +129,13 @@ def _position_summary(asset: str, strategy: str, state: dict) -> dict | None:
     else:
         days_left = _days_remaining(open_position.get("expiry", ""), open_position.get("days", 0))
 
+    if strategy == "Strangle":
+        description = "Short Strangle"
+    elif strategy == "Calendar":
+        description = f"{open_position.get('option_type', 'Call')} Calendar"
+    else:
+        description = f"Short {open_position.get('type', 'Put')}"
+
     spot, iv = _market_data(asset, open_position.get("days", 7) or 7)
     if spot is None or iv is None:
         pnl = None
@@ -152,7 +145,6 @@ def _position_summary(asset: str, strategy: str, state: dict) -> dict | None:
             pnl, current_value, description = _wheel_position_pnl(open_position, spot, iv)
         elif strategy == "Strangle":
             pnl, current_value = _strangle_position_pnl(open_position, spot, iv)
-            description = "Short Strangle"
         else:
             pnl, current_value, description = _calendar_position_pnl(open_position, spot, iv)
 
@@ -179,14 +171,20 @@ def _position_summary(asset: str, strategy: str, state: dict) -> dict | None:
     }
 
 
-def collect_open_positions(base_dir: str = ".") -> list[dict]:
+def collect_open_positions() -> list[dict]:
     positions: list[dict] = []
 
+    _loaders = {
+        "Wheel":    load_wheel_state,
+        "Strangle": load_strangle_state,
+        "Calendar": load_calendar_state,
+    }
+
     for asset in SUPPORTED_ASSETS:
-        for strategy, pattern in _STATE_PATTERNS.items():
-            path = os.path.join(base_dir, pattern.format(asset=asset.upper()))
-            state = _load_state(path)
-            if not state:
+        for strategy, loader in _loaders.items():
+            try:
+                state = loader(asset)
+            except Exception:
                 continue
 
             summary = _position_summary(asset, strategy, state)

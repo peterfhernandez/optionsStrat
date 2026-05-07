@@ -2,34 +2,24 @@
 tests/test_calendar.py
 ======================
 Tests for strategies/calendar.py — P&L helpers, breakeven finder,
-status checker, and state file helpers.
+and status checker (pure functions, no I/O).
 
 Test strategy
 -------------
 Tier 1 — pure functions, no mocking:
-    _state_file          : filename format, asset uppercasing
     _spread_value        : call/put, correct sign, scales with qty
     _pnl_at_near_expiry  : spot at strike (max), spot far from strike (loss),
                            near/far day relationships
     _find_breakevens     : returns two prices, be_lo < strike < be_hi,
                            wider debit → narrower profit zone
     check_calendar_status: ok / warn / stop / tp status thresholds
-
-Tier 2 — mocked I/O:
-    _load                : existing file, missing file returns defaults
-    _save                : writes correct JSON content
 """
 
-import json
-import os
-from unittest.mock import patch, mock_open
+from unittest.mock import patch
 
 import pytest
 
 from strategies.calendar import (
-    _state_file,
-    _load,
-    _save,
     _spread_value,
     _pnl_at_near_expiry,
     _find_breakevens,
@@ -103,33 +93,6 @@ def open_position(strike_atm, qty, near_days, far_days):
         "far_days":    far_days,
         "asset":       "ETH",
     }
-
-
-# ── _state_file ───────────────────────────────────────────────────────────────
-
-class TestStateFile:
-
-    def test_eth_filename(self):
-        assert _state_file("ETH") == "calendar_state_ETH.json"
-
-    def test_btc_filename(self):
-        assert _state_file("BTC") == "calendar_state_BTC.json"
-
-    def test_sol_filename(self):
-        assert _state_file("SOL") == "calendar_state_SOL.json"
-
-    def test_xrp_filename(self):
-        assert _state_file("XRP") == "calendar_state_XRP.json"
-
-    def test_lowercase_uppercased(self):
-        assert _state_file("eth") == "calendar_state_ETH.json"
-
-    def test_format_consistent(self):
-        for asset in ("ETH", "BTC", "SOL", "XRP"):
-            name = _state_file(asset)
-            assert name.startswith("calendar_state_")
-            assert name.endswith(".json")
-            assert asset in name
 
 
 # ── _spread_value ─────────────────────────────────────────────────────────────
@@ -348,61 +311,3 @@ class TestCheckCalendarStatus:
         assert len(msg) > 0
 
 
-# ── _load ─────────────────────────────────────────────────────────────────────
-
-class TestLoad:
-
-    def test_missing_file_returns_defaults(self):
-        with patch("strategies.calendar.os.path.exists", return_value=False):
-            result = _load("ETH")
-        assert result["open"]       is None
-        assert result["total_pnl"]  == 0.0
-        assert result["wins"]       == 0
-        assert result["losses"]     == 0
-        assert result["trades"]     == 0
-
-    def test_existing_file_returns_contents(self):
-        state = {"open": None, "total_pnl": 42.0, "wins": 2, "losses": 1, "trades": 3}
-        with patch("strategies.calendar.os.path.exists", return_value=True), \
-             patch("builtins.open", mock_open(read_data=json.dumps(state))):
-            result = _load("ETH")
-        assert result["total_pnl"] == 42.0
-        assert result["wins"]      == 2
-
-    def test_uses_correct_filename(self):
-        with patch("strategies.calendar.os.path.exists", return_value=False) as mock_e:
-            _load("SOL")
-        mock_e.assert_called_once_with("calendar_state_SOL.json")
-
-
-# ── _save ─────────────────────────────────────────────────────────────────────
-
-class TestSave:
-
-    def test_saves_valid_json(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        state = {"open": None, "total_pnl": 10.0, "wins": 1, "losses": 0, "trades": 1}
-        _save("ETH", state)
-        with open("calendar_state_ETH.json") as f:
-            assert json.load(f) == state
-
-    def test_saves_to_correct_filename(self):
-        state = {"open": None, "total_pnl": 0.0, "wins": 0, "losses": 0, "trades": 0}
-        m = mock_open()
-        with patch("builtins.open", m):
-            _save("BTC", state)
-        m.assert_called_once_with("calendar_state_BTC.json", "w")
-
-    def test_roundtrip(self):
-        state = {"open": None, "total_pnl": 25.5, "wins": 3, "losses": 1, "trades": 4}
-        import tempfile, os as _os
-        with tempfile.TemporaryDirectory() as tmpdir:
-            orig = _os.getcwd()
-            _os.chdir(tmpdir)
-            try:
-                _save("ETH", state)
-                loaded = _load("ETH")
-            finally:
-                _os.chdir(orig)
-        assert loaded["total_pnl"] == 25.5
-        assert loaded["trades"]    == 4

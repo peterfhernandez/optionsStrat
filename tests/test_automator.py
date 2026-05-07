@@ -37,8 +37,6 @@ Tier 4 — orchestration
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -46,8 +44,9 @@ import pytest
 
 from database import load_wheel_state, save_wheel_state
 from database.strangle_db import load_strangle_state, save_strangle_state
+from database.calendar_db import load_calendar_state, save_calendar_state
 from strategies.scanner import Candidate
-from strategies import wheel, calendar
+from strategies import wheel
 from automation.automator import (
     select_best_candidate,
     run_automation,
@@ -63,10 +62,7 @@ from trading.executor import enter_trade
 
 @pytest.fixture(autouse=True)
 def _isolate_state(tmp_path, monkeypatch):
-    """
-    Run every test in tmp_path so state files (paper_state_*.json,
-    strangle_state_*.json, calendar_state_*.json) don't pollute the repo.
-    """
+    """Run every test in tmp_path for any remaining filesystem operations."""
     monkeypatch.chdir(tmp_path)
     yield
 
@@ -243,13 +239,13 @@ class TestBlockedStrategies:
         assert "Strangle" in blocked
 
     def test_open_calendar_blocks_both_calendar_types(self):
-        s = calendar._load("ETH")
+        s = load_calendar_state("ETH")
         s["open"] = {
             "strike": 2000, "option_type": "Call",
             "near_prem": 10.0, "far_prem": 20.0, "net_debit": 10.0,
             "qty": 0.125, "near_days": 7, "far_days": 30,
         }
-        calendar._save("ETH", s)
+        save_calendar_state("ETH", s)
 
         blocked = _blocked_strategies("ETH")
         assert "Cal-C" in blocked
@@ -319,25 +315,22 @@ class TestEnterTrade:
         c  = _make(strategy="Cal-C", strike_str="$2000 ATM",
                    far_days=30, liq="Med")
         wb = MagicMock()
-        with patch("trading.executor.append_calendar_row") as row:
-            opened = enter_trade(c, wb)
+        opened = enter_trade(c, wb)
 
-        s = calendar._load("ETH")
+        s = load_calendar_state("ETH")
         assert s["open"]["strike"]      == 2000.0
         assert s["open"]["option_type"] == "Call"
         assert s["open"]["far_days"]    == 30
         assert s["open"]["net_debit"]   > 0
-        row.assert_called_once()
         assert opened["option_type"] == "Call"
 
     def test_calendar_put_strategy(self):
         c  = _make(strategy="Cal-P", strike_str="$2000 ATM",
                    far_days=30, liq="Med")
         wb = MagicMock()
-        with patch("trading.executor.append_calendar_row"):
-            enter_trade(c, wb)
+        enter_trade(c, wb)
 
-        s = calendar._load("ETH")
+        s = load_calendar_state("ETH")
         assert s["open"]["option_type"] == "Put"
 
     def test_unsupported_strategy_raises(self):
@@ -501,7 +494,6 @@ class TestRunAutomation:
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_calendar_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -510,7 +502,6 @@ class TestRunAutomation:
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Cal-C"
-        row.assert_called_once()
 
     def test_skips_blocked_strategy_and_picks_next(self):
         """If the wheel already has a short put open, CSP is blocked, so

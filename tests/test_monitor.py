@@ -25,9 +25,8 @@ append_strangle_row and append_trade_row are mocked to avoid openpyxl.
 bs_put and bs_call are mocked to control trigger conditions precisely.
 """
 
-import json
 from datetime import date, timedelta
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -359,156 +358,134 @@ class TestCheckStrangle:
 
 class TestCheckWheel:
 
-    def test_no_state_file_returns_false(self, mock_wb):
-        with patch("automation.monitor._load_state", return_value=None):
-            result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+    def test_no_state_in_db_returns_false(self, mock_wb):
+        """No state seeded → fresh defaults have open=None → False."""
+        result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
     def test_no_open_position_returns_false(self, mock_wb):
-        state = {"open": None, "stage": "no_position", "wins": 0, "losses": 0}
-        with patch("automation.monitor._load_state", return_value=state):
-            result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+        from database.wheel_db import save_wheel_state
+        save_wheel_state("ETH", {
+            "stage": "no_position", "open": None, "wins": 0, "losses": 0,
+            "cycles": 0, "total_premium": 0.0, "asset_held": 0.0, "cost_basis": 0.0,
+        })
+        result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
     def test_no_trigger_put_returns_false(self, mock_wb, wheel_state_put):
         """Normal put position — no trigger."""
-        p0  = wheel_state_put["open"]["premium"]   # 25.0
-        qty = wheel_state_put["open"]["qty"]       # 0.139
-        # Must be: > p0 * TAKE_PROFIT_THRESHOLD (2.5) and < p0 * STOP_LOSS_MULTIPLIER (50.0)
-        # cur = per_unit * qty, so per_unit must satisfy:
-        #   per_unit * qty > p0 * TAKE_PROFIT_THRESHOLD
-        #   per_unit * qty < p0 * STOP_LOSS_MULTIPLIER
-        # Use 50% of premium as current value — safely in the middle
-        per_unit = (p0 * 0.50) / qty
-        with patch("automation.monitor._load_state",     return_value=wheel_state_put), \
-             patch("automation.monitor.bs_put",          return_value=per_unit), \
-             patch("automation.monitor.bs_call",         return_value=per_unit), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        from database.wheel_db import save_wheel_state
+        save_wheel_state("ETH", wheel_state_put)
+        p0       = wheel_state_put["open"]["premium"]
+        qty      = wheel_state_put["open"]["qty"]
+        per_unit = (p0 * 0.50) / qty  # safely between TP and SL thresholds
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
     def test_stop_loss_put_returns_true(self, mock_wb, wheel_state_put):
         """Put position value exceeds stop-loss threshold."""
-        p0  = wheel_state_put["open"]["premium"]   # 25.0
-        qty = wheel_state_put["open"]["qty"]       # 0.139
+        from database.wheel_db import save_wheel_state
+        save_wheel_state("ETH", wheel_state_put)
+        p0       = wheel_state_put["open"]["premium"]
+        qty      = wheel_state_put["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
-        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
-             patch("automation.monitor._save_state",    MagicMock()), \
-             patch("automation.monitor.bs_put",         return_value=per_unit), \
-             patch("automation.monitor.bs_call",        return_value=per_unit), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
     def test_stop_loss_call_returns_true(self, mock_wb, wheel_state_call):
         """Call position value exceeds stop-loss threshold."""
-        p0  = wheel_state_call["open"]["premium"]   # 20.0
-        qty = wheel_state_call["open"]["qty"]       # 0.125
+        from database.wheel_db import save_wheel_state
+        save_wheel_state("ETH", wheel_state_call)
+        p0       = wheel_state_call["open"]["premium"]
+        qty      = wheel_state_call["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
-        with patch("automation.monitor._load_state",    return_value=wheel_state_call), \
-             patch("automation.monitor._save_state",    MagicMock()), \
-             patch("automation.monitor.bs_put",         return_value=per_unit), \
-             patch("automation.monitor.bs_call",        return_value=per_unit), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
     def test_stop_loss_clears_open_and_resets_stage(self, mock_wb, wheel_state_put):
         """After stop-loss, open=None and stage='no_position'."""
-        p0  = wheel_state_put["open"]["premium"]
-        qty = wheel_state_put["open"]["qty"]
+        from database.wheel_db import save_wheel_state, load_wheel_state
+        save_wheel_state("ETH", wheel_state_put)
+        p0       = wheel_state_put["open"]["premium"]
+        qty      = wheel_state_put["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
-        saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
-        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
-             patch("automation.monitor._save_state",    side_effect=capture_save), \
-             patch("automation.monitor.bs_put",         return_value=per_unit), \
-             patch("automation.monitor.bs_call",        return_value=per_unit), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
             _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
-        assert saved_states[-1]["open"] is None
-        assert saved_states[-1]["stage"] == "no_position"
+        updated = load_wheel_state("ETH")
+        assert updated["open"]  is None
+        assert updated["stage"] == "no_position"
 
     def test_take_profit_put_returns_true(self, mock_wb, wheel_state_put):
         """Put nearly worthless → take profit."""
-        p0  = wheel_state_put["open"]["premium"]
-        qty = wheel_state_put["open"]["qty"]
+        from database.wheel_db import save_wheel_state
+        save_wheel_state("ETH", wheel_state_put)
+        p0       = wheel_state_put["open"]["premium"]
+        qty      = wheel_state_put["open"]["qty"]
         per_unit = (p0 * TAKE_PROFIT_THRESHOLD) / qty - 0.001
-        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
-             patch("automation.monitor._save_state",    MagicMock()), \
-             patch("automation.monitor.bs_put",         return_value=per_unit), \
-             patch("automation.monitor.bs_call",        return_value=per_unit), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
             result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
     def test_expiry_put_otm_is_win(self, mock_wb, wheel_state_put, today_expiry):
         """At expiry, spot > put strike → put expires OTM → win."""
+        from database.wheel_db import save_wheel_state, load_wheel_state
         wheel_state_put["open"]["expiry"] = today_expiry
+        save_wheel_state("ETH", wheel_state_put)
         spot = 2000.0  # above put strike of 1800
-        saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
-        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
-             patch("automation.monitor._save_state",    side_effect=capture_save), \
-             patch("automation.monitor.bs_put",         return_value=0.1), \
-             patch("automation.monitor.bs_call",        return_value=0.1), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor.bs_put",  return_value=0.1), \
+             patch("automation.monitor.bs_call", return_value=0.1):
             result = _check_wheel("ETH", spot, 0.80, mock_wb, True)
         assert result is True
-        assert saved_states[-1]["wins"] == 1
+        updated = load_wheel_state("ETH")
+        assert updated["wins"] == 1
 
     def test_expiry_put_itm_is_loss(self, mock_wb, wheel_state_put, today_expiry):
         """At expiry, spot far below put strike → intrinsic loss exceeds premium → loss."""
+        from database.wheel_db import save_wheel_state, load_wheel_state
         wheel_state_put["open"]["expiry"] = today_expiry
-        p0  = wheel_state_put["open"]["premium"]   # 25.0
-        K   = wheel_state_put["open"]["strike"]    # 1800.0
-        qty = wheel_state_put["open"]["qty"]       # 0.139
-        # Force a loss: abs(spot - K) * qty > p0
-        # (K - spot) * qty > p0 → spot < K - p0/qty = 1800 - 179.8 = 1620
+        save_wheel_state("ETH", wheel_state_put)
+        # (K - spot) * qty > p0 → spot < 1800 - 25/0.139 ≈ 1620
         spot = 1500.0
-        saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
-        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
-             patch("automation.monitor._save_state",    side_effect=capture_save), \
-             patch("automation.monitor.bs_put",         return_value=0.1), \
-             patch("automation.monitor.bs_call",        return_value=0.1), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor.bs_put",  return_value=0.1), \
+             patch("automation.monitor.bs_call", return_value=0.1):
             result = _check_wheel("ETH", spot, 0.80, mock_wb, True)
         assert result is True
-        assert saved_states[-1]["losses"] == 1
+        updated = load_wheel_state("ETH")
+        assert updated["losses"] == 1
 
     def test_stop_loss_increments_losses(self, mock_wb, wheel_state_put):
-        p0  = wheel_state_put["open"]["premium"]
-        qty = wheel_state_put["open"]["qty"]
+        from database.wheel_db import save_wheel_state, load_wheel_state
+        save_wheel_state("ETH", wheel_state_put)
+        p0       = wheel_state_put["open"]["premium"]
+        qty      = wheel_state_put["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
-        saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
-        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
-             patch("automation.monitor._save_state",    side_effect=capture_save), \
-             patch("automation.monitor.bs_put",         return_value=per_unit), \
-             patch("automation.monitor.bs_call",        return_value=per_unit), \
-             patch("automation.monitor.append_trade_row", MagicMock()):
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
             _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
-        assert saved_states[-1]["losses"] == 1
-        assert saved_states[-1]["wins"]   == 0
+        updated = load_wheel_state("ETH")
+        assert updated["losses"] == 1
+        assert updated["wins"]   == 0
 
-    def test_logs_to_excel_on_close(self, mock_wb, wheel_state_put):
-        """Any trigger must call append_trade_row."""
-        p0  = wheel_state_put["open"]["premium"]
-        qty = wheel_state_put["open"]["qty"]
+    def test_stop_loss_updates_database(self, mock_wb, wheel_state_put):
+        """Stop-loss trigger must persist state to database (open cleared)."""
+        from database.wheel_db import save_wheel_state, load_wheel_state
+        save_wheel_state("ETH", wheel_state_put)
+        p0       = wheel_state_put["open"]["premium"]
+        qty      = wheel_state_put["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
-        append = MagicMock()
-        with patch("automation.monitor._load_state",    return_value=wheel_state_put), \
-             patch("automation.monitor._save_state",    MagicMock()), \
-             patch("automation.monitor.bs_put",         return_value=per_unit), \
-             patch("automation.monitor.bs_call",        return_value=per_unit), \
-             patch("automation.monitor.append_trade_row", append):
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
             _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
-        append.assert_called_once()
+        updated = load_wheel_state("ETH")
+        assert updated["open"] is None
 
 
 # ── run_monitor ───────────────────────────────────────────────────────────────
@@ -546,16 +523,14 @@ class TestRunMonitor:
 
     def test_failed_price_fetch_skips_asset(self, mock_wb):
         """If price fetch fails for non-active assets, run_monitor completes without error."""
-        with patch("automation.monitor._load_state", return_value=None), \
-             patch("market.market_data.get_spot_price", return_value=None), \
+        with patch("market.market_data.get_spot_price", return_value=None), \
              patch("market.market_data.get_deribit_iv", return_value=0.60):
             result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
         assert result is None
 
     def test_registry_called_for_each_asset(self, mock_wb):
         """run_monitor processes all assets without error when prices are available."""
-        with patch("automation.monitor._load_state", return_value=None), \
-             patch("market.market_data.get_spot_price", return_value=80000.0), \
+        with patch("market.market_data.get_spot_price", return_value=80000.0), \
              patch("market.market_data.get_deribit_iv", return_value=0.60):
             result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
         assert result is None

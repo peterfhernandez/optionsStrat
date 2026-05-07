@@ -28,8 +28,6 @@ _check_calendar(asset, spot, iv,    Evaluate and optionally close a
 _REGISTRY                           List of checker functions to call
 """
 
-import json
-import os
 from datetime import date, datetime
 
 from config  import (
@@ -40,7 +38,9 @@ from config  import (
 from market.pricing import bs_put, bs_call
 from ui.display import ok, warn, err, hdr, inf, sub, GR, RD, YL, CY, WH, GY, R
 from database.strangle_db import load_strangle_state, save_strangle_state, close_strangle_trade
-from excel.excel_tracker import append_trade_row, append_calendar_row
+from database.calendar_db import load_calendar_state, save_calendar_state, close_calendar_trade
+from database.wheel_db import load_wheel_state, save_wheel_state, close_single_trade
+from models import get_session, Single
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -70,20 +70,6 @@ def _days_remaining(expiry_str: str) -> int:
         except ValueError:
             continue
     return 0  # unrecognised format → treat as expired
-
-
-def _load_state(path: str) -> dict | None:
-    """Load a JSON state file, returning None if it doesn't exist."""
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        return json.load(f)
-
-
-def _save_state(path: str, state: dict) -> None:
-    """Persist a JSON state file."""
-    with open(path, "w") as f:
-        json.dump(state, f, indent=2)
 
 
 # ── Strangle checker ──────────────────────────────────────────────────────────
@@ -199,9 +185,8 @@ def _check_wheel(
 
     Returns True if a close was triggered, False otherwise.
     """
-    path  = f"paper_state_{asset.upper()}.json"
-    state = _load_state(path)
-    if not state or not state.get("open"):
+    state = load_wheel_state(asset)
+    if not state.get("open"):
         return False
 
     op       = state["open"]
@@ -256,20 +241,28 @@ def _check_wheel(
           f"⚡ AUTO-CLOSE [{trigger}] {asset} {opt_type}{R}")
     print(f"  Strike ${K:,.0f}  |  Premium: ${p0:.2f}  |  P&L: {colour}${pnl:.2f}{R}")
 
-    append_trade_row(wb, "📝 Paper Trades", {
-        "date":        str(date.today()),
-        "asset":       op.get("asset", asset),
-        "type":        f"{opt_type} — Auto Close ({trigger})",
-        "stage":       "Closed",
-        "days":        op.get("days", 7),
-        "strike":      K,
-        "spot_open":   op.get("spot_open", spot),
-        "spot_close":  spot,
-        "premium":     round(p0, 4),
-        "pnl":         round(pnl, 4),
-        "result":      result,
-        "notes":       note,
-    })
+    # Close the open Single trade record in the database
+    stage_tag = "short_put" if opt_type == "Put" else "short_call"
+    session = get_session()
+    try:
+        open_trade = (
+            session.query(Single)
+            .filter(Single.asset == asset, Single.stage == stage_tag, Single.date_close.is_(None))
+            .order_by(Single.date_open.desc())
+            .first()
+        )
+    finally:
+        session.close()
+
+    if open_trade:
+        close_single_trade(
+            trade_id=open_trade.id,
+            date_close=date.today(),
+            spot_close=spot,
+            pnl=round(pnl, 4),
+            result=result,
+            notes=note,
+        )
 
     if pnl >= 0:
         state["wins"]   += 1
@@ -277,8 +270,8 @@ def _check_wheel(
         state["losses"] += 1
     state["open"]  = None
     state["stage"] = "no_position"
-    _save_state(path, state)
-    ok(f"{asset} {opt_type} auto-closed and logged to Excel.")
+    save_wheel_state(asset, state)
+    ok(f"{asset} {opt_type} auto-closed and logged to database.")
     return True
 
 
@@ -301,9 +294,8 @@ def _check_calendar(
 
     Returns True if a close was triggered, False otherwise.
     """
-    path  = f"calendar_state_{asset.upper()}.json"
-    state = _load_state(path)
-    if not state or not state.get("open"):
+    state = load_calendar_state(asset)
+    if not state.get("open"):
         return False
 
     op          = state["open"]
@@ -371,23 +363,16 @@ def _check_calendar(
     print(f"\n  {trig_col}⚡ AUTO-CLOSE [{trigger}] {asset} {opt_type} Calendar{R}")
     print(f"  Strike ${K:,.0f}  |  Net debit: ${net_debit:.2f}  |  P&L: {col}${pnl:.2f}{R}")
 
-    append_calendar_row(wb, {
-        "date":        str(date.today()),
-        "asset":       op.get("asset", asset),
-        "type":        f"{opt_type} Calendar — Auto Close ({trigger})",
-        "strike":      K,
-        "option_type": opt_type,
-        "spot_open":   op.get("spot_open", spot),
-        "spot_close":  spot,
-        "near_prem":   op.get("near_prem", 0),
-        "far_prem":    op.get("far_prem",  0),
-        "net_debit":   net_debit,
-        "pnl":         round(pnl, 4),
-        "near_days":   near_days,
-        "far_days":    far_days,
-        "result":      result,
-        "notes":       note,
-    })
+    trade_id = op.get("trade_id")
+    if trade_id:
+        close_calendar_trade(
+            trade_id=trade_id,
+            date_close=date.today(),
+            spot_close=spot,
+            pnl=round(pnl, 4),
+            result=result,
+            notes=note,
+        )
 
     if pnl >= 0:
         state["wins"]  += 1
@@ -395,8 +380,8 @@ def _check_calendar(
         state["losses"] += 1
     state["total_pnl"] = state.get("total_pnl", 0.0) + pnl
     state["open"] = None
-    _save_state(path, state)
-    ok(f"{asset} {opt_type} calendar auto-closed and logged to Excel.")
+    save_calendar_state(asset, state)
+    ok(f"{asset} {opt_type} calendar auto-closed and logged to database.")
     return True
 
 

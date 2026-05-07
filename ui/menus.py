@@ -219,7 +219,7 @@ def strategies_menu(
             show_strikes(asset, spot, iv, days)
 
         elif choice == "2":
-            wheel_paper_menu(asset, spot, iv, wb, days)
+            wheel_paper_menu(asset, spot, iv, days)
 
         elif choice == "3":
             show_strangle_analysis(asset, spot, iv, days)
@@ -236,7 +236,7 @@ def strategies_menu(
 
         elif choice == "6":
             calendar_paper_menu(
-                asset, spot, iv, wb, days,
+                asset, spot, iv, days,
                 near_days=calendar_near,
                 far_days=calendar_far,
             )

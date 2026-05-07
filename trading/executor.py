@@ -23,11 +23,9 @@ from config import (
 )
 from database import load_wheel_state, save_wheel_state
 from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
+from database.calendar_db import load_calendar_state, save_calendar_state, create_calendar_trade
 from market.pricing import bs_put, bs_call
-from excel.excel_tracker import (
-    append_trade_row, append_calendar_row,
-)
-from strategies import calendar
+from excel.excel_tracker import append_trade_row
 
 
 def _enter_csp(c, wb, T: float) -> dict:
@@ -170,7 +168,28 @@ def _enter_calendar(c, wb, T: float) -> dict:
     expiry_near = (date.today() + timedelta(days=c.days)).strftime("%d-%b-%Y")
     expiry_far  = (date.today() + timedelta(days=far_days)).strftime("%d-%b-%Y")
 
-    s = calendar._load(c.asset)
+    trade = create_calendar_trade(
+        asset=c.asset,
+        date_open=date.today(),
+        option_type=option_type,
+        strike=K,
+        expiry_near=expiry_near,
+        expiry_far=expiry_far,
+        near_days=c.days,
+        far_days=far_days,
+        qty=qty,
+        spot_open=c.spot,
+        near_prem=round(near_prem, 4),
+        far_prem=round(far_prem, 4),
+        net_debit=round(net_debit, 4),
+        notes=(
+            f"AUTO {c.asset} {option_type} calendar, "
+            f"{c.days}d/{far_days}d, "
+            f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr"
+        ),
+    )
+
+    s = load_calendar_state(c.asset)
     s["open"] = {
         "strike":      K,
         "option_type": option_type,
@@ -184,26 +203,10 @@ def _enter_calendar(c, wb, T: float) -> dict:
         "near_days":   c.days,
         "far_days":    far_days,
         "asset":       c.asset,
+        "trade_id":    trade.id,
     }
     s["trades"] = s.get("trades", 0) + 1
-    calendar._save(c.asset, s)
-
-    append_calendar_row(wb, {
-        "date":        str(date.today()),
-        "type":        f"{option_type} Calendar — Open (AUTO)",
-        "strike":      K,
-        "option_type": option_type,
-        "spot_open":   c.spot,
-        "near_prem":   round(near_prem, 4),
-        "far_prem":    round(far_prem,  4),
-        "net_debit":   round(net_debit, 4),
-        "near_days":   c.days,
-        "far_days":    far_days,
-        "result":      "Open",
-        "notes":       f"AUTO {c.asset} {option_type} calendar, "
-                       f"{c.days}d/{far_days}d, "
-                       f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr",
-    })
+    save_calendar_state(c.asset, s)
     return s["open"]
 
 

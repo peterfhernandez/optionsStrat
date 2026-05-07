@@ -15,27 +15,28 @@ show_calendar_analysis(asset, spot, iv, days)
     Display a table of strike options with net debit, max profit, profit range,
     and estimated probability of profit.  Offers to draw an ASCII P&L chart.
 
-calendar_paper_menu(asset, spot, iv, wb, days)
+calendar_paper_menu(asset, spot, iv, days)
     Interactive paper trading simulator for the calendar spread strategy.
 
 Internal helpers
 ----------------
-_state_file(asset)                  Asset-specific JSON state file path
-_load(asset)                        Load calendar state from disk
-_save(asset, state)                 Persist calendar state to disk
 _spread_value(spot, ...)            Current mark value of the calendar spread
 _pnl_at_near_expiry(spot_close, ...) P&L given a closing price at near expiry
 _find_breakevens(...)               Numerically locate lower/upper breakeven prices
 check_calendar_status(...)          Evaluate stop / take-profit / warn conditions
 """
 
-import json
-import os
 from datetime import date, timedelta
 
 from config import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, CALENDAR_STOP_PCT,
+)
+from database.calendar_db import (
+    load_calendar_state,
+    save_calendar_state,
+    create_calendar_trade,
+    close_calendar_trade,
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from ui.display import (
@@ -43,29 +44,6 @@ from ui.display import (
     draw_calendar_zone,
     GR, RD, CY, YL, GY, WH, R,
 )
-from excel.excel_tracker import append_calendar_row
-
-
-# ── State persistence ─────────────────────────────────────────────────────────
-
-def _state_file(asset: str) -> str:
-    """Return asset-specific state file path e.g. 'calendar_state_ETH.json'."""
-    return f"calendar_state_{asset.upper()}.json"
-
-
-def _load(asset: str) -> dict:
-    """Load calendar state from disk, or return a fresh default state."""
-    path = _state_file(asset)
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return {"open": None, "total_pnl": 0.0, "wins": 0, "losses": 0, "trades": 0}
-
-
-def _save(asset: str, state: dict) -> None:
-    """Persist calendar state to disk."""
-    with open(_state_file(asset), "w") as f:
-        json.dump(state, f, indent=2)
 
 
 # ── P&L helpers ───────────────────────────────────────────────────────────────
@@ -359,7 +337,6 @@ def calendar_paper_menu(
     asset: str,
     spot: float,
     iv: float,
-    wb,
     days: int                      = None,
     *,
     near_days: int | None          = None,
@@ -368,7 +345,7 @@ def calendar_paper_menu(
     """
     Interactive paper trading simulator for the calendar spread strategy.
 
-    Manages state across sessions via a per-asset JSON file.
+    Manages state across sessions via the SQLite database.
     Supports opening, monitoring, closing at near expiry, and early-closing.
 
     Calendar horizons default to ``config.CALENDAR_NEAR_DAYS`` (7d short
@@ -381,7 +358,6 @@ def calendar_paper_menu(
     asset     : str              Underlying asset symbol
     spot      : float            Current spot price
     iv        : float            Implied volatility (decimal)
-    wb        : openpyxl.Workbook
     days      : int              Backwards-compatible alias for ``near_days``
     near_days : int              Short-leg horizon (overrides ``days``)
     far_days  : int              Long-leg horizon
@@ -401,7 +377,7 @@ def calendar_paper_menu(
     T_far  = far_days / 365.0
     r      = RISK_FREE_RATE
     qty    = BUDGET_USD / spot
-    s      = _load(asset)
+    s      = load_calendar_state(asset)
 
     hdr(f"Calendar Spread — {asset} Paper Trading  ({days}d / {far_days}d)")
 
@@ -524,6 +500,23 @@ def calendar_paper_menu(
         expiry_near = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
         expiry_far  = (date.today() + timedelta(days=far_days)).strftime("%d-%b-%Y")
 
+        trade = create_calendar_trade(
+            asset=asset,
+            date_open=date.today(),
+            option_type=option_type,
+            strike=K,
+            expiry_near=expiry_near,
+            expiry_far=expiry_far,
+            near_days=days,
+            far_days=far_days,
+            qty=qty,
+            spot_open=spot,
+            near_prem=round(near_prem, 4),
+            far_prem=round(far_prem, 4),
+            net_debit=round(net_debit, 4),
+            notes=f"{asset} {option_type} calendar, {days}d/{far_days}d",
+        )
+
         s["open"] = {
             "strike":      K,
             "option_type": option_type,
@@ -537,30 +530,16 @@ def calendar_paper_menu(
             "near_days":   days,
             "far_days":    far_days,
             "asset":       asset,
+            "trade_id":    trade.id,
         }
         s["trades"] += 1
-        _save(asset, s)
+        save_calendar_state(asset, s)
 
         ok(
             f"Calendar opened: {option_type} ${K:,.0f}  "
             f"{days}d/{far_days}d  |  Net debit: ${net_debit:.2f}"
         )
         draw_calendar_zone(spot, K, net_debit, qty, days, far_days, iv, option_type)
-
-        append_calendar_row(wb, {
-            "date":        str(date.today()),
-            "type":        f"{option_type} Calendar — Open",
-            "strike":      K,
-            "option_type": option_type,
-            "spot_open":   spot,
-            "near_prem":   round(near_prem, 4),
-            "far_prem":    round(far_prem,  4),
-            "net_debit":   round(net_debit, 4),
-            "near_days":   days,
-            "far_days":    far_days,
-            "result":      "Open",
-            "notes":       f"{asset} {option_type} calendar, {days}d/{far_days}d",
-        })
 
     # [2] Show P&L chart
     elif choice == "2":
@@ -601,23 +580,20 @@ def calendar_paper_menu(
                  f"({'spot moved away from strike' if abs(spot_close - K) > K * 0.10 else 'narrow miss'})")
 
         s["total_pnl"] += pnl
-        append_calendar_row(wb, {
-            "date":        str(date.today()),
-            "type":        f"{opt_type} Calendar — Expired",
-            "strike":      K,
-            "option_type": opt_type,
-            "spot_open":   op["spot_open"], "spot_close": spot_close,
-            "near_prem":   op["near_prem"],
-            "far_prem":    op["far_prem"],
-            "net_debit":   net_debit,
-            "pnl":         round(pnl, 4),
-            "near_days":   op["near_days"],
-            "far_days":    op["far_days"],
-            "result":      result,
-            "notes":       f"{asset} closed at near expiry, spot ${spot_close:,.0f}",
-        })
+
+        trade_id = op.get("trade_id")
+        if trade_id:
+            close_calendar_trade(
+                trade_id=trade_id,
+                date_close=date.today(),
+                spot_close=spot_close,
+                pnl=round(pnl, 4),
+                result=result,
+                notes=f"{asset} closed at near expiry, spot ${spot_close:,.0f}",
+            )
+
         s["open"] = None
-        _save(asset, s)
+        save_calendar_state(asset, s)
 
     # [4] Early close at current mark
     elif choice == "4":
@@ -676,20 +652,16 @@ def calendar_paper_menu(
         )
         ok(f"Closed.  P&L: {'+'if pnl>=0 else ''}${pnl:.2f}")
 
-        append_calendar_row(wb, {
-            "date":        str(date.today()),
-            "type":        f"{opt_type} Calendar — Early Close",
-            "strike":      K,
-            "option_type": opt_type,
-            "spot_open":   op["spot_open"], "spot_close": spot,
-            "near_prem":   op["near_prem"],
-            "far_prem":    op["far_prem"],
-            "net_debit":   net_debit,
-            "pnl":         round(pnl, 4),
-            "near_days":   op["near_days"],
-            "far_days":    op["far_days"],
-            "result":      result,
-            "notes":       f"{asset} {note}",
-        })
+        trade_id = op.get("trade_id")
+        if trade_id:
+            close_calendar_trade(
+                trade_id=trade_id,
+                date_close=date.today(),
+                spot_close=spot,
+                pnl=round(pnl, 4),
+                result=result,
+                notes=f"{asset} {note}",
+            )
+
         s["open"] = None
-        _save(asset, s)
+        save_calendar_state(asset, s)
