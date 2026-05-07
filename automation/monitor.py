@@ -5,14 +5,14 @@ Cross-strategy position monitor for the Crypto Options Strategy Tool.
 
 Checks all open positions across all assets and strategies. Triggers
 automatic closes when stop-loss, take-profit, or expiry conditions are
-met, and logs every auto-close to Excel.
+met, and logs every auto-close to the SQLite database.
 
 Designed to be extensible — register a new strategy by adding one entry
 to _REGISTRY at the bottom of this file.
 
 Public API
 ----------
-run_monitor(spot, iv, wb, days, asset, silent=False)
+run_monitor(spot, iv, days, asset, silent=False)
     Check all open positions and auto-close any that breach thresholds.
     Called silently on every main menu display, or verbosely via menu.
 
@@ -20,11 +20,11 @@ Internal helpers
 ----------------
 _days_remaining(expiry_str)         Days left until expiry date string
 _check_strangle(asset, spot, iv,    Evaluate and optionally close a
-                wb, silent)          strangle position
+                silent)              strangle position
 _check_wheel(asset, spot, iv,       Evaluate and optionally close a
-             wb, silent)             wheel position
+             silent)                 wheel position
 _check_calendar(asset, spot, iv,    Evaluate and optionally close a
-                wb, silent)          calendar spread position
+                silent)              calendar spread position
 _REGISTRY                           List of checker functions to call
 """
 
@@ -78,7 +78,6 @@ def _check_strangle(
     asset: str,
     spot: float,
     iv: float,
-    wb,
     silent: bool,
 ) -> bool:
     """
@@ -172,7 +171,6 @@ def _check_wheel(
     asset: str,
     spot: float,
     iv: float,
-    wb,
     silent: bool,
 ) -> bool:
     """
@@ -281,7 +279,6 @@ def _check_calendar(
     asset: str,
     spot: float,
     iv: float,
-    wb,
     silent: bool,
 ) -> bool:
     """
@@ -389,7 +386,7 @@ def _check_calendar(
 #
 # To add a new strategy, append a checker function here.
 # Each checker must have the signature:
-#   fn(asset, spot, iv, wb, silent) -> bool
+#   fn(asset, spot, iv, silent) -> bool
 #
 _REGISTRY = [
     _check_strangle,
@@ -403,7 +400,6 @@ _REGISTRY = [
 def run_monitor(
     spot: float,
     iv: float,
-    wb,
     days: int,
     asset: str,
     silent: bool = True,
@@ -418,7 +414,6 @@ def run_monitor(
     ----------
     spot   : float  Current spot price for the active asset
     iv     : float  Current IV for the active asset
-    wb     : openpyxl.Workbook
     days   : int    Days to expiry (used for IV context only)
     asset  : str    Currently selected asset (used for spot/IV context)
     silent : bool   True = only print on trigger; False = print all statuses
@@ -446,7 +441,7 @@ def run_monitor(
             a_iv = get_deribit_iv(a, a_spot, days) or iv
 
         for checker in _REGISTRY:
-            triggered = checker(a, a_spot, a_iv, wb, silent)
+            triggered = checker(a, a_spot, a_iv, silent)
             if triggered:
                 any_triggered = True
 

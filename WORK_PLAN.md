@@ -63,11 +63,14 @@ Steps (6 phases, 22+ steps)
   a. wheel - ✅ DONE
   b. strangle - ✅ DONE
   c. calendar spread - ✅ DONE
-  d. credit spread - 🔄 IN PROGRESS
-  e. Executor - 📌 TO DO
-  f. Automator - 📌 TO DO
-  g. Monitor - 📌 TO DO
-  h. Scanner? - 📌 TO DO
+  d. credit spread - 📌 TO DO
+  e. Executor - ✅ DONE
+  f. Automate - ✅ DONE
+  g. Monitor - ✅ DONE
+  h. Scanner? - 🔄 IN PROGRESS
+  i. Summary - ✅ DONE
+  j. Display - ✅ DONE
+  k. Menus - ✅ DONE
 2. Track trading state - 📌 TO DO
 3. Track open positions in db - portfolio - 📌 TO DO
 4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l  - 📌 TO DO

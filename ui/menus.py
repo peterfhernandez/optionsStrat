@@ -114,7 +114,7 @@ def set_yield_filter() -> None:
 
 # ── Portfolio view ────────────────────────────────────────────────────────────
 
-def show_portfolio(wb) -> None:
+def show_portfolio() -> None:
     """
     Display all open positions across all strategies with live P&L.
     """
@@ -186,7 +186,6 @@ def strategies_menu(
     asset: str,
     spot: float,
     iv: float,
-    wb,
     days: int,
     calendar_near: int,
     calendar_far: int,
@@ -245,7 +244,7 @@ def strategies_menu(
             warn("Live trade recording not yet wired — use the original tool for now.")
 
         elif choice == "M":
-            run_monitor(spot, iv, wb, days, asset, silent=False)
+            run_monitor(spot, iv, days, asset, silent=False)
 
         elif choice == "Y":
             set_yield_filter()
@@ -270,7 +269,6 @@ def main_menu(
     asset: str,
     spot: float,
     iv: float,
-    wb,
     days: int,
     calendar_near: int,
     calendar_far: int,
@@ -305,7 +303,7 @@ def main_menu(
 
     if choice == "S":
         strategies_menu(
-            asset, spot, iv, wb, days,
+            asset, spot, iv, days,
             calendar_near, calendar_far,
         )
 
@@ -326,16 +324,16 @@ def main_menu(
         )
 
     elif choice == "M":
-        run_monitor(spot, iv, wb, days, asset, silent=False)
+        run_monitor(spot, iv, days, asset, silent=False)
 
     elif choice == "P":
-        show_summary(wb)
+        show_summary()
 
     elif choice == "O":
-        show_portfolio(wb)
+        show_portfolio()
 
     elif choice == "H":
-        show_trade_history(wb)
+        show_trade_history()
 
     elif choice == "L":
         toggle_trading_mode()
@@ -417,17 +415,14 @@ def run_app() -> None:
     calendar_near = CALENDAR_NEAR_DAYS
     calendar_far = CALENDAR_FAR_DAYS
 
-    from excel.excel_tracker import setup_excel
-    wb = setup_excel()
-
     # Main loop
     while True:
         # Background monitor check (silent)
-        run_monitor(spot, iv, wb, days, asset, silent=True)
+        run_monitor(spot, iv, days, asset, silent=True)
 
         # Show menu and get response
         should_continue, asset, spot, iv, days, calendar_near, calendar_far = main_menu(
-            asset, spot, iv, wb, days,
+            asset, spot, iv, days,
             calendar_near, calendar_far,
         )
         

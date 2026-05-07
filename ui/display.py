@@ -451,80 +451,53 @@ def draw_calendar_zone(
 
 # ── Trade History Display ─────────────────────────────────────────────────────
 
-def show_trade_history(wb) -> None:
+def show_trade_history() -> None:
     """
-    Display a list of all trades with per-trade P&L and cumulative P&L.
+    Display a list of all closed trades with per-trade P&L and cumulative P&L.
 
-    Reads from Excel sheets: 📝 Paper Trades, 🔀 Strangles, 📅 Calendars.
+    Reads from SQLite: singles, strangles, and calendars tables.
     Sorts trades by date, displays table with running total.
     """
-    from datetime import datetime
+    from models import get_session, Single, Strangle, Calendar
 
-    def _headers(ws):
-        headers = {}
-        for col in range(2, ws.max_column + 1):
-            value = ws.cell(row=3, column=col).value
-            if isinstance(value, str) and value.strip():
-                headers[value.strip()] = col
-        return headers
-
-    def _is_placeholder(value):
-        return isinstance(value, str) and value.startswith("←")
-
-    def _to_float(value):
-        if value is None or value == "":
-            return 0.0
-        if isinstance(value, (int, float)):
-            return float(value)
-        try:
-            return float(str(value).replace(",", ""))
-        except (ValueError, TypeError):
-            return 0.0
+    session = get_session()
+    try:
+        singles   = session.query(Single).filter(Single.date_close.isnot(None)).all()
+        strangles = session.query(Strangle).filter(Strangle.date_close.isnot(None)).all()
+        calendars = session.query(Calendar).filter(Calendar.date_close.isnot(None)).all()
+    finally:
+        session.close()
 
     trades = []
-    for sheet_name in ["📝 Paper Trades", "🔀 Strangles", "📅 Calendars"]:
-        if sheet_name not in wb.sheetnames:
-            continue
+    for t in singles:
+        trades.append({
+            "date":   t.date_close,
+            "asset":  t.asset or "",
+            "type":   f"Wheel {t.option_type or ''}".strip(),
+            "pnl":    float(t.pnl or 0.0),
+            "result": t.result or "",
+        })
+    for t in strangles:
+        trades.append({
+            "date":   t.date_close,
+            "asset":  t.asset or "",
+            "type":   "Strangle",
+            "pnl":    float(t.pnl or 0.0),
+            "result": t.result or "",
+        })
+    for t in calendars:
+        trades.append({
+            "date":   t.date_close,
+            "asset":  t.asset or "",
+            "type":   f"Calendar {t.option_type or ''}".strip(),
+            "pnl":    float(t.pnl or 0.0),
+            "result": t.result or "",
+        })
 
-        ws = wb[sheet_name]
-        headers = _headers(ws)
-        if not headers:
-            continue
-
-        date_col = headers.get("Date", 2)
-        asset_col = headers.get("Asset")
-        type_col = headers.get("Type", 3)
-        pnl_col = headers.get("P&L ($)", headers.get("P&L", 10))
-        result_col = headers.get("Result")
-        notes_col = headers.get("Notes")
-
-        for row in range(4, ws.max_row + 1):
-            date_val = ws.cell(row=row, column=date_col).value
-            if not date_val or _is_placeholder(date_val):
-                continue
-
-            trade = {
-                "date": date_val,
-                "asset": ws.cell(row=row, column=asset_col).value if asset_col else "",
-                "type": ws.cell(row=row, column=type_col).value or "",
-                "pnl": _to_float(ws.cell(row=row, column=pnl_col).value),
-                "result": ws.cell(row=row, column=result_col).value if result_col else "",
-                "notes": ws.cell(row=row, column=notes_col).value if notes_col else "",
-            }
-            trades.append(trade)
-
-    def parse_date(d):
-        if isinstance(d, str):
-            try:
-                return datetime.strptime(d, "%Y-%m-%d")
-            except ValueError:
-                return datetime.min
-        return d or datetime.min
-
-    trades.sort(key=lambda t: parse_date(t["date"]))
+    trades.sort(key=lambda t: t["date"] or "")
 
     if not trades:
-        print(f"\n  {YL}No trades found in Excel workbook.{R}\n")
+        print(f"\n  {YL}No closed trades found in database.{R}\n")
         return
 
     hdr("Trade History")

@@ -1,74 +1,37 @@
 """
 strategies/summary.py
 =====================
-Cross-sheet performance summary for the Crypto Options Strategy Tool.
+Cross-strategy performance summary for the Crypto Options Strategy Tool.
 
-Reads trade data from all sheets in the workbook and prints a unified
-stats dashboard. Intentionally has no dependency on any single strategy —
-it works at the workbook level.
+Reads trade data from SQLite and prints a unified stats dashboard.
 
 Public API
 ----------
-show_summary(wb)    Print win rate, premium totals, and trade counts
-                    for Paper Trades, Live Trades, and Strangles.
+show_summary()    Print win rate, premium totals, and trade counts
+                  for Wheel, Strangles, and Calendars.
 """
 
+from database import get_wheel_stats, get_strangle_stats, get_calendar_stats
 from ui.display import hdr, sub, inf
 
 
-# Sheet name → (col_result, col_prem) — zero-based index into iter_rows tuple.
-# Column A = index 0 (always empty); data starts at column B = index 1.
-#
-# Trade sheets  (📝 Paper Trades, 📋 Live Trades):
-#   B=Date C=Type D=Stage E=Days F=Strike G=SpotOpen H=SpotClose I=Premium J=PnL K=Result
-#   Premium → I = index 8    Result → K = index 10
-#
-# Strangles sheet (🔀 Strangles):
-#   B=Date C=Type D=PutK E=CallK F=SpotOpen G=SpotClose H=Days I=Premium J=PnL
-#   K=LowerBE L=UpperBE M=Result
-#   Premium → I = index 8    Result → M = index 12
-_SHEET_CONFIGS = {
-    "📝 Paper Trades": {"col_result": 10, "col_prem": 8},
-    "📋 Live Trades":  {"col_result": 10, "col_prem": 8},
-    "🔀 Strangles":    {"col_result": 12, "col_prem": 8},
-}
-
-
-def show_summary(wb) -> None:
-    """
-    Print a performance summary across all trade sheets in the workbook.
-
-    For each sheet, reports trade count, wins/losses, win rate,
-    total premium collected, and average premium per trade.
-
-    Parameters
-    ----------
-    wb : openpyxl.Workbook  The open workbook returned by setup_excel()
-    """
+def show_summary() -> None:
+    """Print a performance summary across all strategies from the database."""
     hdr("Performance Summary")
 
-    for sheet_name, cols in _SHEET_CONFIGS.items():
-        ws = wb[sheet_name]
-        sub(sheet_name)
+    sections = [
+        ("Wheel (Singles)", get_wheel_stats()),
+        ("Strangles",       get_strangle_stats()),
+        ("Calendars",       get_calendar_stats()),
+    ]
 
-        rows = [
-            r for r in ws.iter_rows(min_row=4, values_only=True)
-            if r[1] and "←" not in str(r[1])
-        ]
-        if not rows:
+    for label, stats in sections:
+        sub(label)
+        if stats["trades"] == 0:
             inf("No trades yet", "")
             continue
-
-        col_result = cols["col_result"]
-        col_prem   = cols["col_prem"]
-
-        wins   = sum(1 for t in rows if t[col_result] == "Win")
-        losses = sum(1 for t in rows if t[col_result] == "Loss")
-        total  = wins + losses
-        prems  = [t[col_prem] for t in rows if isinstance(t[col_prem], (int, float))]
-
-        inf("Trades",        str(len(rows)))
-        inf("Wins / Losses", f"{wins} / {losses}")
-        inf("Win Rate",      f"{wins / total * 100:.1f}%" if total else "N/A")
-        inf("Total Premium", f"${sum(prems):.2f}"            if prems else "$0")
-        inf("Avg Premium",   f"${sum(prems) / len(prems):.2f}" if prems else "N/A")
+        inf("Trades",        str(stats["trades"]))
+        inf("Wins / Losses", f"{stats['wins']} / {stats['losses']}")
+        inf("Win Rate",      f"{stats['win_rate']:.1f}%" if stats["trades"] else "N/A")
+        inf("Total Premium", f"${stats['total_premium']:.2f}")
+        inf("Avg Premium",   f"${stats['avg_premium']:.2f}" if stats["trades"] else "N/A")

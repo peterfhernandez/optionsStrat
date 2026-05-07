@@ -35,18 +35,11 @@ from automation.monitor import (
     _check_strangle,
     _check_wheel,
     run_monitor,
-    TAKE_PROFIT_THRESHOLD,
-)
+    TAKE_PROFIT_THRESHOLD)
 from config import STOP_LOSS_MULTIPLIER
 
 
 # ── Shared fixtures ───────────────────────────────────────────────────────────
-
-@pytest.fixture
-def mock_wb():
-    """A mock openpyxl workbook — never actually written to."""
-    return MagicMock()
-
 
 @pytest.fixture
 def future_expiry():
@@ -207,14 +200,14 @@ class TestCheckStrangle:
             patch("automation.monitor.close_strangle_trade", close_mock or MagicMock()),
         ]
 
-    def test_no_open_position_returns_false(self, mock_wb):
+    def test_no_open_position_returns_false(self):
         """Fresh/empty state (open=None) → nothing to monitor → False."""
         state = {"open": None, "wins": 0, "losses": 0}
         with patch("automation.monitor.load_strangle_state", return_value=state):
-            result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", 2000.0, 0.80, True)
         assert result is False
 
-    def test_no_trigger_returns_false(self, mock_wb, strangle_state):
+    def test_no_trigger_returns_false(self, strangle_state):
         """Normal position — no trigger, no close."""
         p0  = strangle_state["open"]["total_premium"]   # 50.0
         qty = strangle_state["open"]["qty"]             # 0.125
@@ -228,10 +221,10 @@ class TestCheckStrangle:
              patch("automation.monitor.bs_put",               return_value=per_unit), \
              patch("automation.monitor.bs_call",              return_value=per_unit), \
              patch("automation.monitor.close_strangle_trade", MagicMock()):
-            result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", 2000.0, 0.80, True)
         assert result is False
 
-    def test_stop_loss_trigger_returns_true(self, mock_wb, strangle_state):
+    def test_stop_loss_trigger_returns_true(self, strangle_state):
         """Position value exceeds STOP_LOSS_MULTIPLIER × premium."""
         p0      = strangle_state["open"]["total_premium"]   # 50.0
         qty     = strangle_state["open"]["qty"]             # 0.125
@@ -241,10 +234,10 @@ class TestCheckStrangle:
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
         patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", 2000.0, 0.80, True)
         assert result is True
 
-    def test_stop_loss_logs_to_database(self, mock_wb, strangle_state):
+    def test_stop_loss_logs_to_database(self, strangle_state):
         """Stop-loss trigger must call close_strangle_trade when trade_id is set."""
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]
@@ -253,10 +246,10 @@ class TestCheckStrangle:
         close   = MagicMock()
         patches = self._patch(strangle_state, per_unit, per_unit, close)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            _check_strangle("ETH", 2000.0, 0.80, True)
         close.assert_called_once()
 
-    def test_stop_loss_clears_open_position(self, mock_wb, strangle_state):
+    def test_stop_loss_clears_open_position(self, strangle_state):
         """After stop-loss, state["open"] must be set to None."""
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]
@@ -269,11 +262,11 @@ class TestCheckStrangle:
         with patches[0], \
              patch("automation.monitor.save_strangle_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
-            _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            _check_strangle("ETH", 2000.0, 0.80, True)
         assert len(saved_states) > 0
         assert saved_states[-1]["open"] is None
 
-    def test_stop_loss_increments_losses(self, mock_wb, strangle_state):
+    def test_stop_loss_increments_losses(self, strangle_state):
         """Stop-loss (loss) should increment state['losses']."""
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]
@@ -285,11 +278,11 @@ class TestCheckStrangle:
         with patches[0], \
              patch("automation.monitor.save_strangle_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
-            _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            _check_strangle("ETH", 2000.0, 0.80, True)
         assert saved_states[-1]["losses"] == 1
         assert saved_states[-1]["wins"]   == 0
 
-    def test_take_profit_trigger_returns_true(self, mock_wb, strangle_state):
+    def test_take_profit_trigger_returns_true(self, strangle_state):
         """Position value ≤ TAKE_PROFIT_THRESHOLD × premium → take profit."""
         p0  = strangle_state["open"]["total_premium"]   # 50.0
         qty = strangle_state["open"]["qty"]             # 0.125
@@ -298,10 +291,10 @@ class TestCheckStrangle:
         per_unit = (p0 * TAKE_PROFIT_THRESHOLD) / qty / 2 - 0.01
         patches  = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", 2000.0, 0.80, True)
         assert result is True
 
-    def test_take_profit_increments_wins(self, mock_wb, strangle_state):
+    def test_take_profit_increments_wins(self, strangle_state):
         """Take-profit (win) should increment state['wins']."""
         p0  = strangle_state["open"]["total_premium"]
         qty = strangle_state["open"]["qty"]
@@ -313,12 +306,12 @@ class TestCheckStrangle:
         with patches[0], \
              patch("automation.monitor.save_strangle_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
-            _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            _check_strangle("ETH", 2000.0, 0.80, True)
         assert saved_states[-1]["wins"]   == 1
         assert saved_states[-1]["losses"] == 0
 
     def test_expiry_trigger_spot_inside_strikes_is_win(
-            self, mock_wb, strangle_state, today_expiry):
+            self, strangle_state, today_expiry):
         """At expiry, spot between strikes → both legs worthless → win."""
         strangle_state["open"]["expiry"] = today_expiry
         spot = 2000.0  # between put=1800 and call=2200
@@ -331,12 +324,12 @@ class TestCheckStrangle:
              patch("automation.monitor.bs_put",               return_value=0.1), \
              patch("automation.monitor.bs_call",              return_value=0.1), \
              patch("automation.monitor.close_strangle_trade", MagicMock()):
-            result = _check_strangle("ETH", spot, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", spot, 0.80, True)
         assert result is True
         assert saved_states[-1]["wins"] == 1
 
     def test_expiry_trigger_spot_below_put_strike_is_loss(
-            self, mock_wb, strangle_state, today_expiry):
+            self, strangle_state, today_expiry):
         """At expiry, spot far below put strike → intrinsic loss exceeds premium → loss."""
         strangle_state["open"]["expiry"] = today_expiry
         spot = 1300.0  # intrinsic = (1800 - 1300) * 0.125 = 62.5 > premium 50.0
@@ -349,7 +342,7 @@ class TestCheckStrangle:
              patch("automation.monitor.bs_put",               return_value=0.1), \
              patch("automation.monitor.bs_call",              return_value=0.1), \
              patch("automation.monitor.close_strangle_trade", MagicMock()):
-            result = _check_strangle("ETH", spot, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", spot, 0.80, True)
         assert result is True
         assert saved_states[-1]["losses"] == 1
 
@@ -358,21 +351,21 @@ class TestCheckStrangle:
 
 class TestCheckWheel:
 
-    def test_no_state_in_db_returns_false(self, mock_wb):
+    def test_no_state_in_db_returns_false(self):
         """No state seeded → fresh defaults have open=None → False."""
-        result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+        result = _check_wheel("ETH", 2000.0, 0.80, True)
         assert result is False
 
-    def test_no_open_position_returns_false(self, mock_wb):
+    def test_no_open_position_returns_false(self):
         from database.wheel_db import save_wheel_state
         save_wheel_state("ETH", {
             "stage": "no_position", "open": None, "wins": 0, "losses": 0,
             "cycles": 0, "total_premium": 0.0, "asset_held": 0.0, "cost_basis": 0.0,
         })
-        result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+        result = _check_wheel("ETH", 2000.0, 0.80, True)
         assert result is False
 
-    def test_no_trigger_put_returns_false(self, mock_wb, wheel_state_put):
+    def test_no_trigger_put_returns_false(self, wheel_state_put):
         """Normal put position — no trigger."""
         from database.wheel_db import save_wheel_state
         save_wheel_state("ETH", wheel_state_put)
@@ -381,10 +374,10 @@ class TestCheckWheel:
         per_unit = (p0 * 0.50) / qty  # safely between TP and SL thresholds
         with patch("automation.monitor.bs_put",  return_value=per_unit), \
              patch("automation.monitor.bs_call", return_value=per_unit):
-            result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_wheel("ETH", 2000.0, 0.80, True)
         assert result is False
 
-    def test_stop_loss_put_returns_true(self, mock_wb, wheel_state_put):
+    def test_stop_loss_put_returns_true(self, wheel_state_put):
         """Put position value exceeds stop-loss threshold."""
         from database.wheel_db import save_wheel_state
         save_wheel_state("ETH", wheel_state_put)
@@ -393,10 +386,10 @@ class TestCheckWheel:
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
         with patch("automation.monitor.bs_put",  return_value=per_unit), \
              patch("automation.monitor.bs_call", return_value=per_unit):
-            result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_wheel("ETH", 2000.0, 0.80, True)
         assert result is True
 
-    def test_stop_loss_call_returns_true(self, mock_wb, wheel_state_call):
+    def test_stop_loss_call_returns_true(self, wheel_state_call):
         """Call position value exceeds stop-loss threshold."""
         from database.wheel_db import save_wheel_state
         save_wheel_state("ETH", wheel_state_call)
@@ -405,10 +398,10 @@ class TestCheckWheel:
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
         with patch("automation.monitor.bs_put",  return_value=per_unit), \
              patch("automation.monitor.bs_call", return_value=per_unit):
-            result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_wheel("ETH", 2000.0, 0.80, True)
         assert result is True
 
-    def test_stop_loss_clears_open_and_resets_stage(self, mock_wb, wheel_state_put):
+    def test_stop_loss_clears_open_and_resets_stage(self, wheel_state_put):
         """After stop-loss, open=None and stage='no_position'."""
         from database.wheel_db import save_wheel_state, load_wheel_state
         save_wheel_state("ETH", wheel_state_put)
@@ -417,12 +410,12 @@ class TestCheckWheel:
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
         with patch("automation.monitor.bs_put",  return_value=per_unit), \
              patch("automation.monitor.bs_call", return_value=per_unit):
-            _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+            _check_wheel("ETH", 2000.0, 0.80, True)
         updated = load_wheel_state("ETH")
         assert updated["open"]  is None
         assert updated["stage"] == "no_position"
 
-    def test_take_profit_put_returns_true(self, mock_wb, wheel_state_put):
+    def test_take_profit_put_returns_true(self, wheel_state_put):
         """Put nearly worthless → take profit."""
         from database.wheel_db import save_wheel_state
         save_wheel_state("ETH", wheel_state_put)
@@ -431,10 +424,10 @@ class TestCheckWheel:
         per_unit = (p0 * TAKE_PROFIT_THRESHOLD) / qty - 0.001
         with patch("automation.monitor.bs_put",  return_value=per_unit), \
              patch("automation.monitor.bs_call", return_value=per_unit):
-            result = _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_wheel("ETH", 2000.0, 0.80, True)
         assert result is True
 
-    def test_expiry_put_otm_is_win(self, mock_wb, wheel_state_put, today_expiry):
+    def test_expiry_put_otm_is_win(self, wheel_state_put, today_expiry):
         """At expiry, spot > put strike → put expires OTM → win."""
         from database.wheel_db import save_wheel_state, load_wheel_state
         wheel_state_put["open"]["expiry"] = today_expiry
@@ -442,12 +435,12 @@ class TestCheckWheel:
         spot = 2000.0  # above put strike of 1800
         with patch("automation.monitor.bs_put",  return_value=0.1), \
              patch("automation.monitor.bs_call", return_value=0.1):
-            result = _check_wheel("ETH", spot, 0.80, mock_wb, True)
+            result = _check_wheel("ETH", spot, 0.80, True)
         assert result is True
         updated = load_wheel_state("ETH")
         assert updated["wins"] == 1
 
-    def test_expiry_put_itm_is_loss(self, mock_wb, wheel_state_put, today_expiry):
+    def test_expiry_put_itm_is_loss(self, wheel_state_put, today_expiry):
         """At expiry, spot far below put strike → intrinsic loss exceeds premium → loss."""
         from database.wheel_db import save_wheel_state, load_wheel_state
         wheel_state_put["open"]["expiry"] = today_expiry
@@ -456,12 +449,12 @@ class TestCheckWheel:
         spot = 1500.0
         with patch("automation.monitor.bs_put",  return_value=0.1), \
              patch("automation.monitor.bs_call", return_value=0.1):
-            result = _check_wheel("ETH", spot, 0.80, mock_wb, True)
+            result = _check_wheel("ETH", spot, 0.80, True)
         assert result is True
         updated = load_wheel_state("ETH")
         assert updated["losses"] == 1
 
-    def test_stop_loss_increments_losses(self, mock_wb, wheel_state_put):
+    def test_stop_loss_increments_losses(self, wheel_state_put):
         from database.wheel_db import save_wheel_state, load_wheel_state
         save_wheel_state("ETH", wheel_state_put)
         p0       = wheel_state_put["open"]["premium"]
@@ -469,12 +462,12 @@ class TestCheckWheel:
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
         with patch("automation.monitor.bs_put",  return_value=per_unit), \
              patch("automation.monitor.bs_call", return_value=per_unit):
-            _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+            _check_wheel("ETH", 2000.0, 0.80, True)
         updated = load_wheel_state("ETH")
         assert updated["losses"] == 1
         assert updated["wins"]   == 0
 
-    def test_stop_loss_updates_database(self, mock_wb, wheel_state_put):
+    def test_stop_loss_updates_database(self, wheel_state_put):
         """Stop-loss trigger must persist state to database (open cleared)."""
         from database.wheel_db import save_wheel_state, load_wheel_state
         save_wheel_state("ETH", wheel_state_put)
@@ -483,7 +476,7 @@ class TestCheckWheel:
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
         with patch("automation.monitor.bs_put",  return_value=per_unit), \
              patch("automation.monitor.bs_call", return_value=per_unit):
-            _check_wheel("ETH", 2000.0, 0.80, mock_wb, True)
+            _check_wheel("ETH", 2000.0, 0.80, True)
         updated = load_wheel_state("ETH")
         assert updated["open"] is None
 
@@ -492,7 +485,7 @@ class TestCheckWheel:
 
 class TestRunMonitor:
 
-    def test_active_asset_not_refetched(self, mock_wb):
+    def test_active_asset_not_refetched(self):
         """Active asset spot/IV should be reused, not fetched again."""
         import automation.monitor as monitor_module
 
@@ -503,7 +496,7 @@ class TestRunMonitor:
             ]), \
              patch("market.market_data.get_spot_price", return_value=None) as mock_price, \
              patch("market.market_data.get_deribit_iv", return_value=0.60) as mock_iv:
-            run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
+            run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
         eth_calls = [c for c in mock_price.call_args_list
                      if c.args and c.args[0] == "ETH"]
         assert len(eth_calls) == 0
@@ -511,35 +504,35 @@ class TestRunMonitor:
                         if c.args and c.args[0] == "ETH"]
         assert len(eth_iv_calls) == 0
 
-    def test_other_assets_are_fetched(self, mock_wb):
+    def test_other_assets_are_fetched(self):
         """Non-active assets should have their price fetched."""
         import automation.monitor as monitor_module
         with patch.object(monitor_module, "_REGISTRY", [MagicMock(return_value=False)]), \
              patch("market.market_data.get_spot_price",  return_value=80000.0) as mock_price, \
              patch("market.market_data.get_deribit_iv",  return_value=0.60):
-            run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
+            run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
         fetched = {c.args[0] for c in mock_price.call_args_list}
         assert "BTC" in fetched or "SOL" in fetched
 
-    def test_failed_price_fetch_skips_asset(self, mock_wb):
+    def test_failed_price_fetch_skips_asset(self):
         """If price fetch fails for non-active assets, run_monitor completes without error."""
         with patch("market.market_data.get_spot_price", return_value=None), \
              patch("market.market_data.get_deribit_iv", return_value=0.60):
-            result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
+            result = run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
         assert result is None
 
-    def test_registry_called_for_each_asset(self, mock_wb):
+    def test_registry_called_for_each_asset(self):
         """run_monitor processes all assets without error when prices are available."""
         with patch("market.market_data.get_spot_price", return_value=80000.0), \
              patch("market.market_data.get_deribit_iv", return_value=0.60):
-            result = run_monitor(2000.0, 0.80, mock_wb, 7, "ETH", silent=True)
+            result = run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
         assert result is None
 
-    def test_iv_fallback_when_deribit_fails(self, mock_wb):
+    def test_iv_fallback_when_deribit_fails(self):
         """If IV fetch fails for a non-active asset, active IV is used as fallback."""
         import automation.monitor as monitor_module
         used_ivs = []
-        def tracking_checker(asset, spot, iv, wb, silent):
+        def tracking_checker(asset, spot, iv, silent):
             used_ivs.append((asset, iv))
             return False
 
@@ -547,7 +540,7 @@ class TestRunMonitor:
         with patch.object(monitor_module, "_REGISTRY", [tracking_checker]), \
              patch("market.market_data.get_spot_price", return_value=80000.0), \
              patch("market.market_data.get_deribit_iv", return_value=None):
-            run_monitor(active_iv, active_iv, mock_wb, 7, "ETH", silent=True)
+            run_monitor(active_iv, active_iv, 7, "ETH", silent=True)
 
         non_eth = [(a, iv) for a, iv in used_ivs if a != "ETH"]
         assert all(iv == active_iv for _, iv in non_eth)

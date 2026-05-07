@@ -21,7 +21,7 @@ Public API
 select_best_candidate(candidates, min_yield, allowed_liquidity, blocked_strategies)
     Pure filter + ranker. No I/O, easy to unit-test.
 
-run_automation(active_spot, active_iv, active_asset, days, wb,
+run_automation(active_spot, active_iv, active_asset, days,
                min_yield=10.0, allowed_liquidity=("Med","High"),
                silent=False)
     Top-level entry point. Builds candidates, picks one, enters the trade.

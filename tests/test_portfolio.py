@@ -191,7 +191,7 @@ def test_show_portfolio_prints_headers(monkeypatch, mock_wb, wheel_open_state, c
     save_wheel_state("ETH", wheel_open_state)
 
     from ui.menus import show_portfolio
-    show_portfolio(mock_wb)
+    show_portfolio()
     captured = capsys.readouterr().out
     assert "Open Portfolio Positions" in captured
     assert "Open positions" in captured
@@ -203,6 +203,6 @@ def test_show_portfolio_empty_db(monkeypatch, mock_wb, capsys):
     monkeypatch.setattr(portfolio, "get_spot_price", lambda asset: None)
 
     from ui.menus import show_portfolio
-    show_portfolio(mock_wb)
+    show_portfolio()
     captured = capsys.readouterr().out
     assert "None found" in captured
