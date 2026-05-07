@@ -20,12 +20,12 @@ Tier 2 — state-aware blocking (in-memory state, monkey-patched)
         * strangle open → "Strangle" blocked
         * calendar open → "Cal-C" + "Cal-P" blocked
 
-Tier 3 — trade entry (mocked Excel append + state I/O)
+Tier 3 — trade entry (SQLite only, no Excel)
     enter_trade
-        * CSP   writes wheel state + trade row, total_premium increments
+        * CSP   writes wheel state + Single ledger row, total_premium increments
         * CC    requires holding stage and uses asset_held qty
-        * Strangle writes strangle state + row
-        * Cal-C  writes calendar state + row
+        * Strangle writes strangle state + Strangle ledger row
+        * Cal-C  writes calendar state + Calendar ledger row
 
 Tier 4 — orchestration
     run_automation
@@ -260,26 +260,19 @@ class TestEnterTrade:
 
     def test_csp_writes_wheel_state(self):
         c = _make(strategy="CSP", strike_str="$1800")
-        wb = MagicMock()
-        with patch("trading.executor.append_trade_row") as row:
-            opened = enter_trade(c, wb)
+        opened = enter_trade(c)
 
         s = load_wheel_state("ETH")
         assert s["stage"] == "short_put"
         assert s["open"]["type"] == "Put"
         assert s["open"]["strike"] == 1800.0
         assert s["total_premium"] > 0
-        row.assert_called_once()
-        # Sheet name is the second positional arg
-        assert row.call_args.args[1] == "📝 Paper Trades"
         assert opened["strike"] == 1800.0
 
     def test_cc_requires_holding_stage(self):
-        c  = _make(strategy="CC", strike_str="$2200")
-        wb = MagicMock()
-        with patch("trading.executor.append_trade_row"):
-            with pytest.raises(RuntimeError):
-                enter_trade(c, wb)
+        c = _make(strategy="CC", strike_str="$2200")
+        with pytest.raises(RuntimeError):
+            enter_trade(c)
 
     def test_cc_uses_asset_held_qty(self):
         s = load_wheel_state("ETH")
@@ -289,9 +282,7 @@ class TestEnterTrade:
         save_wheel_state("ETH", s)
 
         c = _make(strategy="CC", strike_str="$2200")
-        wb = MagicMock()
-        with patch("trading.executor.append_trade_row"):
-            opened = enter_trade(c, wb)
+        opened = enter_trade(c)
 
         s2 = load_wheel_state("ETH")
         assert s2["stage"] == "short_call"
@@ -300,10 +291,9 @@ class TestEnterTrade:
         assert opened["strike"] == 2200.0
 
     def test_strangle_writes_strangle_state(self):
-        c  = _make(strategy="Strangle", strike_str="$1800/$2200",
-                   put_strike=1800.0, call_strike=2200.0)
-        wb = MagicMock()
-        opened = enter_trade(c, wb)
+        c = _make(strategy="Strangle", strike_str="$1800/$2200",
+                  put_strike=1800.0, call_strike=2200.0)
+        opened = enter_trade(c)
 
         s = load_strangle_state("ETH")
         assert s["open"]["put_strike"]  == 1800.0
@@ -312,10 +302,9 @@ class TestEnterTrade:
         assert opened["put_strike"] == 1800.0
 
     def test_calendar_writes_calendar_state(self):
-        c  = _make(strategy="Cal-C", strike_str="$2000 ATM",
-                   far_days=30, liq="Med")
-        wb = MagicMock()
-        opened = enter_trade(c, wb)
+        c = _make(strategy="Cal-C", strike_str="$2000 ATM",
+                  far_days=30, liq="Med")
+        opened = enter_trade(c)
 
         s = load_calendar_state("ETH")
         assert s["open"]["strike"]      == 2000.0
@@ -325,10 +314,9 @@ class TestEnterTrade:
         assert opened["option_type"] == "Call"
 
     def test_calendar_put_strategy(self):
-        c  = _make(strategy="Cal-P", strike_str="$2000 ATM",
-                   far_days=30, liq="Med")
-        wb = MagicMock()
-        enter_trade(c, wb)
+        c = _make(strategy="Cal-P", strike_str="$2000 ATM",
+                  far_days=30, liq="Med")
+        enter_trade(c)
 
         s = load_calendar_state("ETH")
         assert s["open"]["option_type"] == "Put"
@@ -336,7 +324,7 @@ class TestEnterTrade:
     def test_unsupported_strategy_raises(self):
         c = _make(strategy="Iron Condor", strike_str="$x")
         with pytest.raises(ValueError):
-            enter_trade(c, MagicMock())
+            enter_trade(c)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -348,89 +336,74 @@ class TestRunAutomation:
     def test_no_candidate_returns_status_no_candidate(self):
         """If _build_candidates yields nothing eligible, automation does
         nothing — this is the 'try again in 1 hour' contract."""
-        wb = MagicMock()
         with patch("automation.automator._build_candidates", return_value=[]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"]    == "no_candidate"
         assert result["candidate"] is None
         assert result["position"]  is None
 
     def test_candidate_below_yield_is_not_entered(self):
-        wb = MagicMock()
         cand = _make(strategy="CSP", yield_ann=5.0, prob_profit=99.0)
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"] == "no_candidate"
-        row.assert_not_called()
 
     def test_candidate_below_probability_is_not_entered(self):
-        wb = MagicMock()
         cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=90.0, liq="High")
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"] == "no_candidate"
-        row.assert_not_called()
 
     def test_low_liquidity_is_not_entered(self):
-        wb = MagicMock()
-        cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=85.0,
-                     liq="Low")
+        cand = _make(strategy="CSP", yield_ann=80.0, prob_profit=85.0, liq="Low")
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"] == "no_candidate"
-        row.assert_not_called()
 
     def test_eligible_csp_is_entered(self):
-        wb = MagicMock()
         cand = _make(strategy="CSP", strike_str="$1800",
                      yield_ann=80.0, prob_profit=95.0, liq="High")
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_trade_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
 
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "CSP"
         assert result["position"]["strike"] == 1800.0
-        row.assert_called_once()
 
         s = load_wheel_state("ETH")
         assert s["stage"] == "short_put"
 
     def test_picks_highest_probability_when_multiple_qualify(self):
-        wb = MagicMock()
         a = _make(strategy="Strangle", strike_str="$1800/$2200",
                   yield_ann=80.0, prob_profit=91.0, liq="High",
                   put_strike=1800.0, call_strike=2200.0)
@@ -438,19 +411,17 @@ class TestRunAutomation:
                   yield_ann=20.0, prob_profit=92.0, liq="Med")
         with patch("automation.automator._build_candidates", return_value=[a, b]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_trade_row"), \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
-        # 92% prob (CSP) > 70% prob (Strangle) — CSP must win
+        # 92% prob (CSP) > 91% prob (Strangle) — CSP must win
         assert result["candidate"].strategy == "CSP"
 
     def test_strangle_with_high_liquidity_is_eligible(self):
         """Strangles with worst-of-leg liquidity Med/High flow through filter."""
-        wb = MagicMock()
         cand = _make(
             strategy="Strangle", strike_str="$1800/$2200",
             yield_ann=120.0, prob_profit=95.0, liq="High",
@@ -462,14 +433,13 @@ class TestRunAutomation:
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Strangle"
 
     def test_strangle_with_low_liquidity_is_skipped(self):
         """Strangle whose worst leg is Low must be filtered out."""
-        wb = MagicMock()
         cand = _make(
             strategy="Strangle", strike_str="$1800/$2200",
             yield_ann=120.0, prob_profit=99.0, liq="Low",
@@ -481,13 +451,12 @@ class TestRunAutomation:
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"] == "no_candidate"
 
     def test_calendar_with_med_liquidity_is_eligible(self):
         """Calendar candidates now carry liquidity tags and can be picked."""
-        wb = MagicMock()
         cand = _make(
             strategy="Cal-C", strike_str="$2000 ATM",
             yield_ann=40.0, prob_profit=95.0, liq="Med", far_days=30,
@@ -498,7 +467,7 @@ class TestRunAutomation:
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Cal-C"
@@ -513,7 +482,6 @@ class TestRunAutomation:
                      "premium": 5.0, "qty": 0.14, "days": 7}
         save_wheel_state("ETH", s)
 
-        wb = MagicMock()
         csp = _make(strategy="CSP", yield_ann=80.0, prob_profit=99.0)
         stg = _make(strategy="Strangle", strike_str="$1800/$2200",
                     yield_ann=50.0, prob_profit=95.0, liq="High",
@@ -524,7 +492,7 @@ class TestRunAutomation:
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
                 active_spot=2000.0, active_iv=0.80, active_asset="ETH",
-                days=7, wb=wb, silent=True,
+                days=7, silent=True,
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Strangle"

@@ -319,7 +319,7 @@ def main_menu(
     elif choice == "A":
         min_prob = prompt_min_probability()
         run_automation(
-            spot, iv, asset, days, wb,
+            spot, iv, asset, days,
             min_prob=min_prob,
             cal_near_days=calendar_near,
             cal_far_days=calendar_far,

@@ -5,15 +5,15 @@ Paper trade execution logic for all strategies.
 
 Public API
 ----------
-enter_trade(candidate, wb, days)
+enter_trade(candidate, days)
     Open the paper position described by candidate and persist + log it.
 
 Internal helpers
 ----------------
-_enter_csp(c, wb, T)     Open Cash-Secured Put position
-_enter_cc(c, wb, T)      Open Covered Call position
-_enter_strangle(c, wb, T) Open Short Strangle position
-_enter_calendar(c, wb, T) Open Calendar position
+_enter_csp(c, T)      Open Cash-Secured Put position
+_enter_cc(c, T)       Open Covered Call position
+_enter_strangle(c, T) Open Short Strangle position
+_enter_calendar(c, T) Open Calendar position
 """
 
 from datetime import date, timedelta
@@ -21,14 +21,13 @@ from datetime import date, timedelta
 from config import (
     BUDGET_USD, RISK_FREE_RATE, CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
 )
-from database import load_wheel_state, save_wheel_state
+from database import load_wheel_state, save_wheel_state, create_single_trade
 from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
 from database.calendar_db import load_calendar_state, save_calendar_state, create_calendar_trade
 from market.pricing import bs_put, bs_call
-from excel.excel_tracker import append_trade_row
 
 
-def _enter_csp(c, wb, T: float) -> dict:
+def _enter_csp(c, T: float) -> dict:
     """Open a Cash-Secured Put position in the wheel state."""
     K       = float(c.strike.replace("$", "").replace(",", ""))
     qty     = BUDGET_USD / K
@@ -50,23 +49,27 @@ def _enter_csp(c, wb, T: float) -> dict:
     s["total_premium"] = s.get("total_premium", 0.0) + premium
     save_wheel_state(c.asset, s)
 
-    append_trade_row(wb, "📝 Paper Trades", {
-        "date":      str(date.today()),
-        "type":      "Sell Cash-Secured Put",
-        "stage":     "Short Put",
-        "days":      c.days,
-        "strike":    K,
-        "spot_open": c.spot,
-        "premium":   round(premium, 4),
-        "result":    "Open",
-        "notes":     f"AUTO {c.asset} CSP, {c.days}d, "
-                     f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
-                     f"liq={c.liquidity_tag}",
-    })
+    create_single_trade(
+        asset=c.asset,
+        date_open=date.today(),
+        option_type="Put",
+        strike=K,
+        expiry=expiry,
+        spot_open=c.spot,
+        premium=round(premium, 4),
+        qty=qty,
+        days=c.days,
+        stage="short_put",
+        notes=(
+            f"AUTO {c.asset} CSP, {c.days}d, "
+            f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
+            f"liq={c.liquidity_tag}"
+        ),
+    )
     return s["open"]
 
 
-def _enter_cc(c, wb, T: float) -> dict:
+def _enter_cc(c, T: float) -> dict:
     """Open a Covered Call position. Requires wheel state in 'holding'."""
     s = load_wheel_state(c.asset)
     if s["stage"] != "holding":
@@ -91,23 +94,27 @@ def _enter_cc(c, wb, T: float) -> dict:
     s["total_premium"] = s.get("total_premium", 0.0) + premium
     save_wheel_state(c.asset, s)
 
-    append_trade_row(wb, "📝 Paper Trades", {
-        "date":      str(date.today()),
-        "type":      "Sell Covered Call",
-        "stage":     "Short Call",
-        "days":      c.days,
-        "strike":    K,
-        "spot_open": c.spot,
-        "premium":   round(premium, 4),
-        "result":    "Open",
-        "notes":     f"AUTO {c.asset} CC, {c.days}d, "
-                     f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
-                     f"liq={c.liquidity_tag}",
-    })
+    create_single_trade(
+        asset=c.asset,
+        date_open=date.today(),
+        option_type="Call",
+        strike=K,
+        expiry=expiry,
+        spot_open=c.spot,
+        premium=round(premium, 4),
+        qty=qty,
+        days=c.days,
+        stage="short_call",
+        notes=(
+            f"AUTO {c.asset} CC, {c.days}d, "
+            f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
+            f"liq={c.liquidity_tag}"
+        ),
+    )
     return s["open"]
 
 
-def _enter_strangle(c, wb, T: float) -> dict:
+def _enter_strangle(c, T: float) -> dict:
     """Open a short strangle position."""
     Kp  = c.put_strike
     Kc  = c.call_strike
@@ -152,7 +159,7 @@ def _enter_strangle(c, wb, T: float) -> dict:
     return s["open"]
 
 
-def _enter_calendar(c, wb, T: float) -> dict:
+def _enter_calendar(c, T: float) -> dict:
     """Open a calendar (Cal-C or Cal-P) position."""
     K           = float(c.strike.split()[0].replace("$", "").replace(",", ""))
     far_days    = c.far_days or CALENDAR_FAR_DAYS
@@ -210,7 +217,7 @@ def _enter_calendar(c, wb, T: float) -> dict:
     return s["open"]
 
 
-def enter_trade(c, wb, days: int | None = None) -> dict:
+def enter_trade(c, days: int | None = None) -> dict:
     """
     Open the paper position described by c and persist + log it.
 
@@ -221,12 +228,12 @@ def enter_trade(c, wb, days: int | None = None) -> dict:
     T        = days_eff / 365.0
 
     if c.strategy == "CSP":
-        return _enter_csp(c, wb, T)
+        return _enter_csp(c, T)
     if c.strategy == "CC":
-        return _enter_cc(c, wb, T)
+        return _enter_cc(c, T)
     if c.strategy == "Strangle":
-        return _enter_strangle(c, wb, T)
+        return _enter_strangle(c, T)
     if c.strategy in ("Cal-C", "Cal-P"):
-        return _enter_calendar(c, wb, T)
+        return _enter_calendar(c, T)
 
     raise ValueError(f"Unsupported strategy '{c.strategy}'")

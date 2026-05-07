@@ -30,7 +30,6 @@ import sys
 
 from config        import DEFAULT_ASSET, IV_FALLBACK, WEEKLY_DAYS
 from market.market_data   import get_spot_price, get_deribit_iv
-from excel.excel_tracker import setup_excel
 from ui.display       import hdr, inf, ok, warn, err
 from automation.automator import (
     run_automation, DEFAULT_MIN_YIELD, DEFAULT_MIN_PROB,
@@ -67,7 +66,6 @@ def main(argv: list[str] | None = None) -> int:
 
     iv = get_deribit_iv(args.asset, spot, args.days) or IV_FALLBACK
 
-    wb = setup_excel()
     allowed = tuple(s.strip() for s in args.liquidity.split(",") if s.strip())
 
     result = run_automation(
@@ -75,7 +73,6 @@ def main(argv: list[str] | None = None) -> int:
         active_iv         = iv,
         active_asset      = args.asset,
         days              = args.days,
-        wb                = wb,
         min_yield         = args.min_yield,
         min_prob          = args.min_probability,
         allowed_liquidity = allowed,

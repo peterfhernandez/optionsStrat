@@ -145,7 +145,6 @@ def run_automation(
     active_iv:         float,
     active_asset:      str,
     days:              int,
-    wb,
     min_yield:         float          = DEFAULT_MIN_YIELD,
     min_prob:          float          = DEFAULT_MIN_PROB,
     allowed_liquidity: Iterable[str]  = DEFAULT_ALLOWED_LIQUIDITY,
@@ -243,7 +242,7 @@ def run_automation(
             "eligible":   eligible_count,
         }
 
-    position = enter_trade(pick, wb, days)
+    position = enter_trade(pick, days)
 
     if not silent:
         ok(
