@@ -3,66 +3,70 @@ tests/test_display.py
 ====================
 Tests for ui/display.py trade history rendering.
 """
-from openpyxl import Workbook
+from datetime import date
 
+import pytest
+
+from database.wheel_db import create_single_trade
+from database.strangle_db import create_strangle_trade, close_strangle_trade
 from ui.display import show_trade_history
 
 
-def _write_trade_headers(ws, asset_column=True):
-    ws.cell(row=3, column=2, value="Date")
-    if asset_column:
-        ws.cell(row=3, column=3, value="Asset")
-        ws.cell(row=3, column=4, value="Type")
-        ws.cell(row=3, column=11, value="P&L ($)")
-        ws.cell(row=3, column=14, value="Result")
-        ws.cell(row=3, column=17, value="Notes")
-    else:
-        ws.cell(row=3, column=3, value="Type")
-        ws.cell(row=3, column=10, value="P&L ($)")
-        ws.cell(row=3, column=11, value="Result")
-        ws.cell(row=3, column=16, value="Notes")
-
-
-def _write_trade_row(ws, row, date, asset, trade_type, pnl, result="Win", notes=""):
-    ws.cell(row=row, column=2, value=date)
-    if asset is not None:
-        ws.cell(row=row, column=3, value=asset)
-        ws.cell(row=row, column=4, value=trade_type)
-        ws.cell(row=row, column=11, value=pnl)
-        ws.cell(row=row, column=14, value=result)
-        ws.cell(row=row, column=17, value=notes)
-    else:
-        ws.cell(row=row, column=3, value=trade_type)
-        ws.cell(row=row, column=10, value=pnl)
-        ws.cell(row=row, column=11, value=result)
-        ws.cell(row=row, column=16, value=notes)
+@pytest.fixture(autouse=True)
+def _isolate_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    yield
 
 
 def test_show_trade_history_counts_rows_with_missing_pnl(capsys):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "📝 Paper Trades"
-    _write_trade_headers(ws, asset_column=True)
-    _write_trade_row(ws, 4, "2026-05-01", "ETH", "Sell Put", 150.0, "Win")
-    _write_trade_row(ws, 5, "2026-05-02", "BTC", "Buy Call", None, "Open")
+    create_single_trade(
+        asset="ETH", date_open=date(2026, 5, 1), option_type="Put",
+        strike=1800.0, expiry="01-May-2026", spot_open=2000.0,
+        premium=150.0, qty=0.1, days=7, stage="short_put",
+        notes="test",
+    )
+    # Close the ETH trade with a Win
+    from database.wheel_db import close_single_trade
+    from models import get_session, Single
+    session = get_session()
+    try:
+        trade = session.query(Single).filter(Single.asset == "ETH").first()
+        trade_id = trade.id
+    finally:
+        session.close()
+    close_single_trade(trade_id, date_close=date(2026, 5, 8),
+                       spot_close=1900.0, pnl=150.0, result="Win")
 
-    show_trade_history(wb)
+    # BTC trade left open (no date_close) — should NOT appear in history
+    create_single_trade(
+        asset="BTC", date_open=date(2026, 5, 2), option_type="Call",
+        strike=60000.0, expiry="02-May-2026", spot_open=65000.0,
+        premium=0.0, qty=0.01, days=7, stage="short_call",
+        notes="open",
+    )
+
+    show_trade_history()
     out = capsys.readouterr().out
 
     assert "ETH" in out
-    assert "BTC" in out
     assert "Total trades" in out
-    assert "2" in out
+    assert "1" in out
 
 
-def test_show_trade_history_handles_legacy_sheet_layout(capsys):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "🔀 Strangles"
-    _write_trade_headers(ws, asset_column=False)
-    _write_trade_row(ws, 4, "2026-05-03", None, "Strangle", -25.0, "Loss")
+def test_show_trade_history_handles_strangle(capsys):
+    trade = create_strangle_trade(
+        asset="ETH", date_open=date(2026, 5, 3),
+        put_strike=1800.0, call_strike=2200.0,
+        spot_open=2000.0, total_premium=50.0,
+        qty=0.125, days=7, expiry="10-May-2026",
+        notes="test strangle",
+    )
+    close_strangle_trade(
+        trade.id, date_close=date(2026, 5, 10),
+        spot_close=2000.0, pnl=-25.0, result="Loss",
+    )
 
-    show_trade_history(wb)
+    show_trade_history()
     out = capsys.readouterr().out
 
     assert "Strangle" in out
