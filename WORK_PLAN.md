@@ -67,11 +67,11 @@ Steps (6 phases, 22+ steps)
   e. Executor - ✅ DONE
   f. Automate - ✅ DONE
   g. Monitor - ✅ DONE
-  h. Scanner? - 🔄 IN PROGRESS
+  h. Scanner? - ✅ DONE
   i. Summary - ✅ DONE
   j. Display - ✅ DONE
   k. Menus - ✅ DONE
-2. Track trading state - 📌 TO DO
+2. Track trading state - 🔄 IN PROGRESS
 3. Track open positions in db - portfolio - 📌 TO DO
 4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l  - 📌 TO DO
 5. Deprecate excel.excel - 📌 TO DO

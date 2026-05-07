@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 
 import math
 
+from database.scanner_db import save_scan_results
 from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
@@ -555,7 +556,13 @@ def run_scanner(
     if not all_candidates:
         warn("No candidates generated — check your connection.")
         return
- 
+
+    # ── Persist to SQLite ─────────────────────────────────────────────────────
+    try:
+        save_scan_results(all_candidates)
+    except Exception as exc:  # pragma: no cover
+        warn(f"Could not save scan results to database: {exc}")
+
     # ── Full candidate table ──────────────────────────────────────────────────
     print()
     hdr("All Candidates")

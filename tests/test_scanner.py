@@ -26,7 +26,15 @@ Tier 3 — ranking logic (operates on Candidate lists, no mocking needed):
 """
 
 import pytest
+from datetime import datetime
 from unittest.mock import patch
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from models.base import Base
+from models.scan_results import ScanResult
+from database.scanner_db import save_scan_results, get_latest_scan, get_scan_history
 
 from strategies.scanner import (
     Candidate,
@@ -635,3 +643,151 @@ class TestRankingLogic:
         ]
         qualified = [c for c in low_yield_candidates if c.yield_ann >= MIN_YIELD_PCT]
         assert qualified == []
+
+
+# ── SQLite persistence ────────────────────────────────────────────────────────
+
+@pytest.fixture
+def db_session():
+    """In-memory SQLite session for isolation."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    yield session
+    session.close()
+
+
+def _make_candidate(**overrides) -> Candidate:
+    defaults = dict(
+        asset="ETH", strategy="CSP", otm_pct=0.10,
+        spot=2000.0, iv=0.80, strike="$1800",
+        premium=12.0, yield_ann=85.0, prob_profit=82.0, days=7,
+        liquidity_tag="High", open_interest=5000.0,
+        volume_usd=200000.0, iv_spread=0.01,
+    )
+    defaults.update(overrides)
+    return Candidate(**defaults)
+
+
+class TestSaveScanResults:
+
+    def test_saves_candidates_to_db(self, db_session):
+        candidates = [_make_candidate(), _make_candidate(strategy="CC", strike="$2200")]
+        rows = save_scan_results(candidates, session=db_session)
+        assert len(rows) == 2
+        assert db_session.query(ScanResult).count() == 2
+
+    def test_row_fields_match_candidate(self, db_session):
+        c = _make_candidate()
+        rows = save_scan_results([c], session=db_session)
+        row = rows[0]
+        assert row.asset        == c.asset
+        assert row.strategy     == c.strategy
+        assert row.otm_pct      == pytest.approx(c.otm_pct)
+        assert row.premium      == pytest.approx(c.premium)
+        assert row.yield_ann    == pytest.approx(c.yield_ann)
+        assert row.prob_profit  == pytest.approx(c.prob_profit)
+        assert row.liquidity_tag == c.liquidity_tag
+        assert row.open_interest == pytest.approx(c.open_interest)
+
+    def test_strangle_extras_persisted(self, db_session):
+        c = _make_candidate(
+            strategy="Strangle", strike="$1800/$2200",
+            put_strike=1800.0, call_strike=2200.0, be_lo=1778.0, be_hi=2222.0,
+        )
+        rows = save_scan_results([c], session=db_session)
+        row = rows[0]
+        assert row.put_strike  == pytest.approx(1800.0)
+        assert row.call_strike == pytest.approx(2200.0)
+        assert row.be_lo       == pytest.approx(1778.0)
+        assert row.be_hi       == pytest.approx(2222.0)
+
+    def test_calendar_extras_persisted(self, db_session):
+        c = _make_candidate(strategy="Cal-C", strike="$2000 ATM", far_days=30, max_profit=150.0)
+        rows = save_scan_results([c], session=db_session)
+        row = rows[0]
+        assert row.far_days   == 30
+        assert row.max_profit == pytest.approx(150.0)
+
+    def test_custom_timestamp_used(self, db_session):
+        ts = datetime(2025, 1, 15, 12, 0, 0)
+        rows = save_scan_results([_make_candidate()], scanned_at=ts, session=db_session)
+        assert rows[0].scanned_at == ts
+
+    def test_empty_list_returns_empty(self, db_session):
+        rows = save_scan_results([], session=db_session)
+        assert rows == []
+        assert db_session.query(ScanResult).count() == 0
+
+
+class TestGetLatestScan:
+
+    def test_returns_empty_when_no_scans(self, db_session):
+        assert get_latest_scan(session=db_session) == []
+
+    def test_returns_most_recent_batch(self, db_session):
+        ts1 = datetime(2025, 1, 1)
+        ts2 = datetime(2025, 1, 2)
+        save_scan_results([_make_candidate(asset="BTC")], scanned_at=ts1, session=db_session)
+        save_scan_results([_make_candidate(asset="ETH"), _make_candidate(asset="SOL")],
+                          scanned_at=ts2, session=db_session)
+
+        rows = get_latest_scan(session=db_session)
+        assert len(rows) == 2
+        assets = {r.asset for r in rows}
+        assert assets == {"ETH", "SOL"}
+
+    def test_asset_filter_applied(self, db_session):
+        ts = datetime(2025, 1, 1)
+        save_scan_results(
+            [_make_candidate(asset="ETH"), _make_candidate(asset="BTC")],
+            scanned_at=ts, session=db_session,
+        )
+        rows = get_latest_scan(asset="ETH", session=db_session)
+        assert all(r.asset == "ETH" for r in rows)
+
+
+class TestGetScanHistory:
+
+    def test_returns_empty_when_no_history(self, db_session):
+        assert get_scan_history(session=db_session) == []
+
+    def test_returns_rows_newest_first(self, db_session):
+        ts1 = datetime(2025, 1, 1)
+        ts2 = datetime(2025, 1, 2)
+        save_scan_results([_make_candidate()], scanned_at=ts1, session=db_session)
+        save_scan_results([_make_candidate()], scanned_at=ts2, session=db_session)
+        rows = get_scan_history(session=db_session)
+        assert rows[0].scanned_at >= rows[-1].scanned_at
+
+    def test_limit_respected(self, db_session):
+        ts = datetime(2025, 1, 1)
+        candidates = [_make_candidate(strategy="CSP") for _ in range(10)]
+        save_scan_results(candidates, scanned_at=ts, session=db_session)
+        rows = get_scan_history(limit=5, session=db_session)
+        assert len(rows) == 5
+
+    def test_strategy_filter(self, db_session):
+        ts = datetime(2025, 1, 1)
+        save_scan_results(
+            [_make_candidate(strategy="CSP"), _make_candidate(strategy="CC")],
+            scanned_at=ts, session=db_session,
+        )
+        rows = get_scan_history(strategy="CSP", session=db_session)
+        assert all(r.strategy == "CSP" for r in rows)
+
+    def test_asset_and_strategy_filter(self, db_session):
+        ts = datetime(2025, 1, 1)
+        save_scan_results(
+            [
+                _make_candidate(asset="ETH", strategy="CSP"),
+                _make_candidate(asset="BTC", strategy="CSP"),
+                _make_candidate(asset="ETH", strategy="CC"),
+            ],
+            scanned_at=ts, session=db_session,
+        )
+        rows = get_scan_history(asset="ETH", strategy="CSP", session=db_session)
+        assert len(rows) == 1
+        assert rows[0].asset    == "ETH"
+        assert rows[0].strategy == "CSP"
