@@ -45,8 +45,9 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from database import load_wheel_state, save_wheel_state
+from database.strangle_db import load_strangle_state, save_strangle_state
 from strategies.scanner import Candidate
-from strategies import wheel, strangle, calendar
+from strategies import wheel, calendar
 from automation.automator import (
     select_best_candidate,
     run_automation,
@@ -231,12 +232,12 @@ class TestBlockedStrategies:
         assert "CC"  in blocked
 
     def test_open_strangle_blocks_strangle(self):
-        s = strangle._load("ETH")
+        s = load_strangle_state("ETH")
         s["open"] = {
             "put_strike": 1800, "call_strike": 2200,
             "total_premium": 30.0, "qty": 0.125, "days": 7,
         }
-        strangle._save("ETH", s)
+        save_strangle_state("ETH", s)
 
         blocked = _blocked_strategies("ETH")
         assert "Strangle" in blocked
@@ -306,14 +307,12 @@ class TestEnterTrade:
         c  = _make(strategy="Strangle", strike_str="$1800/$2200",
                    put_strike=1800.0, call_strike=2200.0)
         wb = MagicMock()
-        with patch("trading.executor.append_strangle_row") as row:
-            opened = enter_trade(c, wb)
+        opened = enter_trade(c, wb)
 
-        s = strangle._load("ETH")
+        s = load_strangle_state("ETH")
         assert s["open"]["put_strike"]  == 1800.0
         assert s["open"]["call_strike"] == 2200.0
         assert s["trades"] == 1
-        row.assert_called_once()
         assert opened["put_strike"] == 1800.0
 
     def test_calendar_writes_calendar_state(self):
@@ -447,7 +446,6 @@ class TestRunAutomation:
         with patch("automation.automator._build_candidates", return_value=[a, b]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
              patch("trading.executor.append_trade_row"), \
-             patch("trading.executor.append_strangle_row"), \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -467,7 +465,6 @@ class TestRunAutomation:
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_strangle_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -476,7 +473,6 @@ class TestRunAutomation:
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Strangle"
-        row.assert_called_once()
 
     def test_strangle_with_low_liquidity_is_skipped(self):
         """Strangle whose worst leg is Low must be filtered out."""
@@ -488,7 +484,6 @@ class TestRunAutomation:
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_strangle_row") as row, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -496,7 +491,6 @@ class TestRunAutomation:
                 days=7, wb=wb, silent=True,
             )
         assert result["status"] == "no_candidate"
-        row.assert_not_called()
 
     def test_calendar_with_med_liquidity_is_eligible(self):
         """Calendar candidates now carry liquidity tags and can be picked."""
@@ -535,7 +529,6 @@ class TestRunAutomation:
                     put_strike=1800.0, call_strike=2200.0)
         with patch("automation.automator._build_candidates", return_value=[csp, stg]), \
              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
-             patch("trading.executor.append_strangle_row") as srow, \
              patch("market.market_data.get_spot_price",  return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             result = run_automation(
@@ -544,4 +537,3 @@ class TestRunAutomation:
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Strangle"
-        srow.assert_called_once()

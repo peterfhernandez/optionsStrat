@@ -12,27 +12,28 @@ Public API
 show_strangle_analysis(asset, spot, iv, days)
     Display a strike-pair analysis table + optional profit zone chart.
 
-strangle_paper_menu(asset, spot, iv, wb, days)
+strangle_paper_menu(asset, spot, iv, days)
     Interactive paper trading simulator for the short strangle.
 
 Internal helpers
 ----------------
-_state_file(asset)              Asset-specific JSON state file path
-_load(asset)                    Load strangle state from disk
-_save(asset, state)             Persist strangle state to disk
 _pnl(spot_at_expiry, ...)       P&L of strangle at expiry
 _breakevens(put_k, call_k, ...) Lower and upper breakeven prices
 check_stop_loss(spot, iv, days, op)
                                 Evaluate stop-loss status for open position
 """
 
-import json
-import os
 from datetime import date, timedelta
 
 from config        import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
+)
+from database.strangle_db import (
+    load_strangle_state,
+    save_strangle_state,
+    create_strangle_trade,
+    close_strangle_trade,
 )
 from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from ui.display       import (
@@ -40,29 +41,6 @@ from ui.display       import (
     draw_profit_zone, print_stop_loss_status,
     GR, RD, CY, YL, GY, WH, R,
 )
-from excel.excel_tracker import append_strangle_row
-
-
-# ── State persistence ─────────────────────────────────────────────────────────
-
-def _state_file(asset: str) -> str:
-    """Return asset-specific state file path e.g. 'strangle_state_ETH.json'."""
-    return f"strangle_state_{asset.upper()}.json"
-
-
-def _load(asset: str) -> dict:
-    """Load strangle state from disk, or return a fresh default state."""
-    path = _state_file(asset)
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return {"open": None, "total_premium": 0.0, "wins": 0, "losses": 0, "trades": 0}
-
-
-def _save(asset: str, state: dict) -> None:
-    """Persist strangle state to disk."""
-    with open(_state_file(asset), "w") as f:
-        json.dump(state, f, indent=2)
 
 
 # ── P&L helpers ───────────────────────────────────────────────────────────────
@@ -233,13 +211,12 @@ def strangle_paper_menu(
     asset: str,
     spot: float,
     iv: float,
-    wb,
     days: int,
 ) -> None:
     """
     Interactive paper trading simulator for the short strangle strategy.
 
-    Manages state across sessions via a JSON file. Supports opening,
+    Manages state across sessions via the database. Supports opening,
     monitoring (with stop-loss bar), expiring, and early-closing positions.
 
     Parameters
@@ -247,11 +224,10 @@ def strangle_paper_menu(
     asset : str              Underlying asset symbol
     spot  : float            Current spot price
     iv    : float            Implied volatility (decimal)
-    wb    : openpyxl.Workbook
     days  : int              Days to expiry
     """
     T   = days / 365.0
-    s   = _load(asset)
+    s   = load_strangle_state(asset)
     qty = BUDGET_USD / spot
 
     hdr(f"Short Strangle — {asset} Paper Trading")
@@ -325,6 +301,20 @@ def strangle_paper_menu(
         tot = pp + cp
 
         expiry = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
+
+        trade = create_strangle_trade(
+            asset=asset,
+            date_open=date.today(),
+            put_strike=Kp,
+            call_strike=Kc,
+            spot_open=spot,
+            total_premium=round(tot, 4),
+            qty=qty,
+            days=days,
+            expiry=expiry,
+            notes=f"{asset} paper strangle, {days}d expiry",
+        )
+
         s["open"] = {
             "put_strike":    Kp,
             "call_strike":   Kc,
@@ -334,24 +324,14 @@ def strangle_paper_menu(
             "spot_open":     spot,
             "days":          days,
             "asset":         asset,
+            "trade_id":      trade.id,
         }
         s["total_premium"] += tot
         s["trades"]        += 1
-        _save(asset, s)
+        save_strangle_state(asset, s)
 
         ok(f"Strangle opened: Put ${Kp:,.0f} / Call ${Kc:,.0f} | Premium: ${tot:.2f}")
         draw_profit_zone(spot, Kp, Kc, tot, qty, days, iv)
-
-        append_strangle_row(wb, {
-            "date":       str(date.today()),
-            "type":       "Short Strangle — Open",
-            "put_strike": Kp, "call_strike": Kc,
-            "spot_open":  spot,
-            "premium":    round(tot, 4),
-            "days":       days,
-            "result":     "Open",
-            "notes":      f"{asset} paper strangle, {days}d expiry",
-        })
 
     # [2] Show profit zone chart
     elif choice == "2":
@@ -384,19 +364,19 @@ def strangle_paper_menu(
             side = "PUT side (price dropped)" if spot_close < Kp else "CALL side (price rallied)"
             warn(f"Expired in loss.  P&L: ${pnl:.2f}  ({side})")
 
-        append_strangle_row(wb, {
-            "date":        str(date.today()),
-            "type":        "Short Strangle — Expired",
-            "put_strike":  Kp,  "call_strike": Kc,
-            "spot_open":   op["spot_open"], "spot_close": spot_close,
-            "premium":     round(tot, 4),
-            "pnl":         round(pnl, 4),
-            "days":        op["days"],
-            "result":      result,
-            "notes":       f"{asset} held to expiry",
-        })
+        trade_id = op.get("trade_id")
+        if trade_id:
+            close_strangle_trade(
+                trade_id,
+                date_close=date.today(),
+                spot_close=spot_close,
+                pnl=round(pnl, 4),
+                result=result,
+                notes=f"{asset} held to expiry",
+            )
+
         s["open"] = None
-        _save(asset, s)
+        save_strangle_state(asset, s)
 
     # [4] Early close at current market price
     elif choice == "4":
@@ -441,19 +421,19 @@ def strangle_paper_menu(
         )
         ok(f"Closed.  P&L: {'+'if pnl>=0 else ''}${pnl:.2f}")
 
-        append_strangle_row(wb, {
-            "date":        str(date.today()),
-            "type":        "Short Strangle — Early Close",
-            "put_strike":  Kp,  "call_strike": Kc,
-            "spot_open":   op["spot_open"], "spot_close": spot,
-            "premium":     round(p0, 4),
-            "pnl":         round(pnl, 4),
-            "days":        op["days"],
-            "result":      result,
-            "notes":       f"{asset} {note}",
-        })
+        trade_id = op.get("trade_id")
+        if trade_id:
+            close_strangle_trade(
+                trade_id,
+                date_close=date.today(),
+                spot_close=spot,
+                pnl=round(pnl, 4),
+                result=result,
+                notes=f"{asset} {note}",
+            )
+
         s["open"] = None
-        _save(asset, s)
+        save_strangle_state(asset, s)
 
     # [5] Adjust stop-loss multipliers
     elif choice == "5":

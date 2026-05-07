@@ -198,24 +198,20 @@ class TestDaysRemaining:
 class TestCheckStrangle:
 
     def _patch(self, state, bs_put_val, bs_call_val,
-               append_mock=None, save_mock=None):
+               close_mock=None, save_mock=None):
         """Build a context manager stack for common patches."""
         return [
-            patch("automation.monitor._load_state",        return_value=state),
-            patch("automation.monitor._save_state",        save_mock or MagicMock()),
-            patch("automation.monitor.bs_put",             return_value=bs_put_val),
-            patch("automation.monitor.bs_call",            return_value=bs_call_val),
-            patch("automation.monitor.append_strangle_row", append_mock or MagicMock()),
+            patch("automation.monitor.load_strangle_state",  return_value=state),
+            patch("automation.monitor.save_strangle_state",  save_mock or MagicMock()),
+            patch("automation.monitor.bs_put",               return_value=bs_put_val),
+            patch("automation.monitor.bs_call",              return_value=bs_call_val),
+            patch("automation.monitor.close_strangle_trade", close_mock or MagicMock()),
         ]
 
-    def test_no_state_file_returns_false(self, mock_wb):
-        with patch("automation.monitor._load_state", return_value=None):
-            result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
-        assert result is False
-
     def test_no_open_position_returns_false(self, mock_wb):
+        """Fresh/empty state (open=None) → nothing to monitor → False."""
         state = {"open": None, "wins": 0, "losses": 0}
-        with patch("automation.monitor._load_state", return_value=state):
+        with patch("automation.monitor.load_strangle_state", return_value=state):
             result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
@@ -228,11 +224,11 @@ class TestCheckStrangle:
         # Use 50% of premium as current value — safely in the middle
         # (bs_put + bs_call) * qty = p0 * 0.50 → per_unit = p0 * 0.50 / qty / 2
         per_unit = (p0 * 0.50) / qty / 2
-        with patch("automation.monitor._load_state",         return_value=strangle_state), \
-             patch("automation.monitor._save_state",         MagicMock()), \
-             patch("automation.monitor.bs_put",              return_value=per_unit), \
-             patch("automation.monitor.bs_call",             return_value=per_unit), \
-             patch("automation.monitor.append_strangle_row", MagicMock()):
+        with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
+             patch("automation.monitor.save_strangle_state",  MagicMock()), \
+             patch("automation.monitor.bs_put",               return_value=per_unit), \
+             patch("automation.monitor.bs_call",              return_value=per_unit), \
+             patch("automation.monitor.close_strangle_trade", MagicMock()):
             result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is False
 
@@ -244,24 +240,22 @@ class TestCheckStrangle:
         # bs_put + bs_call returns are per unit, multiplied by qty
         # so we need per_unit × qty × 2 ≥ 100 → per_unit ≥ 400
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
-        append  = MagicMock()
-        patches = self._patch(strangle_state, per_unit, per_unit, append)
+        patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with patch("automation.monitor._save_state"):
-                result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
-    def test_stop_loss_logs_to_excel(self, mock_wb, strangle_state):
-        """Stop-loss trigger must call append_strangle_row."""
+    def test_stop_loss_logs_to_database(self, mock_wb, strangle_state):
+        """Stop-loss trigger must call close_strangle_trade when trade_id is set."""
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
-        append  = MagicMock()
-        patches = self._patch(strangle_state, per_unit, per_unit, append)
+        strangle_state["open"]["trade_id"] = 42
+        close   = MagicMock()
+        patches = self._patch(strangle_state, per_unit, per_unit, close)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with patch("automation.monitor._save_state"):
-                _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
-        append.assert_called_once()
+            _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+        close.assert_called_once()
 
     def test_stop_loss_clears_open_position(self, mock_wb, strangle_state):
         """After stop-loss, state["open"] must be set to None."""
@@ -269,11 +263,12 @@ class TestCheckStrangle:
         qty     = strangle_state["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
         saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
+        def capture_save(asset, state):
+            saved_states.append({"open": state.get("open"), "wins": state.get("wins"),
+                                  "losses": state.get("losses")})
         patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], \
-             patch("automation.monitor._save_state", side_effect=capture_save), \
+             patch("automation.monitor.save_strangle_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
             _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert len(saved_states) > 0
@@ -285,11 +280,11 @@ class TestCheckStrangle:
         qty     = strangle_state["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
         saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
+        def capture_save(asset, state):
+            saved_states.append({"wins": state.get("wins"), "losses": state.get("losses")})
         patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], \
-             patch("automation.monitor._save_state", side_effect=capture_save), \
+             patch("automation.monitor.save_strangle_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
             _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert saved_states[-1]["losses"] == 1
@@ -302,11 +297,9 @@ class TestCheckStrangle:
         # cur_val needs to be ≤ p0 * TAKE_PROFIT_THRESHOLD = 5.0
         # bs_put + bs_call per_unit × qty × 2 ≤ 5.0 → per_unit ≤ 20
         per_unit = (p0 * TAKE_PROFIT_THRESHOLD) / qty / 2 - 0.01
-        append   = MagicMock()
-        patches  = self._patch(strangle_state, per_unit, per_unit, append)
+        patches  = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with patch("automation.monitor._save_state"):
-                result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
+            result = _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert result is True
 
     def test_take_profit_increments_wins(self, mock_wb, strangle_state):
@@ -315,11 +308,11 @@ class TestCheckStrangle:
         qty = strangle_state["open"]["qty"]
         per_unit = (p0 * TAKE_PROFIT_THRESHOLD) / qty / 2 - 0.01
         saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
+        def capture_save(asset, state):
+            saved_states.append({"wins": state.get("wins"), "losses": state.get("losses")})
         patches = self._patch(strangle_state, per_unit, per_unit)
         with patches[0], \
-             patch("automation.monitor._save_state", side_effect=capture_save), \
+             patch("automation.monitor.save_strangle_state", side_effect=capture_save), \
              patches[2], patches[3], patches[4]:
             _check_strangle("ETH", 2000.0, 0.80, mock_wb, True)
         assert saved_states[-1]["wins"]   == 1
@@ -331,13 +324,14 @@ class TestCheckStrangle:
         strangle_state["open"]["expiry"] = today_expiry
         spot = 2000.0  # between put=1800 and call=2200
         saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
-        with patch("automation.monitor._load_state",         return_value=strangle_state), \
-             patch("automation.monitor._save_state",         side_effect=capture_save), \
-             patch("automation.monitor.bs_put",              return_value=0.1), \
-             patch("automation.monitor.bs_call",             return_value=0.1), \
-             patch("automation.monitor.append_strangle_row", MagicMock()):
+        def capture_save(asset, state):
+            saved_states.append({"wins": state.get("wins"), "losses": state.get("losses"),
+                                  "open": state.get("open")})
+        with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
+             patch("automation.monitor.save_strangle_state",  side_effect=capture_save), \
+             patch("automation.monitor.bs_put",               return_value=0.1), \
+             patch("automation.monitor.bs_call",              return_value=0.1), \
+             patch("automation.monitor.close_strangle_trade", MagicMock()):
             result = _check_strangle("ETH", spot, 0.80, mock_wb, True)
         assert result is True
         assert saved_states[-1]["wins"] == 1
@@ -346,20 +340,16 @@ class TestCheckStrangle:
             self, mock_wb, strangle_state, today_expiry):
         """At expiry, spot far below put strike → intrinsic loss exceeds premium → loss."""
         strangle_state["open"]["expiry"] = today_expiry
-        p0  = strangle_state["open"]["total_premium"]   # 50.0
-        Kp  = strangle_state["open"]["put_strike"]      # 1800.0
-        qty = strangle_state["open"]["qty"]             # 0.125
-        # Force a loss: intrinsic = (Kp - spot) * qty must exceed p0
-        # (Kp - spot) * qty > p0 → spot < Kp - p0/qty = 1800 - 400 = 1400
-        spot = 1300.0
+        spot = 1300.0  # intrinsic = (1800 - 1300) * 0.125 = 62.5 > premium 50.0
         saved_states = []
-        def capture_save(path, state):
-            saved_states.append(json.loads(json.dumps(state)))
-        with patch("automation.monitor._load_state",         return_value=strangle_state), \
-             patch("automation.monitor._save_state",         side_effect=capture_save), \
-             patch("automation.monitor.bs_put",              return_value=0.1), \
-             patch("automation.monitor.bs_call",             return_value=0.1), \
-             patch("automation.monitor.append_strangle_row", MagicMock()):
+        def capture_save(asset, state):
+            saved_states.append({"wins": state.get("wins"), "losses": state.get("losses"),
+                                  "open": state.get("open")})
+        with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
+             patch("automation.monitor.save_strangle_state",  side_effect=capture_save), \
+             patch("automation.monitor.bs_put",               return_value=0.1), \
+             patch("automation.monitor.bs_call",              return_value=0.1), \
+             patch("automation.monitor.close_strangle_trade", MagicMock()):
             result = _check_strangle("ETH", spot, 0.80, mock_wb, True)
         assert result is True
         assert saved_states[-1]["losses"] == 1

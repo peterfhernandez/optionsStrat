@@ -39,7 +39,8 @@ from config  import (
 )
 from market.pricing import bs_put, bs_call
 from ui.display import ok, warn, err, hdr, inf, sub, GR, RD, YL, CY, WH, GY, R
-from excel.excel_tracker import append_strangle_row, append_trade_row, append_calendar_row
+from database.strangle_db import load_strangle_state, save_strangle_state, close_strangle_trade
+from excel.excel_tracker import append_trade_row, append_calendar_row
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -104,9 +105,8 @@ def _check_strangle(
 
     Returns True if a close was triggered, False otherwise.
     """
-    path  = f"strangle_state_{asset.upper()}.json"
-    state = _load_state(path)
-    if not state or not state.get("open"):
+    state = load_strangle_state(asset)
+    if not state.get("open"):
         return False
 
     op  = state["open"]
@@ -159,28 +159,24 @@ def _check_strangle(
     print(f"  Put ${Kp:,.0f} / Call ${Kc:,.0f}  |  "
           f"Premium: ${p0:.2f}  |  P&L: {colour}${pnl:.2f}{R}")
 
-    append_strangle_row(wb, {
-        "date":        str(date.today()),
-        "asset":       op.get("asset", asset),
-        "type":        f"Short Strangle — Auto Close ({trigger})",
-        "put_strike":  Kp,
-        "call_strike": Kc,
-        "spot_open":   op.get("spot_open", spot),
-        "spot_close":  spot,
-        "premium":     round(p0, 4),
-        "pnl":         round(pnl, 4),
-        "days":        op.get("days", 7),
-        "result":      result,
-        "notes":       note,
-    })
+    trade_id = op.get("trade_id")
+    if trade_id:
+        close_strangle_trade(
+            trade_id,
+            date_close=date.today(),
+            spot_close=spot,
+            pnl=round(pnl, 4),
+            result=result,
+            notes=note,
+        )
 
     if pnl >= 0:
         state["wins"]   += 1
     else:
         state["losses"] += 1
     state["open"] = None
-    _save_state(path, state)
-    ok(f"{asset} strangle auto-closed and logged to Excel.")
+    save_strangle_state(asset, state)
+    ok(f"{asset} strangle auto-closed and logged to database.")
     return True
 
 

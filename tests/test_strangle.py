@@ -2,40 +2,35 @@
 tests/test_strangle.py
 ======================
 Tests for strategies/strangle.py — P&L helpers, breakeven calculation,
-stop-loss checker, and state file helpers.
+stop-loss checker, and database state helpers.
 
 Test strategy
 -------------
 Tier 1 — pure functions, no mocking:
-    _state_file     : filename format, asset uppercasing
     _pnl            : spot inside strikes, below put, above call,
                       exactly at strikes, zero premium, zero qty
     _breakevens     : basic calculation, symmetric OTM, zero premium
     check_stop_loss : ok / warn / stop status thresholds, return types,
                       multiplier calculation, zero premium guard
 
-Tier 2 — mocked I/O:
-    _load           : existing file, missing file returns defaults
-    _save           : writes correct JSON content
+Tier 2 — database state (uses in-memory SQLite via conftest autouse fixture):
+    load_strangle_state : fresh default state, existing state returned
+    save_strangle_state : persists all fields, roundtrip
 
 Note: strangle_paper_menu and show_strangle_analysis are not tested here
 because they depend on builtins.input() for interactive prompts.
 """
 
-import json
-import os
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from strategies.strangle import (
-    _state_file,
     _pnl,
     _breakevens,
-    _load,
-    _save,
     check_stop_loss,
 )
+from database.strangle_db import load_strangle_state, save_strangle_state
 from config import STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER
 
 
@@ -53,12 +48,13 @@ def open_position():
         "spot_open":     2000.0,
         "days":          7,
         "asset":         "ETH",
+        "trade_id":      1,
     }
 
 
 @pytest.fixture
 def default_state():
-    """The default state returned when no file exists."""
+    """The default state returned when no row exists."""
     return {
         "open":          None,
         "total_premium": 0.0,
@@ -66,34 +62,6 @@ def default_state():
         "losses":        0,
         "trades":        0,
     }
-
-
-# ── _state_file ───────────────────────────────────────────────────────────────
-
-class TestStateFile:
-
-    def test_eth_filename(self):
-        assert _state_file("ETH") == "strangle_state_ETH.json"
-
-    def test_btc_filename(self):
-        assert _state_file("BTC") == "strangle_state_BTC.json"
-
-    def test_sol_filename(self):
-        assert _state_file("SOL") == "strangle_state_SOL.json"
-
-    def test_xrp_filename(self):
-        assert _state_file("XRP") == "strangle_state_XRP.json"
-
-    def test_lowercase_uppercased(self):
-        assert _state_file("eth") == "strangle_state_ETH.json"
-
-    def test_format_consistent(self):
-        """All state files follow the same pattern."""
-        for asset in ("ETH", "BTC", "SOL", "XRP"):
-            name = _state_file(asset)
-            assert name.startswith("strangle_state_")
-            assert name.endswith(".json")
-            assert asset in name
 
 
 # ── _pnl ──────────────────────────────────────────────────────────────────────
@@ -344,66 +312,94 @@ class TestCheckStopLoss:
         assert len(result) == 4   # completes without exception
 
 
-# ── _load ─────────────────────────────────────────────────────────────────────
+# ── Database state helpers ────────────────────────────────────────────────────
 
-class TestLoad:
+class TestLoadStrangleState:
+    """Tests for load_strangle_state — uses in-memory SQLite via conftest."""
 
-    def test_missing_file_returns_defaults(self):
-        """When state file doesn't exist, returns a fresh default state."""
-        with patch("strategies.strangle.os.path.exists", return_value=False):
-            result = _load("ETH")
+    def test_missing_asset_returns_defaults(self):
+        """First call for an asset returns a fresh default state."""
+        result = load_strangle_state("ETH")
         assert result["open"]          is None
         assert result["total_premium"] == 0.0
         assert result["wins"]          == 0
         assert result["losses"]        == 0
         assert result["trades"]        == 0
 
-    def test_existing_file_returns_contents(self):
-        """When state file exists, returns its parsed contents."""
-        state = {"open": None, "total_premium": 100.0, "wins": 3, "losses": 1, "trades": 4}
-        with patch("strategies.strangle.os.path.exists", return_value=True), \
-             patch("builtins.open", mock_open(read_data=json.dumps(state))):
-            result = _load("ETH")
-        assert result["total_premium"] == 100.0
-        assert result["wins"]          == 3
+    def test_returns_all_required_keys(self):
+        result = load_strangle_state("BTC")
+        for key in ("open", "total_premium", "wins", "losses", "trades"):
+            assert key in result
 
-    def test_uses_correct_filename(self):
-        """_load uses _state_file to determine the path."""
-        with patch("strategies.strangle.os.path.exists", return_value=False) as mock_exists:
-            _load("BTC")
-        mock_exists.assert_called_once_with("strangle_state_BTC.json")
+    def test_different_assets_are_independent(self):
+        """State for ETH and BTC are stored separately."""
+        eth = load_strangle_state("ETH")
+        btc = load_strangle_state("BTC")
+        assert eth["total_premium"] == btc["total_premium"]  # both fresh
+
+    def test_second_call_returns_persisted_data(self):
+        """Calling load twice without saving still returns the same defaults."""
+        first  = load_strangle_state("SOL")
+        second = load_strangle_state("SOL")
+        assert first["wins"] == second["wins"]
 
 
-# ── _save ─────────────────────────────────────────────────────────────────────
+class TestSaveStrangleState:
+    """Tests for save_strangle_state — uses in-memory SQLite via conftest."""
 
-class TestSave:
+    def test_saves_and_loads_roundtrip(self):
+        """State saved via save_strangle_state can be retrieved via load_strangle_state."""
+        state = {
+            "open":          None,
+            "total_premium": 150.0,
+            "wins":          3,
+            "losses":        1,
+            "trades":        4,
+        }
+        save_strangle_state("ETH", state)
+        loaded = load_strangle_state("ETH")
+        assert loaded["total_premium"] == pytest.approx(150.0)
+        assert loaded["wins"]          == 3
+        assert loaded["losses"]        == 1
+        assert loaded["trades"]        == 4
 
-    def test_saves_valid_json(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        state = {"open": None, "wins": 1, "losses": 0, "trades": 1, "total_premium": 50.0}
-        _save("ETH", state)
-        with open("strangle_state_ETH.json") as f:
-            assert json.load(f) == state
+    def test_saves_open_position(self):
+        """Open position dict is persisted and retrieved correctly."""
+        op = {
+            "put_strike":    1800.0,
+            "call_strike":   2200.0,
+            "total_premium": 50.0,
+            "qty":           0.125,
+            "trade_id":      42,
+        }
+        state = {"open": op, "total_premium": 50.0, "wins": 0, "losses": 0, "trades": 1}
+        save_strangle_state("ETH", state)
+        loaded = load_strangle_state("ETH")
+        assert loaded["open"] is not None
+        assert loaded["open"]["put_strike"]  == pytest.approx(1800.0)
+        assert loaded["open"]["trade_id"]    == 42
 
-    def test_saves_to_correct_filename(self):
-        """_save writes to the asset-specific filename."""
-        state = {"open": None, "wins": 0, "losses": 0, "trades": 0, "total_premium": 0.0}
-        m     = mock_open()
-        with patch("builtins.open", m):
-            _save("SOL", state)
-        m.assert_called_once_with("strangle_state_SOL.json", "w")
-
-    def test_roundtrip(self):
-        """State saved by _save can be loaded back by _load."""
-        state = {"open": None, "wins": 2, "losses": 1, "trades": 3, "total_premium": 75.0}
-        import tempfile, os as _os
-        with tempfile.TemporaryDirectory() as tmpdir:
-            orig_dir = _os.getcwd()
-            _os.chdir(tmpdir)
-            try:
-                _save("ETH", state)
-                loaded = _load("ETH")
-            finally:
-                _os.chdir(orig_dir)
+    def test_overwrites_existing_state(self):
+        """Saving twice with different data replaces the previous values."""
+        save_strangle_state("ETH", {
+            "open": None, "total_premium": 50.0, "wins": 1, "losses": 0, "trades": 1,
+        })
+        save_strangle_state("ETH", {
+            "open": None, "total_premium": 120.0, "wins": 2, "losses": 1, "trades": 3,
+        })
+        loaded = load_strangle_state("ETH")
+        assert loaded["total_premium"] == pytest.approx(120.0)
         assert loaded["wins"]          == 2
-        assert loaded["total_premium"] == 75.0
+        assert loaded["trades"]        == 3
+
+    def test_clear_open_position(self):
+        """Setting open=None after a position clears it in the database."""
+        save_strangle_state("ETH", {
+            "open": {"put_strike": 1800.0, "trade_id": 1},
+            "total_premium": 50.0, "wins": 0, "losses": 0, "trades": 1,
+        })
+        save_strangle_state("ETH", {
+            "open": None, "total_premium": 50.0, "wins": 1, "losses": 0, "trades": 1,
+        })
+        loaded = load_strangle_state("ETH")
+        assert loaded["open"] is None

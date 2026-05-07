@@ -225,7 +225,7 @@ def strategies_menu(
             show_strangle_analysis(asset, spot, iv, days)
 
         elif choice == "4":
-            strangle_paper_menu(asset, spot, iv, wb, days)
+            strangle_paper_menu(asset, spot, iv, days)
 
         elif choice == "5":
             show_calendar_analysis(

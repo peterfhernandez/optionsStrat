@@ -22,11 +22,12 @@ from config import (
     BUDGET_USD, RISK_FREE_RATE, CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
 )
 from database import load_wheel_state, save_wheel_state
+from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
 from market.pricing import bs_put, bs_call
 from excel.excel_tracker import (
-    append_trade_row, append_strangle_row, append_calendar_row,
+    append_trade_row, append_calendar_row,
 )
-from strategies import strangle, calendar
+from strategies import calendar
 
 
 def _enter_csp(c, wb, T: float) -> dict:
@@ -118,7 +119,24 @@ def _enter_strangle(c, wb, T: float) -> dict:
     tot = pp + cp
     expiry = (date.today() + timedelta(days=c.days)).strftime("%d-%b-%Y")
 
-    s = strangle._load(c.asset)
+    trade = create_strangle_trade(
+        asset=c.asset,
+        date_open=date.today(),
+        put_strike=Kp,
+        call_strike=Kc,
+        spot_open=c.spot,
+        total_premium=round(tot, 4),
+        qty=qty,
+        days=c.days,
+        expiry=expiry,
+        notes=(
+            f"AUTO {c.asset} strangle, {c.days}d, "
+            f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
+            f"liq={c.liquidity_tag or 'N/A'}"
+        ),
+    )
+
+    s = load_strangle_state(c.asset)
     s["open"] = {
         "put_strike":    Kp,
         "call_strike":   Kc,
@@ -128,24 +146,11 @@ def _enter_strangle(c, wb, T: float) -> dict:
         "spot_open":     c.spot,
         "days":          c.days,
         "asset":         c.asset,
+        "trade_id":      trade.id,
     }
     s["total_premium"] = s.get("total_premium", 0.0) + tot
     s["trades"]        = s.get("trades",        0)   + 1
-    strangle._save(c.asset, s)
-
-    append_strangle_row(wb, {
-        "date":        str(date.today()),
-        "type":        "Short Strangle — Open (AUTO)",
-        "put_strike":  Kp,
-        "call_strike": Kc,
-        "spot_open":   c.spot,
-        "premium":     round(tot, 4),
-        "days":        c.days,
-        "result":      "Open",
-        "notes":       f"AUTO {c.asset} strangle, {c.days}d, "
-                       f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
-                       f"liq={c.liquidity_tag or 'N/A'}",
-    })
+    save_strangle_state(c.asset, s)
     return s["open"]
 
 

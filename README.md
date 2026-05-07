@@ -58,17 +58,18 @@ All trade data is persisted in `optionsStrat.db` (SQLite). Call `models.init_db(
 - **Stop-loss monitor** — warns at 1.5x and triggers at 2.0x premium (adjustable), take-profit at 5% remaining value (>2 days from expiry)
 - **Daily or weekly expiry** — switchable in the menu
 - **Separate calendar near/far expiry control** — choose calendar legs independently
-- **Excel tracker** — all trades written automatically to `crypto_options_trade_tracker.xlsx`, with older workbooks auto-upgraded to preserve previous rows and add the missing Asset column.
+- **SQLite database** — all trades persisted to `optionsStrat.db` via SQLAlchemy ORM (strangle and wheel strategies use SQLite; legacy Excel workbook retained for wheel-specific UI columns).
 
-### Excel Workbook Sheets
+### Excel Workbook Sheets (Wheel & Calendar only)
 
 | Sheet | Contents |
 |---|---|
 | 📊 Dashboard | Live KPIs — total premium, win rate, cycles completed |
 | 📋 Live Trades | Real trades (manually recorded) |
 | 📝 Paper Trades | Wheel paper trading history |
-| 🔀 Strangles | Strangle paper trading history |
 | 📈 Summary | Cycle-by-cycle performance |
+
+> **Note:** Strangle trades are stored exclusively in the `strangles` SQLite table. The legacy `crypto_options_trade_tracker.xlsx` Strangles sheet is no longer written to.
 
 ---
 
@@ -182,7 +183,7 @@ The tool can pick a trade for you and open the paper position automatically.
    - **Liquidity tag of Medium or High** (Low and unrated excluded)
 3. Skips strategies that conflict with positions you already have open (e.g. won't try to open a second strangle).
 4. Picks the candidate with the **highest probability of profit** (yield breaks ties).
-5. Opens the paper trade, persists the per-asset state file, and logs the row to the Excel workbook with an `AUTO` note.
+5. Opens the paper trade, persists the per-asset state to the database, and logs the trade record with an `AUTO` note.
 6. **If no candidate qualifies, it does nothing and exits cleanly.** Run it again later (an hourly schedule is the intended pattern).
 
 ### Liquidity rating

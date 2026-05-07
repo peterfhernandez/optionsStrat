@@ -46,13 +46,14 @@ from config       import (
 from market.pricing      import bs_put, bs_call
 from ui.display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 from excel.excel_tracker import (
-    append_trade_row, append_strangle_row, append_calendar_row,
+    append_trade_row, append_calendar_row,
 )
 from trading.executor import enter_trade
 
 from database import load_wheel_state
+from database.strangle_db import load_strangle_state
 from strategies.scanner import Candidate, _build_candidates
-from strategies import strangle, calendar
+from strategies import calendar
 
 
 # Default automation thresholds — exposed as kwargs on run_automation so
@@ -127,8 +128,8 @@ def _blocked_strategies(asset: str) -> set[str]:
     else:
         blocked.update({"CSP", "CC"})
 
-    # Strangle state (still uses JSON for now)
-    s = strangle._load(asset)
+    # Strangle state from database
+    s = load_strangle_state(asset)
     if s.get("open"):
         blocked.add("Strangle")
 
