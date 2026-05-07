@@ -37,7 +37,7 @@ from config import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, CALENDAR_STOP_PCT,
 )
-from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
+from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from ui.display import (
     hdr, sub, inf, ok, warn,
     draw_calendar_zone,
@@ -291,9 +291,9 @@ def show_calendar_analysis(
 
         for otm in [0.00] + OTM_LEVELS:
             if option_type == "Call":
-                K = round(spot * (1 + otm) / 10) * 10
+                K = round_strike(spot * (1 + otm), spot)
             else:
-                K = round(spot * (1 - otm) / 10) * 10
+                K = round_strike(spot * (1 - otm), spot)
 
             if option_type == "Call":
                 near_prem = bs_call(spot, K, T_near, r, iv) * qty
@@ -488,7 +488,7 @@ def calendar_paper_menu(
             return
 
         sub("Suggested ATM calendar spread")
-        K_sug = round(spot / 10) * 10
+        K_sug = round_strike(spot, spot)
 
         print(f"""
   {GY}Option type:{R}

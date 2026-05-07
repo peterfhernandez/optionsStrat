@@ -34,7 +34,7 @@ from config        import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
 )
-from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call
+from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from ui.display       import (
     hdr, sub, inf, ok, warn,
     draw_profit_zone, print_stop_loss_status,
@@ -189,8 +189,8 @@ def show_strangle_analysis(
 
     best_row = None
     for otm in OTM_LEVELS:
-        Kp  = round(spot * (1 - otm) / 10) * 10
-        Kc  = round(spot * (1 + otm) / 10) * 10
+        Kp  = round_strike(spot * (1 - otm), spot)
+        Kc  = round_strike(spot * (1 + otm), spot)
         pp  = bs_put (spot, Kp, T, r, iv) * qty
         cp  = bs_call(spot, Kc, T, r, iv) * qty
         tot = pp + cp
@@ -310,8 +310,8 @@ def strangle_paper_menu(
             return
 
         sub("Suggested strikes (15% OTM each side)")
-        Kp_sug = round(spot * 0.85 / 10) * 10
-        Kc_sug = round(spot * 1.15 / 10) * 10
+        Kp_sug = round_strike(spot * 0.85, spot)
+        Kc_sug = round_strike(spot * 1.15, spot)
         pp_sug = bs_put (spot, Kp_sug, T, RISK_FREE_RATE, iv) * qty
         cp_sug = bs_call(spot, Kc_sug, T, RISK_FREE_RATE, iv) * qty
         inf("  Put strike  (15% below)", f"${Kp_sug:,.0f}  →  ${pp_sug:.2f} premium")

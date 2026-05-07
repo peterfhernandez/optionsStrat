@@ -15,7 +15,10 @@ prob_otm_*  : range [0,1], ATM ≈ 0.5, deep OTM/ITM limits,
 
 import math
 import pytest
-from market.pricing import ncdf, _d1, _d2, bs_put, bs_call, prob_otm_put, prob_otm_call
+from market.pricing import (
+    ncdf, _d1, _d2, bs_put, bs_call, prob_otm_put, prob_otm_call,
+    strike_increment, round_strike,
+)
 
 
 # ── Tolerance ─────────────────────────────────────────────────────────────────
@@ -362,3 +365,67 @@ class TestCrossFunctionInvariants:
         P1 = bs_put(S1, K1, T_weekly, r, iv)
         P2 = bs_put(S2, K2, T_weekly, r, iv)
         assert abs(P2 / P1 - 2.0) < 1e-4
+
+
+# ── strike_increment and round_strike ─────────────────────────────────────────
+
+class TestStrikeIncrement:
+
+    def test_sub_five_dollar_asset(self):
+        """XRP at $2 → $0.50 increment."""
+        assert strike_increment(2.0) == 0.50
+        assert strike_increment(4.99) == 0.50
+
+    def test_five_to_twenty_dollar_asset(self):
+        assert strike_increment(5.0) == 1.0
+        assert strike_increment(19.99) == 1.0
+
+    def test_twenty_to_hundred_dollar_asset(self):
+        assert strike_increment(20.0) == 5.0
+        assert strike_increment(99.99) == 5.0
+
+    def test_hundred_to_five_hundred_dollar_asset(self):
+        assert strike_increment(100.0) == 10.0
+        assert strike_increment(499.99) == 10.0
+
+    def test_five_hundred_to_two_thousand_dollar_asset(self):
+        assert strike_increment(500.0) == 50.0
+        assert strike_increment(1999.99) == 50.0
+
+    def test_above_two_thousand_dollar_asset(self):
+        assert strike_increment(2000.0) == 100.0
+        assert strike_increment(50000.0) == 100.0
+
+
+class TestRoundStrike:
+
+    def test_xrp_spot_rounds_correctly(self):
+        """XRP at $2.50 ATM → $2.50 (nearest $0.50)."""
+        assert round_strike(2.50, 2.50) == 2.50
+
+    def test_xrp_never_zero(self):
+        """XRP at $0.10 must never round to zero."""
+        result = round_strike(0.10, 0.10)
+        assert result > 0
+
+    def test_xrp_otm_call_positive(self):
+        """15% OTM call on XRP at $2 → positive strike."""
+        result = round_strike(2.0 * 1.15, 2.0)
+        assert result > 0
+
+    def test_xrp_deep_otm_put_positive(self):
+        """85% put on XRP at $2 → positive strike."""
+        result = round_strike(2.0 * 0.85, 2.0)
+        assert result > 0
+
+    def test_high_priced_asset_rounds_to_ten(self):
+        """ETH at $180, 10% OTM call → nearest $10."""
+        result = round_strike(180.0 * 1.10, 180.0)
+        assert result == 200.0
+
+    def test_result_is_multiple_of_increment(self):
+        """Result must be a multiple of the chosen increment."""
+        for spot in (2.0, 10.0, 50.0, 200.0, 1000.0, 3000.0):
+            inc = strike_increment(spot)
+            result = round_strike(spot, spot)
+            assert abs(result % inc) < 1e-9 or abs(result % inc - inc) < 1e-9

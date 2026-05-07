@@ -32,6 +32,8 @@ from market.market_data import (
     _atm_strike,
     _expiry_date,
     _deribit_instrument,
+    _format_strike,
+    _nearest_available_strike,
     _price_from_binance,
     _price_from_coingecko,
     _fetch_mark_iv,
@@ -160,14 +162,103 @@ class TestDeribitInstrument:
         assert name.startswith("BTC-")
 
     def test_sol_usdc_ticker(self):
-        name = _deribit_instrument("SOL_USDC", 86.0, 7, 1, "P")
+        with patch("market.market_data._nearest_available_strike", return_value=86.0):
+            name = _deribit_instrument("SOL_USDC", 86.0, 7, 1, "P")
         assert name.startswith("SOL_USDC-")
+
+    def test_xrp_usdc_decimal_strike_uses_d_separator(self):
+        """XRP_USDC at $2.50 must produce '2d5', not '2.5' or '2'."""
+        with patch("market.market_data._nearest_available_strike", return_value=2.5):
+            name = _deribit_instrument("XRP_USDC", 2.50, 7, 0.05, "P")
+        strike_part = name.split("-")[2]
+        assert strike_part == "2d5", f"Expected '2d5', got '{strike_part}'"
+
+    def test_xrp_usdc_whole_strike_no_trailing_d(self):
+        """XRP_USDC at $2.00 should produce '2', not '2d0'."""
+        with patch("market.market_data._nearest_available_strike", return_value=2.0):
+            name = _deribit_instrument("XRP_USDC", 2.00, 7, 0.05, "P")
+        strike_part = name.split("-")[2]
+        assert strike_part == "2", f"Expected '2', got '{strike_part}'"
+
+    def test_xrp_usdc_falls_back_when_no_strikes_listed(self):
+        """If _nearest_available_strike returns None, fall back to _atm_strike."""
+        with patch("market.market_data._nearest_available_strike", return_value=None):
+            name = _deribit_instrument("XRP_USDC", 1.42, 7, 0.05, "P")
+        strike_part = name.split("-")[2]
+        # _atm_strike(1.42, 0.05) = 1.40 → formatted as '1d4'
+        assert strike_part == "1d4", f"Expected '1d4', got '{strike_part}'"
+
+    def test_eth_inverse_uses_fixed_increment(self):
+        """ETH (non-_USDC) must never call _nearest_available_strike."""
+        with patch("market.market_data._nearest_available_strike") as mock_nas:
+            _deribit_instrument("ETH", 2300.0, 7, 100, "P")
+        mock_nas.assert_not_called()
 
     def test_date_format_regex(self):
         """Date part should match D+MMMYY or DD+MMMYY pattern."""
         name = _deribit_instrument("ETH", 2300.0, 7, 100, "P")
         date_part = name.split("-")[1]
         assert re.match(r"^\d{1,2}[A-Z]{3}\d{2}$", date_part), f"Bad date format: {date_part}"
+
+
+# ── _format_strike ────────────────────────────────────────────────────────────
+
+class TestFormatStrike:
+
+    def test_decimal_uses_d_separator(self):
+        assert _format_strike(2.5) == "2d5"
+
+    def test_two_decimal_places(self):
+        assert _format_strike(1.42) == "1d42"
+
+    def test_whole_number_no_suffix(self):
+        assert _format_strike(2.0) == "2"
+
+    def test_large_integer_strike(self):
+        assert _format_strike(2300.0) == "2300"
+
+    def test_sub_one_strike(self):
+        assert _format_strike(0.9) == "0d9"
+
+
+# ── _nearest_available_strike ─────────────────────────────────────────────────
+
+class TestNearestAvailableStrike:
+
+    def _make_instruments(self, strikes):
+        return [
+            {"instrument_name": f"XRP_USDC-8MAY26-{s}-P", "strike": s}
+            for s in strikes
+        ]
+
+    def test_returns_nearest_strike(self):
+        instruments = self._make_instruments([1.3, 1.4, 1.5, 1.6])
+        mock = MagicMock()
+        mock.status_code = 200
+        mock.json.return_value = {"result": instruments}
+        with patch("market.market_data.requests.get", return_value=mock):
+            result = _nearest_available_strike("XRP_USDC", "8MAY26", 1.42)
+        assert result == 1.4
+
+    def test_returns_none_on_bad_status(self):
+        mock = MagicMock()
+        mock.status_code = 500
+        with patch("market.market_data.requests.get", return_value=mock):
+            result = _nearest_available_strike("XRP_USDC", "8MAY26", 1.42)
+        assert result is None
+
+    def test_returns_none_when_no_strikes_for_expiry(self):
+        mock = MagicMock()
+        mock.status_code = 200
+        mock.json.return_value = {"result": []}
+        with patch("market.market_data.requests.get", return_value=mock):
+            result = _nearest_available_strike("XRP_USDC", "8MAY26", 1.42)
+        assert result is None
+
+    def test_returns_none_on_exception(self):
+        with patch("market.market_data.requests.get", side_effect=Exception("timeout")):
+            result = _nearest_available_strike("XRP_USDC", "8MAY26", 1.42)
+        assert result is None
 
 
 # ── _price_from_binance ───────────────────────────────────────────────────────

@@ -37,11 +37,12 @@ from config import SUPPORTED_ASSETS
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-_BINANCE_URL     = "https://api.binance.com/api/v3/ticker/price"
-_COINGECKO_URL   = "https://api.coingecko.com/api/v3/simple/price"
-_DERIBIT_URL     = "https://www.deribit.com/api/v2/public/get_order_book"
-_REQUEST_TIMEOUT = 8  # seconds
-_COINGECKO_RETRY = 2  # seconds to wait before retrying after a 429
+_BINANCE_URL        = "https://api.binance.com/api/v3/ticker/price"
+_COINGECKO_URL      = "https://api.coingecko.com/api/v3/simple/price"
+_DERIBIT_URL        = "https://www.deribit.com/api/v2/public/get_order_book"
+_DERIBIT_INSTR_URL  = "https://www.deribit.com/api/v2/public/get_instruments"
+_REQUEST_TIMEOUT    = 8  # seconds
+_COINGECKO_RETRY    = 2  # seconds to wait before retrying after a 429
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -111,43 +112,91 @@ def _expiry_date(days: int) -> datetime:
     return today + timedelta(days=days_until_friday)
 
 
-def _atm_strike(spot: float, strike_round: int) -> int:
+def _atm_strike(spot: float, strike_round: float) -> float:
     """
     Round spot price to the nearest ATM strike increment for this asset.
- 
-    Each asset has its own increment (e.g. ETH=$100, BTC=$500, SOL=$1)
+
+    Each asset has its own increment (e.g. ETH=$100, BTC=$1000, SOL=$1, XRP=$0.05)
     defined in config.SUPPORTED_ASSETS.
     """
     return round(spot / strike_round) * strike_round
+
+
+def _nearest_available_strike(ticker: str, expiry_str: str, spot: float) -> float | None:
+    """
+    Query Deribit for available strikes for a given ticker/expiry and return
+    the one closest to spot.  Used for assets (e.g. XRP_USDC) whose strikes
+    don't fall on a predictable grid.
+
+    Returns None if the request fails or no strikes are found.
+    """
+    # USDC-settled instruments are listed under currency=USDC
+    currency = "USDC"
+    try:
+        resp = requests.get(
+            _DERIBIT_INSTR_URL,
+            params={"currency": currency, "kind": "option"},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return None
+        instruments = resp.json().get("result", [])
+        prefix = f"{ticker}-{expiry_str}-"
+        strikes = [
+            i["strike"]
+            for i in instruments
+            if i.get("instrument_name", "").startswith(prefix) and i.get("strike") is not None
+        ]
+        if not strikes:
+            return None
+        return min(strikes, key=lambda s: abs(s - spot))
+    except Exception:
+        return None
+
+
+def _format_strike(strike: float) -> str:
+    """
+    Format a strike price for a Deribit instrument name.
+
+    Deribit USDC-settled instruments use 'd' instead of '.' for decimals:
+      2.5  → '2d5'
+      1.42 → '1d42'
+      2.0  → '2'
+    """
+    return f"{strike:g}".replace(".", "d")
 
 
 def _deribit_instrument(
     ticker: str,
     spot: float,
     days: int,
-    strike_round:int,
+    strike_round: float,
     option_type: str,
 ) -> str:
     """
     Build a Deribit instrument name for an ATM option.
- 
+
     Format: {TICKER}-{DDMMMYY}-{STRIKE}-{P|C}
     e.g.    ETH-25APR25-1800-P
             BTC-25APR25-90000-C
-            SOL-25APR25-150-P
- 
-    Parameters
-    ----------
-    ticker       : str   Deribit asset ticker (e.g. "ETH", "BTC", "SOL")
-    spot         : float Current spot price
-    days         : int   Days to expiry (1 = daily, 7 = weekly)
-    strike_round : int   ATM strike rounding increment
-    option_type  : str   "P" for put, "C" for call
+            SOL_USDC-25APR25-150-P
+            XRP_USDC-8MAY26-1d42-P
+
+    For USDC-settled tickers (those ending in _USDC) the nearest actually-listed
+    strike is queried from Deribit, since their strike grid is irregular.
+    For inverse tickers (ETH, BTC) the fixed strike_round increment is used.
     """
     expiry_dt  = _expiry_date(days)
     expiry_str = str(expiry_dt.day) + expiry_dt.strftime("%b%y").upper()
-    strike = _atm_strike(spot, strike_round)
-    return f"{ticker}-{expiry_str}-{int(strike)}-{option_type}"
+
+    if ticker.endswith("_USDC"):
+        strike = _nearest_available_strike(ticker, expiry_str, spot)
+        if strike is None:
+            strike = _atm_strike(spot, strike_round)
+    else:
+        strike = _atm_strike(spot, strike_round)
+
+    return f"{ticker}-{expiry_str}-{_format_strike(strike)}-{option_type}"
 
 
 def _fetch_mark_iv(instrument: str) -> float | None:

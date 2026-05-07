@@ -28,7 +28,7 @@ from database import (
     close_single_trade,
     get_wheel_stats,
 )
-from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
+from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from models import get_session, Single
 from ui.display import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 
@@ -68,7 +68,7 @@ def show_strikes(
     print(f"  {'─' * 55}")
 
     for otm in OTM_LEVELS:
-        K   = round(spot * (1 - otm) / 10) * 10
+        K   = round_strike(spot * (1 - otm), spot)
         qty = BUDGET_USD / K
         tot = bs_put(spot, K, T, r, iv) * qty
         yld = (tot / BUDGET_USD) * (365 / days) * 100
@@ -83,7 +83,7 @@ def show_strikes(
 
     qty = BUDGET_USD / spot
     for otm in OTM_LEVELS:
-        K   = round(spot * (1 + otm) / 10) * 10
+        K   = round_strike(spot * (1 + otm), spot)
         tot = bs_call(spot, K, T, r, iv) * qty
         yld = (tot / BUDGET_USD) * (365 / days) * 100
         pp  = prob_otm_call(spot, K, T, r, iv) * 100
@@ -166,7 +166,7 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
             warn("Close existing position first.")
             return
 
-        K_sug = round(spot * 0.85 / 10) * 10
+        K_sug = round_strike(spot * 0.85, spot)
         qty   = BUDGET_USD / K_sug
         p_sug = bs_put(spot, K_sug, T, RISK_FREE_RATE, iv) * qty
         sub("Suggested strike (15% OTM)")
@@ -285,7 +285,7 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
             warn(f"Must be holding {asset} first.")
             return
 
-        K_sug   = round(spot * 1.15 / 10) * 10
+        K_sug   = round_strike(spot * 1.15, spot)
         qty     = s["asset_held"]
         p_sug   = bs_call(spot, K_sug, T, RISK_FREE_RATE, iv) * qty
         sub("Suggested strike (15% OTM)")

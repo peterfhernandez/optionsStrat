@@ -116,3 +116,27 @@ def prob_otm_call(S: float, K: float, T: float, r: float, v: float) -> float:
     if T <= 0 or v <= 0:
         return 1.0 if S < K else 0.0
     return ncdf(-_d2(S, K, T, r, v))
+
+
+# ── Strike rounding ───────────────────────────────────────────────────────────
+
+def strike_increment(spot: float) -> float:
+    """Return a sensible strike increment for a given spot price."""
+    if spot < 5:
+        return 0.50
+    if spot < 20:
+        return 1.0
+    if spot < 100:
+        return 5.0
+    if spot < 500:
+        return 10.0
+    if spot < 2_000:
+        return 50.0
+    return 100.0
+
+
+def round_strike(price: float, spot: float) -> float:
+    """Round *price* to the nearest strike increment appropriate for *spot*."""
+    inc = strike_increment(spot)
+    rounded = round(price / inc) * inc
+    return max(rounded, inc)  # ensure strike is never zero

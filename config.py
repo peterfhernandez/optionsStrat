@@ -62,8 +62,8 @@ SUPPORTED_ASSETS = {
     "XRP": {
         "binance_symbol": "XRPUSDT",
         "coingecko_id":   "ripple",
-        "deribit_ticker": "XRP",
-        "strike_round":   0.10,
+        "deribit_ticker": "XRP_USDC",
+        "strike_round":   0.05,
     },
 }
  
