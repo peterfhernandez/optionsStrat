@@ -53,6 +53,30 @@ def test_show_trade_history_counts_rows_with_missing_pnl(capsys):
     assert "1" in out
 
 
+def test_show_trade_history_shows_closed_trade_without_date_close(capsys):
+    """Trades migrated from Excel have result set but date_close=None; should still appear."""
+    from models import get_session, Single
+    create_single_trade(
+        asset="ETH", date_open=date(2026, 4, 1), option_type="Put",
+        strike=1800.0, expiry="01-Apr-2026", spot_open=2000.0,
+        premium=100.0, qty=0.1, days=7, stage="short_put", notes="migrated",
+    )
+    session = get_session()
+    try:
+        trade = session.query(Single).filter(Single.asset == "ETH").first()
+        trade.result = "Win (Auto TP)"
+        trade.pnl = 80.0
+        # date_close intentionally left as None (Excel migration scenario)
+        session.commit()
+    finally:
+        session.close()
+
+    show_trade_history()
+    out = capsys.readouterr().out
+    assert "ETH" in out
+    assert "Total trades" in out
+
+
 def test_show_trade_history_handles_strangle(capsys):
     trade = create_strangle_trade(
         asset="ETH", date_open=date(2026, 5, 3),

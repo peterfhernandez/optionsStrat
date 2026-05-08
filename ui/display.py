@@ -462,16 +462,17 @@ def show_trade_history() -> None:
 
     session = get_session()
     try:
-        singles   = session.query(Single).filter(Single.date_close.isnot(None)).all()
-        strangles = session.query(Strangle).filter(Strangle.date_close.isnot(None)).all()
-        calendars = session.query(Calendar).filter(Calendar.date_close.isnot(None)).all()
+        _closed = ("Win", "Loss", "Win (Auto TP)", "Loss (Auto Stop)")
+        singles   = session.query(Single).filter(Single.result.in_(_closed)).all()
+        strangles = session.query(Strangle).filter(Strangle.result.in_(_closed)).all()
+        calendars = session.query(Calendar).filter(Calendar.result.in_(_closed)).all()
     finally:
         session.close()
 
     trades = []
     for t in singles:
         trades.append({
-            "date":   t.date_close,
+            "date":   t.date_close or t.date_open,
             "asset":  t.asset or "",
             "type":   f"Wheel {t.option_type or ''}".strip(),
             "pnl":    float(t.pnl or 0.0),
@@ -479,7 +480,7 @@ def show_trade_history() -> None:
         })
     for t in strangles:
         trades.append({
-            "date":   t.date_close,
+            "date":   t.date_close or t.date_open,
             "asset":  t.asset or "",
             "type":   "Strangle",
             "pnl":    float(t.pnl or 0.0),
@@ -487,7 +488,7 @@ def show_trade_history() -> None:
         })
     for t in calendars:
         trades.append({
-            "date":   t.date_close,
+            "date":   t.date_close or t.date_open,
             "asset":  t.asset or "",
             "type":   f"Calendar {t.option_type or ''}".strip(),
             "pnl":    float(t.pnl or 0.0),

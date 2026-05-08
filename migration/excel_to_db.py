@@ -122,7 +122,7 @@ def migrate_singles(session: Session) -> int:
             qty=None,  # not in Excel
             days=int(days) if days else None,
             date_open=date_open,
-            date_close=_parse_date(spot_close) if result and result.lower() != "open" else None,
+            date_close=None,  # Excel sheet has no close-date column
             spot_open=float(spot_open) if spot_open else None,
             spot_close=float(spot_close) if spot_close else None,
             premium=float(premium) if premium else None,
@@ -187,7 +187,7 @@ def migrate_strangles(session: Session) -> int:
             qty=None,
             days=int(days) if days else None,
             date_open=date_open,
-            date_close=_parse_date(spot_close) if not is_open else None,
+            date_close=None,  # Excel sheet has no close-date column
             spot_open=float(spot_open) if spot_open else None,
             spot_close=float(spot_close) if spot_close else None,
             total_premium=float(premium) if premium else None,
@@ -254,7 +254,7 @@ def migrate_calendars(session: Session) -> int:
             near_days=int(near_days) if near_days else None,
             far_days=int(far_days) if far_days else None,
             date_open=date_open,
-            date_close=_parse_date(spot_close) if not is_open else None,
+            date_close=None,  # Excel sheet has no close-date column
             spot_open=float(spot_open) if spot_open else None,
             spot_close=float(spot_close) if spot_close else None,
             near_prem=None,  # not in Excel

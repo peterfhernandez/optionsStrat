@@ -40,9 +40,9 @@ Steps (6 phases, 22+ steps)
 
 ## PHASE 5: Deprecation & Cleanup (depends on Phase 4)
 
-1. Deprecate crypto_options_trade.py — add comment, don't import from it - 📌 TO DO
+1. Deprecate crypto_options_trade.py — add comment, don't import from it - 🔄 IN PROGRESS
 2. Verify no circular dependencies — clean root module imports - 📌 TO DO
-3. Deprecate excel\excel.py
+3. Deprecate excel\excel.py - ✅ DONE
 
 ## PHASE 6: New Features (depends on Phase 2)
 
@@ -76,9 +76,9 @@ Steps (6 phases, 22+ steps)
   j. Display - ✅ DONE
   k. Menus - ✅ DONE
 2. Track trading state - ✅ DONE
-3. Track open positions in db - portfolio - 🔄 IN PROGRESS
-4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l  - 📌 TO DO
-5. Deprecate excel.excel - 📌 TO DO
+3. Track open positions in db - portfolio - ✅ DONE
+4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l - ✅ DONE
+5. Deprecate excel.excel - 🔄 IN PROGRESS
 
 ## Relevant Files
 
