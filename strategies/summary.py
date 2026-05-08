@@ -30,8 +30,12 @@ def show_summary() -> None:
         if stats["trades"] == 0:
             inf("No trades yet", "")
             continue
+        pnl_key     = "total_pnl"     if "total_pnl"  in stats else "total_premium"
+        avg_key     = "avg_pnl"       if "avg_pnl"    in stats else "avg_premium"
+        pnl_label   = "Total P&L"     if "total_pnl"  in stats else "Total Premium"
+        avg_label   = "Avg P&L"       if "avg_pnl"    in stats else "Avg Premium"
         inf("Trades",        str(stats["trades"]))
         inf("Wins / Losses", f"{stats['wins']} / {stats['losses']}")
         inf("Win Rate",      f"{stats['win_rate']:.1f}%" if stats["trades"] else "N/A")
-        inf("Total Premium", f"${stats['total_premium']:.2f}")
-        inf("Avg Premium",   f"${stats['avg_premium']:.2f}" if stats["trades"] else "N/A")
+        inf(pnl_label,       f"${stats[pnl_key]:.2f}")
+        inf(avg_label,       f"${stats[avg_key]:.2f}" if stats["trades"] else "N/A")

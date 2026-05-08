@@ -55,6 +55,10 @@ Steps (6 phases, 22+ steps)
 7. Implement 1 or 2 more options strategies - 📌 TO DO for Credit spread
 8. Remove the Wheel from Strategies and automate.py - 📌 TO DO
 9. Add trading fees (0.04% of underlying spot, or 0.0004BTC, whichever is lower, fee cannot be > 12.5% of option price) - 📌 TO DO
+10. Check that recorded trades and portfolio tracking includes the correct date - 📌 TO DO
+11. Check that the records include the exchange where trade was made - 📌 TO DO
+12. Ensure that records are not duplicated - 📌 TO DO
+13. Track if the trade was a paper trade or live trade
 
 ## PHASE 7: Move tracking to db
 
@@ -71,8 +75,8 @@ Steps (6 phases, 22+ steps)
   i. Summary - ✅ DONE
   j. Display - ✅ DONE
   k. Menus - ✅ DONE
-2. Track trading state - 🔄 IN PROGRESS
-3. Track open positions in db - portfolio - 📌 TO DO
+2. Track trading state - ✅ DONE
+3. Track open positions in db - portfolio - 🔄 IN PROGRESS
 4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l  - 📌 TO DO
 5. Deprecate excel.excel - 📌 TO DO
 
