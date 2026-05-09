@@ -14,20 +14,56 @@ Built to practice the **Wheel Strategy**, **Short Strangle**, and **Calendar Spr
 | `automate.py` | One-shot automated strategy runner (cron / scheduler entry point) |
 | `config.py` | Central configuration — all settings in one place |
 | `optionsStrat.db` | SQLite database — trade history, state, and ledger (excluded from git) |
-| `crypto_options_trade_tracker.xlsx` | Legacy Excel workbook (superseded by the SQLite DB) |
 
 ### Packages
 
 | Package | Purpose |
 |---|---|
+| `access/` | Broker access layer — abstract interface + Deribit adapter (paper & live) |
 | `models/` | SQLAlchemy ORM models — trade tables and state (see below) |
 | `automation/` | Strategy automation (`automator.py`) |
-| `trading/` | Order execution and portfolio management (Phase 2) |
-| `excel/` | Excel workbook helpers (`excel_tracker.py`) |
+| `trading/` | Order execution and portfolio management |
 | `market/` | Market data fetching (`market_data.py`, `pricing.py`) |
 | `ui/` | User interface (`display.py`, `menus.py`) |
 | `strategies/` | Trading strategy implementations (wheel, strangle, calendar, monitor, scanner) |
 | `tests/` | Comprehensive test suite |
+
+### Broker access layer (`access/`)
+
+The `access` package provides a platform-agnostic interface for submitting orders to exchanges.
+
+| Module | Purpose |
+|---|---|
+| `access/base.py` | `BrokerBase` abstract class + `OrderResult` dataclass |
+| `access/deribit.py` | Deribit REST adapter — paper (`test.deribit.com`) and live (`www.deribit.com`) |
+
+**Credentials** — set environment variables before running live or paper execution:
+
+```
+DERIBIT_CLIENT_ID=<your client id>
+DERIBIT_CLIENT_SECRET=<your client secret>
+```
+
+Generate testnet keys at <https://test.deribit.com> → Account → API.
+
+**Usage:**
+
+```python
+from access import DeribitClient, make_instrument
+from datetime import date
+
+client = DeribitClient(paper=True)   # paper=False for live
+instrument = make_instrument("ETH", date(2025, 5, 30), 2000, "put")
+result = client.place_order(instrument, "sell", 1, "limit", price=0.05)
+```
+
+`make_instrument(asset, expiry, strike, option_type)` builds Deribit instrument names
+(e.g. `"ETH-30MAY25-2000-P"`) from trade parameters.
+
+The `DERIBIT_PAPER` flag in `config.py` controls which environment the adapter targets
+(`True` → testnet, `False` → live). Tokens are cached and refreshed automatically.
+
+---
 
 ### Database models (`models/`)
 
@@ -236,14 +272,14 @@ Examples:
 
 ```bash
 # After making changes to the tool:
-git add crypto_options_trade.py
+git add config.py
 git commit -m "Short description of what changed"
 git push origin main
 ```
 
 **Don't commit:**
 - `paper_state.json` / `strangle_state.json` — local state only
-- `~$crypto_options_trade_tracker.xlsx` — Excel lock file (auto-excluded)
+- `optionsStat.db` — SQLlite db
 
 ---
 

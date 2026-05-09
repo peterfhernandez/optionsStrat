@@ -99,10 +99,11 @@ CALENDAR_NEAR_OPTIONS = [1, 3, 7, 14]              # short-leg horizon choices
 CALENDAR_FAR_OPTIONS  = [14, 30, 60, 90]           # long-leg horizon choices
 
 # ── Files ─────────────────────────────────────────────────────────────────────
-
+'''
 EXCEL_FILE           = "crypto_options_trade_tracker.xlsx"
 PAPER_STATE_FILE     = "paper_state.json"
 STRANGLE_STATE_FILE  = "strangle_state.json"
+'''
 
 # ── Scanner ───────────────────────────────────────────────────────────────────
 
@@ -111,3 +112,17 @@ MIN_YIELD_PCT = 20.0    # minimum annualised yield for ranking ① in scanner
 # ── Paper/Live ────────────────────────────────────────────────────────────────
 
 TRADING_MODE = "paper"  # "paper" or "live" - affects which state file is used and whether stop-loss is enforced
+
+# ── Deribit API ───────────────────────────────────────────────────────────────
+#
+# DERIBIT_PAPER = True  → connects to test.deribit.com (Deribit Testnet)
+# DERIBIT_PAPER = False → connects to www.deribit.com  (live trading)
+#
+# Credentials must be supplied via environment variables (never hard-code):
+#   DERIBIT_CLIENT_ID      — API key client id from Deribit account settings
+#   DERIBIT_CLIENT_SECRET  — API key client secret
+#
+# To get testnet credentials: register at https://test.deribit.com and create
+# an API key under Account → API.
+
+DERIBIT_PAPER = True   # always paper until explicitly switched to live
