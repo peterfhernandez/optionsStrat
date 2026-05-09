@@ -522,3 +522,23 @@ class TestRunAutomation:
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Strangle"
+
+    def test_explicit_broker_is_passed_to_enter_trade(self):
+        """run_automation forwards the broker kwarg to enter_trade."""
+        custom_broker = MagicMock()
+        type(custom_broker).broker_name = PropertyMock(return_value="custom_broker")
+        custom_broker.place_order.return_value = _fake_order("CUSTOM-ORD-1")
+
+        cand = _make(strategy="CSP", strike_str="$1800",
+                     yield_ann=80.0, prob_profit=95.0, liq="High")
+        with patch("automation.automator._build_candidates", return_value=[cand]),              patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}),              patch("market.market_data.get_spot_price",  return_value=2000.0),              patch("market.market_data.get_deribit_iv",  return_value=0.80):
+            result = run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, silent=True, broker=custom_broker,
+            )
+
+        assert result["status"] == "entered"
+        custom_broker.place_order.assert_called_once()
+        s = load_wheel_state("ETH")
+        assert s["broker"] == "custom_broker"
+

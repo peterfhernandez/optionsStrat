@@ -45,6 +45,7 @@ from config       import (
 )
 from market.pricing      import bs_put, bs_call
 from ui.display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
+from access import BrokerBase
 from trading.executor import enter_trade
 
 from database import load_wheel_state
@@ -145,13 +146,14 @@ def run_automation(
     active_iv:         float,
     active_asset:      str,
     days:              int,
-    min_yield:         float          = DEFAULT_MIN_YIELD,
-    min_prob:          float          = DEFAULT_MIN_PROB,
-    allowed_liquidity: Iterable[str]  = DEFAULT_ALLOWED_LIQUIDITY,
-    silent:            bool           = False,
+    min_yield:         float                  = DEFAULT_MIN_YIELD,
+    min_prob:          float                  = DEFAULT_MIN_PROB,
+    allowed_liquidity: Iterable[str]          = DEFAULT_ALLOWED_LIQUIDITY,
+    silent:            bool                   = False,
     *,
-    cal_near_days:     int | None      = None,
-    cal_far_days:      int | None      = None,
+    broker:            BrokerBase | None      = None,
+    cal_near_days:     int | None             = None,
+    cal_far_days:      int | None             = None,
 ) -> dict:
     """
     Build candidates across all supported assets, pick the best eligible one,
@@ -165,6 +167,12 @@ def run_automation(
     * strategy not currently blocked by an open position
 
     Ranking: highest probability of profit, ties broken by annualised yield.
+
+    Parameters
+    ----------
+    broker: BrokerBase adapter passed directly to enter_trade.
+        Defaults to None, which lets enter_trade use its own default
+        (DeribitClient with paper=DERIBIT_PAPER).
 
     Returns
     -------
@@ -242,7 +250,7 @@ def run_automation(
             "eligible":   eligible_count,
         }
 
-    position = enter_trade(pick, days)
+    position = enter_trade(pick, days, broker=broker)
 
     if not silent:
         ok(

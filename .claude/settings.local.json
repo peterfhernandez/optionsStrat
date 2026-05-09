@@ -4,7 +4,8 @@
       "Bash(python -m pytest tests/test_automator.py -v)",
       "Bash(python -m pytest tests/test_wheel.py::TestShowSummary -v)",
       "Bash(python -m pytest tests/test_wheel.py -v --tb=no -q)",
-      "Bash(python -m pytest tests/ -q --tb=no)"
+      "Bash(python -m pytest tests/ -q --tb=no)",
+      "Bash(python -c ' *)"
     ]
   }
 }
