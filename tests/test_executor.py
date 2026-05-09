@@ -38,9 +38,10 @@ def _order(order_id: str = "ORD-1") -> OrderResult:
     )
 
 
-def _mock_broker(*order_ids) -> MagicMock:
+def _mock_broker(*order_ids, name: str = "deribit_paper") -> MagicMock:
     """Return a broker mock whose place_order returns _order instances in sequence."""
     broker = MagicMock()
+    type(broker).broker_name = property(lambda self: name)
     if len(order_ids) == 1:
         broker.place_order.return_value = _order(order_ids[0])
     else:
@@ -143,6 +144,19 @@ class TestEnterCSP:
         broker.place_order.assert_called_once()
         assert result["broker_order_id"] == "PUT-ORD-1"
 
+    def test_broker_name_in_db_record(self, mock_bs, mock_load, mock_create, mock_save):
+        broker = _mock_broker("PUT-ORD-BN", name="deribit_paper")
+        c = _candidate(strategy="CSP", strike="$2000")
+        enter_trade(c, broker=broker)
+        assert mock_create.call_args.kwargs["broker"] == "deribit_paper"
+
+    def test_broker_name_in_state(self, mock_bs, mock_load, mock_create, mock_save):
+        broker = _mock_broker("PUT-ORD-ST", name="deribit_paper")
+        c = _candidate(strategy="CSP", strike="$2000")
+        enter_trade(c, broker=broker)
+        saved_state = mock_save.call_args.args[1]
+        assert saved_state["broker"] == "deribit_paper"
+
     def test_order_direction_is_sell(self, mock_bs, mock_load, mock_create, mock_save):
         broker = _mock_broker("PUT-ORD-2")
         c = _candidate(strategy="CSP", strike="$2000")
@@ -220,6 +234,14 @@ class TestEnterStrangle:
         saved_state = mock_save.call_args.args[1]
         assert saved_state["trades"] == 1
 
+    def test_broker_name_in_db_and_state(self, mock_bp, mock_bc, mock_load, mock_create, mock_save):
+        broker = _mock_broker("STR-P-3", "STR-C-3", name="deribit_paper")
+        c = _candidate(strategy="Strangle", put_strike=1800.0, call_strike=2200.0)
+        enter_trade(c, broker=broker)
+        assert mock_create.call_args.kwargs["broker"] == "deribit_paper"
+        saved_state = mock_save.call_args.args[1]
+        assert saved_state["broker"] == "deribit_paper"
+
 
 # ── Calendar ──────────────────────────────────────────────────────────────────
 
@@ -240,6 +262,14 @@ class TestEnterCalendar:
         assert broker.place_order.call_count == 2
         assert result["broker_near_order_id"] == "CAL-N-1"
         assert result["broker_far_order_id"]  == "CAL-F-1"
+
+    def test_broker_name_in_db_and_state(self, mock_bc, mock_load, mock_create, mock_save):
+        broker = _mock_broker("CAL-N-BN", "CAL-F-BN", name="deribit_paper")
+        c = _candidate(strategy="Cal-C", strike="$2000", far_days=60)
+        enter_trade(c, broker=broker)
+        assert mock_create.call_args.kwargs["broker"] == "deribit_paper"
+        saved_state = mock_save.call_args.args[1]
+        assert saved_state["broker"] == "deribit_paper"
 
     def test_near_sold_far_bought(self, mock_bc, mock_load, mock_create, mock_save):
         broker = _mock_broker("CAL-N-2", "CAL-F-2")

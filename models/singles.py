@@ -29,6 +29,7 @@ class Single(Base):
 
     result = Column(String(10))               # Win | Loss | Open
     notes = Column(Text)
+    broker = Column(String(30), nullable=True)  # e.g. deribit_paper | deribit_live
 
     __table_args__ = (
         Index("ix_singles_asset", "asset"),

@@ -68,7 +68,7 @@ def _place_option(
     return broker.place_order(instrument, direction, amount, "limit", lmt_price, label)
 
 
-def _enter_csp(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
+def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
     """Open a Cash-Secured Put position in the wheel state."""
     K          = float(c.strike.replace("$", "").replace(",", ""))
     qty        = BUDGET_USD / K
@@ -78,8 +78,9 @@ def _enter_csp(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
     s = load_wheel_state(c.asset)
-    s["stage"] = "short_put"
-    s["open"]  = {
+    s["stage"]  = "short_put"
+    s["broker"] = broker.broker_name
+    s["open"]   = {
         "type":      "Put",
         "strike":    K,
         "expiry":    expiry,
@@ -103,6 +104,7 @@ def _enter_csp(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
         qty=qty,
         days=c.days,
         stage="short_put",
+        broker=broker.broker_name,
         notes=(
             f"AUTO {c.asset} CSP, {c.days}d, "
             f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
@@ -110,17 +112,16 @@ def _enter_csp(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
         ),
     )
 
-    if broker is not None:
-        order = _place_option(
-            broker, c.asset, expiry_dt, K, "put", "sell",
-            unit_price, c.spot, label=f"CSP-{c.asset}",
-        )
-        s["open"]["broker_order_id"] = order.order_id
+    order = _place_option(
+        broker, c.asset, expiry_dt, K, "put", "sell",
+        unit_price, c.spot, label=f"CSP-{c.asset}",
+    )
+    s["open"]["broker_order_id"] = order.order_id
 
     return s["open"]
 
 
-def _enter_cc(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
+def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
     """Open a Covered Call position. Requires wheel state in 'holding'."""
     s = load_wheel_state(c.asset)
     if s["stage"] != "holding":
@@ -133,8 +134,9 @@ def _enter_cc(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     expiry_dt  = date.today() + timedelta(days=c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
-    s["stage"] = "short_call"
-    s["open"]  = {
+    s["stage"]  = "short_call"
+    s["broker"] = broker.broker_name
+    s["open"]   = {
         "type":      "Call",
         "strike":    K,
         "expiry":    expiry,
@@ -158,6 +160,7 @@ def _enter_cc(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
         qty=qty,
         days=c.days,
         stage="short_call",
+        broker=broker.broker_name,
         notes=(
             f"AUTO {c.asset} CC, {c.days}d, "
             f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
@@ -165,17 +168,16 @@ def _enter_cc(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
         ),
     )
 
-    if broker is not None:
-        order = _place_option(
-            broker, c.asset, expiry_dt, K, "call", "sell",
-            unit_price, c.spot, label=f"CC-{c.asset}",
-        )
-        s["open"]["broker_order_id"] = order.order_id
+    order = _place_option(
+        broker, c.asset, expiry_dt, K, "call", "sell",
+        unit_price, c.spot, label=f"CC-{c.asset}",
+    )
+    s["open"]["broker_order_id"] = order.order_id
 
     return s["open"]
 
 
-def _enter_strangle(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
+def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
     """Open a short strangle position."""
     Kp         = c.put_strike
     Kc         = c.call_strike
@@ -198,6 +200,7 @@ def _enter_strangle(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
         qty=qty,
         days=c.days,
         expiry=expiry,
+        broker=broker.broker_name,
         notes=(
             f"AUTO {c.asset} strangle, {c.days}d, "
             f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
@@ -206,6 +209,7 @@ def _enter_strangle(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     )
 
     s = load_strangle_state(c.asset)
+    s["broker"] = broker.broker_name
     s["open"] = {
         "put_strike":    Kp,
         "call_strike":   Kc,
@@ -221,22 +225,21 @@ def _enter_strangle(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     s["trades"]        = s.get("trades",        0)   + 1
     save_strangle_state(c.asset, s)
 
-    if broker is not None:
-        put_order  = _place_option(
-            broker, c.asset, expiry_dt, Kp, "put",  "sell",
-            put_price, c.spot, label=f"STR-P-{c.asset}",
-        )
-        call_order = _place_option(
-            broker, c.asset, expiry_dt, Kc, "call", "sell",
-            call_price, c.spot, label=f"STR-C-{c.asset}",
-        )
-        s["open"]["broker_put_order_id"]  = put_order.order_id
-        s["open"]["broker_call_order_id"] = call_order.order_id
+    put_order  = _place_option(
+        broker, c.asset, expiry_dt, Kp, "put",  "sell",
+        put_price, c.spot, label=f"STR-P-{c.asset}",
+    )
+    call_order = _place_option(
+        broker, c.asset, expiry_dt, Kc, "call", "sell",
+        call_price, c.spot, label=f"STR-C-{c.asset}",
+    )
+    s["open"]["broker_put_order_id"]  = put_order.order_id
+    s["open"]["broker_call_order_id"] = call_order.order_id
 
     return s["open"]
 
 
-def _enter_calendar(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
+def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     """Open a calendar (Cal-C or Cal-P) spread position."""
     K           = float(c.strike.split()[0].replace("$", "").replace(",", ""))
     far_days    = c.far_days or CALENDAR_FAR_DAYS
@@ -270,6 +273,7 @@ def _enter_calendar(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
         near_prem=round(near_prem, 4),
         far_prem=round(far_prem, 4),
         net_debit=round(net_debit, 4),
+        broker=broker.broker_name,
         notes=(
             f"AUTO {c.asset} {option_type} calendar, "
             f"{c.days}d/{far_days}d, "
@@ -278,6 +282,7 @@ def _enter_calendar(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     )
 
     s = load_calendar_state(c.asset)
+    s["broker"] = broker.broker_name
     s["open"] = {
         "strike":      K,
         "option_type": option_type,
@@ -296,19 +301,18 @@ def _enter_calendar(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     s["trades"] = s.get("trades", 0) + 1
     save_calendar_state(c.asset, s)
 
-    if broker is not None:
-        ot = option_type.lower()
-        # Calendar: sell near leg, buy far leg
-        near_order = _place_option(
-            broker, c.asset, expiry_near_dt, K, ot, "sell",
-            near_price, c.spot, label=f"CAL-NEAR-{c.asset}",
-        )
-        far_order = _place_option(
-            broker, c.asset, expiry_far_dt,  K, ot, "buy",
-            far_price, c.spot, label=f"CAL-FAR-{c.asset}",
-        )
-        s["open"]["broker_near_order_id"] = near_order.order_id
-        s["open"]["broker_far_order_id"]  = far_order.order_id
+    ot = option_type.lower()
+    # Calendar: sell near leg, buy far leg
+    near_order = _place_option(
+        broker, c.asset, expiry_near_dt, K, ot, "sell",
+        near_price, c.spot, label=f"CAL-NEAR-{c.asset}",
+    )
+    far_order = _place_option(
+        broker, c.asset, expiry_far_dt,  K, ot, "buy",
+        far_price, c.spot, label=f"CAL-FAR-{c.asset}",
+    )
+    s["open"]["broker_near_order_id"] = near_order.order_id
+    s["open"]["broker_far_order_id"]  = far_order.order_id
 
     return s["open"]
 

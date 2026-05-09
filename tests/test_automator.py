@@ -38,10 +38,11 @@ Tier 4 — orchestration
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 
 import pytest
 
+from access import OrderResult
 from database import load_wheel_state, save_wheel_state
 from database.strangle_db import load_strangle_state, save_strangle_state
 from database.calendar_db import load_calendar_state, save_calendar_state
@@ -60,11 +61,36 @@ from trading.executor import enter_trade
 
 # ── Helpers / fixtures ───────────────────────────────────────────────────────
 
+def _fake_order(order_id: str = "TEST-ORD-1") -> OrderResult:
+    return OrderResult(
+        order_id=order_id, instrument="ETH-TEST", direction="sell",
+        amount=10000.0, price=0.025, state="open",
+        filled_amount=0.0, avg_price=None, label=None,
+    )
+
+
 @pytest.fixture(autouse=True)
 def _isolate_state(tmp_path, monkeypatch):
     """Run every test in tmp_path for any remaining filesystem operations."""
     monkeypatch.chdir(tmp_path)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _mock_deribit(monkeypatch):
+    """Prevent any test from hitting the real Deribit network.
+
+    enter_trade() defaults to DeribitClient(paper=True) when no broker is
+    passed.  This fixture replaces that constructor with a mock whose
+    place_order always succeeds, so Tier 3 / Tier 4 tests exercise only
+    the DB and strategy logic.
+    """
+    mock_instance = MagicMock()
+    type(mock_instance).broker_name = PropertyMock(return_value="deribit_paper")
+    mock_instance.place_order.return_value = _fake_order()
+
+    with patch("trading.executor.DeribitClient", return_value=mock_instance):
+        yield mock_instance
 
 
 def _make(

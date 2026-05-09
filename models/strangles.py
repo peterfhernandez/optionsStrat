@@ -26,6 +26,7 @@ class Strangle(Base):
 
     result = Column(String(10))               # Win | Loss | Open
     notes = Column(Text)
+    broker = Column(String(30), nullable=True)  # e.g. deribit_paper | deribit_live
 
     __table_args__ = (
         Index("ix_strangles_asset", "asset"),

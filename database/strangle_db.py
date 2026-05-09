@@ -29,6 +29,7 @@ def load_strangle_state(asset: str, session: Optional[Session] = None) -> dict:
                 "wins":          row.wins,
                 "losses":        row.losses,
                 "trades":        row.trades,
+                "broker":        row.broker,
             }
 
         # First time — create initial state row
@@ -50,6 +51,7 @@ def load_strangle_state(asset: str, session: Optional[Session] = None) -> dict:
             "wins":          0,
             "losses":        0,
             "trades":        0,
+            "broker":        None,
         }
     finally:
         if close_session:
@@ -74,6 +76,7 @@ def save_strangle_state(asset: str, state: dict, session: Optional[Session] = No
         row.wins          = state.get("wins", 0)
         row.losses        = state.get("losses", 0)
         row.trades        = state.get("trades", 0)
+        row.broker        = state.get("broker")
 
         session.commit()
     finally:
@@ -92,6 +95,7 @@ def create_strangle_trade(
     days: int,
     expiry: str,
     notes: Optional[str] = None,
+    broker: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> Strangle:
     """Create and insert a Strangle trade record. Returns the persisted Strangle."""
@@ -113,6 +117,7 @@ def create_strangle_trade(
             fees=0.0,
             result="Open",
             notes=notes,
+            broker=broker,
         )
         session.add(trade)
         session.commit()

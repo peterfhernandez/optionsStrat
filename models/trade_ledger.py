@@ -36,6 +36,7 @@ class TradeLedger(Base):
 
     fees = Column(Float, default=0.0)
     pnl = Column(Float)                               # NULL while open
+    broker = Column(String(30), nullable=True)        # e.g. deribit_paper | deribit_live
 
     __table_args__ = (
         Index("ix_trade_ledger_underlying", "underlying"),

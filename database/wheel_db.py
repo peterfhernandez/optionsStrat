@@ -33,6 +33,7 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
                 "wins": row.wins,
                 "losses": row.losses,
                 "cycles": row.cycles,
+                "broker": row.broker,
             }
 
         # First time — create initial state
@@ -60,6 +61,7 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
             "wins": 0,
             "losses": 0,
             "cycles": 0,
+            "broker": None,
         }
     finally:
         if close_session:
@@ -91,6 +93,7 @@ def save_wheel_state(asset: str, state: dict, session: Optional[Session] = None)
         row.wins = state.get("wins", 0)
         row.losses = state.get("losses", 0)
         row.cycles = state.get("cycles", 0)
+        row.broker = state.get("broker")
 
         session.commit()
     finally:
@@ -110,6 +113,7 @@ def create_single_trade(
     days: int,
     stage: str = "short_put",
     notes: Optional[str] = None,
+    broker: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> Single:
     """Create and insert a Single (Wheel) trade record."""
@@ -132,6 +136,7 @@ def create_single_trade(
             fees=0.0,
             result="Open",
             notes=notes,
+            broker=broker,
         )
         session.add(trade)
         session.commit()

@@ -35,6 +35,14 @@ class BrokerBase(ABC):
     client and call the trading methods.
     """
 
+    @property
+    @abstractmethod
+    def broker_name(self) -> str:
+        """
+        Short identifier recorded in trade logs.
+        Examples: "deribit_paper", "deribit_live", "binance_paper".
+        """
+
     @abstractmethod
     def authenticate(self) -> None:
         """Obtain (or refresh) an access token. Called automatically as needed."""

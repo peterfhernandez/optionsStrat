@@ -134,6 +134,12 @@ class DeribitClient(BrokerBase):
                 f"in .env (see .env.example), or pass them to DeribitClient()."
             )
 
+    # ── BrokerBase: broker_name ───────────────────────────────────────────────
+
+    @property
+    def broker_name(self) -> str:
+        return "deribit_paper" if self.paper else "deribit_live"
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _ensure_auth(self) -> None:

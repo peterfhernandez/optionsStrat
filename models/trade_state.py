@@ -40,6 +40,9 @@ class TradeState(Base):
     cycles = Column(Integer, default=0)               # wheel only
     trades = Column(Integer, default=0)               # strangle / calendar
 
+    # ── Broker that placed the current open position ──────────────────────────
+    broker = Column(String(30), nullable=True)   # e.g. deribit_paper | deribit_live
+
     # ── Current open position ─────────────────────────────────────────────────
     # Nullable; set to None when flat.  Structure mirrors the dicts previously
     # stored in the JSON state files (see strategy module docstrings).
