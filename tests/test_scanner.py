@@ -2,7 +2,7 @@
 tests/test_scanner.py
 =====================
 Tests for strategies/scanner.py — candidate building, liquidity tagging,
-display formatters, and ranking logic.
+display formatters, ranking logic, and broker-forwarding via run_scanner.
 
 Test strategy
 -------------
@@ -23,11 +23,17 @@ Tier 3 — ranking logic (operates on Candidate lists, no mocking needed):
     ranking by prob  : sorted descending, MIN_YIELD_PCT filter applied
     ranking by yield : sorted descending, no filter
     liquidity filter : candidates with empty tag excluded from rankings
+
+Tier 4 — run_scanner broker forwarding:
+    run_scanner returns list of candidates
+    default broker is DeribitClient
+    supplied broker forwarded to enter_trade on selection
+    enter_trade not called when user skips
 """
 
 import pytest
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, PropertyMock
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -35,6 +41,7 @@ from sqlalchemy.orm import sessionmaker
 from models.base import Base
 from models.scan_results import ScanResult
 from database.scanner_db import save_scan_results, get_latest_scan, get_scan_history
+from access import OrderResult
 
 from strategies.scanner import (
     Candidate,
@@ -48,6 +55,32 @@ from strategies.scanner import (
     _OI_HIGH, _OI_MED, _VOL_HIGH, _SPREAD_LOW,
 )
 from config import OTM_LEVELS, BUDGET_USD
+
+
+# ── Shared broker helpers ─────────────────────────────────────────────────────
+
+def _fake_order(order_id: str = "TEST-ORD-1") -> OrderResult:
+    return OrderResult(
+        order_id=order_id, instrument="ETH-TEST", direction="sell",
+        amount=10000.0, price=None, state="open",
+        filled_amount=0.0, avg_price=None, label=None,
+    )
+
+
+def _make_broker(order_id: str = "TEST-ORD-1") -> MagicMock:
+    m = MagicMock()
+    type(m).broker_name = PropertyMock(return_value="deribit_paper")
+    m.place_order.return_value = _fake_order(order_id)
+    return m
+
+
+@pytest.fixture(autouse=True)
+def _mock_deribit(monkeypatch):
+    """Prevent any test from hitting the real Deribit network."""
+    mock_instance = _make_broker()
+    with patch("strategies.scanner.DeribitClient", return_value=mock_instance), \
+         patch("trading.executor.DeribitClient",   return_value=mock_instance):
+        yield mock_instance
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -791,3 +824,106 @@ class TestGetScanHistory:
         assert len(rows) == 1
         assert rows[0].asset    == "ETH"
         assert rows[0].strategy == "CSP"
+
+
+# ── run_scanner broker forwarding ─────────────────────────────────────────────
+
+def _run_scanner_patches(monkeypatch=None):
+    """Common patches needed to run run_scanner without network or I/O."""
+    return [
+        patch("strategies.scanner._fetch_liquidity", return_value=None),
+        patch("strategies.scanner.get_spot_price",   return_value=80000.0),
+        patch("strategies.scanner.get_deribit_iv",   return_value=0.60),
+        patch("strategies.scanner.save_scan_results"),
+        patch("builtins.input", return_value=""),   # user skips trade entry
+    ]
+
+
+class TestRunScanner:
+
+    def test_returns_candidate_list(self):
+        """run_scanner returns all generated Candidate objects."""
+        from strategies.scanner import run_scanner
+        patches = _run_scanner_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = run_scanner(2000.0, 0.80, "ETH", 7)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        assert all(isinstance(c, Candidate) for c in result)
+
+    def test_active_asset_always_included(self):
+        """run_scanner always generates candidates for the active asset even if other fetches fail."""
+        from strategies.scanner import run_scanner
+        with patch("strategies.scanner._fetch_liquidity", return_value=None), \
+             patch("strategies.scanner.get_spot_price",   return_value=None), \
+             patch("strategies.scanner.get_deribit_iv",   return_value=None), \
+             patch("strategies.scanner.save_scan_results"), \
+             patch("builtins.input", return_value=""):
+            result = run_scanner(2000.0, 0.80, "ETH", 7)
+        # Active asset (ETH) always contributes candidates regardless of other fetch failures
+        assert len(result) > 0
+        assert all(c.asset == "ETH" for c in result)
+
+    def test_default_broker_is_deribit(self):
+        """When no broker is passed, run_scanner creates a DeribitClient."""
+        from strategies.scanner import run_scanner
+        patches = _run_scanner_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], \
+             patch("strategies.scanner.DeribitClient") as mock_cls:
+            mock_cls.return_value = _make_broker()
+            run_scanner(2000.0, 0.80, "ETH", 7)
+        mock_cls.assert_called_once()
+
+    def test_skipping_entry_does_not_call_enter_trade(self):
+        """Pressing Enter (empty input) must not call enter_trade."""
+        from strategies.scanner import run_scanner
+        patches = _run_scanner_patches()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], \
+             patch("strategies.scanner.enter_trade") as mock_enter:
+            run_scanner(2000.0, 0.80, "ETH", 7)
+        mock_enter.assert_not_called()
+
+    def test_valid_selection_calls_enter_trade_with_broker(self):
+        """Selecting candidate '1' must call enter_trade with the correct candidate and broker."""
+        from strategies.scanner import run_scanner
+        broker = _make_broker()
+        liquid_book = {
+            "mark_iv": 0.80, "bid_iv": 0.78, "ask_iv": 0.82,
+            "iv_spread": 0.01, "open_interest": 5000.0,
+            "volume_usd": 200000.0, "best_bid": 0.02, "best_ask": 0.025,
+        }
+        with patch("strategies.scanner._fetch_liquidity", return_value=liquid_book), \
+             patch("strategies.scanner.get_spot_price",   return_value=80000.0), \
+             patch("strategies.scanner.get_deribit_iv",   return_value=0.60), \
+             patch("strategies.scanner.save_scan_results"), \
+             patch("builtins.input", return_value="1"), \
+             patch("strategies.scanner.enter_trade") as mock_enter:
+            mock_enter.return_value = {"broker_order_id": "ORD-1"}
+            run_scanner(2000.0, 0.80, "ETH", 7, broker=broker)
+        mock_enter.assert_called_once()
+        _, kwargs = mock_enter.call_args
+        assert kwargs.get("broker") is broker
+
+    def test_out_of_range_selection_does_not_enter(self):
+        """Selecting a number beyond the list size must not call enter_trade."""
+        from strategies.scanner import run_scanner
+        with patch("strategies.scanner._fetch_liquidity", return_value=None), \
+             patch("strategies.scanner.get_spot_price",   return_value=80000.0), \
+             patch("strategies.scanner.get_deribit_iv",   return_value=0.60), \
+             patch("strategies.scanner.save_scan_results"), \
+             patch("builtins.input", return_value="99"), \
+             patch("strategies.scanner.enter_trade") as mock_enter:
+            run_scanner(2000.0, 0.80, "ETH", 7)
+        mock_enter.assert_not_called()
+
+    def test_non_numeric_input_does_not_enter(self):
+        """Non-numeric input must not call enter_trade."""
+        from strategies.scanner import run_scanner
+        with patch("strategies.scanner._fetch_liquidity", return_value=None), \
+             patch("strategies.scanner.get_spot_price",   return_value=80000.0), \
+             patch("strategies.scanner.get_deribit_iv",   return_value=0.60), \
+             patch("strategies.scanner.save_scan_results"), \
+             patch("builtins.input", return_value="abc"), \
+             patch("strategies.scanner.enter_trade") as mock_enter:
+            run_scanner(2000.0, 0.80, "ETH", 7)
+        mock_enter.assert_not_called()

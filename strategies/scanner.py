@@ -35,11 +35,13 @@ import math
 from database.scanner_db import save_scan_results
 from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
-    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
+    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, DERIBIT_PAPER,
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
 from ui.display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
 from market.market_data import get_spot_price, get_deribit_iv, _deribit_instrument, _fetch_order_book
+from access import BrokerBase, DeribitClient
+from trading.executor import enter_trade
 
 
 # ── Minimum yield threshold for "high probability" ranking ───────────────────
@@ -508,25 +510,37 @@ def run_scanner(
     *,
     cal_near_days: int | None = None,
     cal_far_days:  int | None = None,
-) -> None:
+    broker:        BrokerBase | None = None,
+) -> list[Candidate]:
     """
     Scan every (asset, strategy, OTM level) combination and display
     ranked trade recommendations including live liquidity data.
- 
+
+    After ranking, the user may optionally enter one of the top candidates
+    directly via the executor (using the supplied broker).
+
     Parameters
     ----------
-    active_spot  : float  Current spot for the active asset
-    active_iv    : float  Current IV for the active asset
-    active_asset : str    Currently selected asset
-    days         : int    Days to expiry
+    active_spot  : float        Current spot for the active asset
+    active_iv    : float        Current IV for the active asset
+    active_asset : str          Currently selected asset
+    days         : int          Days to expiry
+    broker       : BrokerBase   Adapter used when entering a selected trade.
+                                Defaults to DeribitClient(paper=DERIBIT_PAPER).
+
+    Returns
+    -------
+    list[Candidate]  All candidates generated (empty list if none).
     """
- 
+    if broker is None:
+        broker = DeribitClient(paper=DERIBIT_PAPER)
+
     hdr("Trade Recommendation Scanner")
     print(f"  {GY}Fetching live data and liquidity for all candidates...{R}")
     print(f"  {GY}(This may take a few seconds — fetching order books per strike){R}\n")
- 
-    all_candidates = []
- 
+
+    all_candidates: list[Candidate] = []
+
     for asset in SUPPORTED_ASSETS:
         if asset == active_asset:
             spot = active_spot
@@ -540,7 +554,7 @@ def run_scanner(
             if not iv:
                 warn(f"Could not fetch {asset} IV — using fallback")
                 iv = active_iv
- 
+
         ok(
             f"{asset}: spot=${spot:,.2f}  IV={iv*100:.0f}%  "
             f"— scanning {len(OTM_LEVELS)*3 + 2} candidates..."
@@ -552,10 +566,10 @@ def run_scanner(
                 cal_far_days=cal_far_days,
             )
         )
- 
+
     if not all_candidates:
         warn("No candidates generated — check your connection.")
-        return
+        return []
 
     # ── Persist to SQLite ─────────────────────────────────────────────────────
     try:
@@ -567,7 +581,7 @@ def run_scanner(
     print()
     hdr("All Candidates")
     _display_candidates(all_candidates, days)
- 
+
     # ── Ranking 1: Highest probability with reasonable return ─────────────────
     print()
     hdr("Ranked Recommendations")
@@ -578,7 +592,7 @@ def run_scanner(
         rank_label = f"① Highest Probability  {GY}(yield ≥ {MIN_YIELD_PCT:.0f}%/yr){R}",
         candidates = by_prob,
     )
- 
+
     # ── Ranking 2: Best annualised return ─────────────────────────────────────
     print()
     by_yield = sorted(liquid, key=lambda c: c.yield_ann, reverse=True)
@@ -586,7 +600,7 @@ def run_scanner(
         rank_label = "② Best Return",
         candidates = by_yield,
     )
- 
+
     print(f"""
   {GY}Strategy key:
   CSP      = Cash-Secured Put (wheel leg 1)
@@ -610,3 +624,27 @@ def run_scanner(
 """)
     warn(f"Min yield filter for ranking ①: {MIN_YIELD_PCT:.0f}%/yr  "
          f"— adjust MIN_YIELD_PCT in scanner.py to change this.")
+
+    # ── Optional interactive trade entry ──────────────────────────────────────
+    top = by_prob[:5] or by_yield[:5]
+    if top:
+        print(f"\n  {CY}Enter a trade from the top recommendations?{R}")
+        print(f"  Type 1–{len(top)} to enter that candidate, or press Enter to skip.")
+        raw = input(f"  {YL}Choice: {R}").strip()
+        if raw.isdigit():
+            idx = int(raw) - 1
+            if 0 <= idx < len(top):
+                pick = top[idx]
+                try:
+                    enter_trade(pick, broker=broker)
+                    ok(
+                        f"Entered {pick.strategy} on {pick.asset}  "
+                        f"strike {pick.strike}  prem ${pick.premium:.2f}  "
+                        f"via {broker.broker_name}"
+                    )
+                except Exception as exc:
+                    warn(f"Trade entry failed: {exc}")
+            else:
+                warn(f"Invalid choice — enter a number between 1 and {len(top)}.")
+
+    return all_candidates
