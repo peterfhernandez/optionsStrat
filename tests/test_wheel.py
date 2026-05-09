@@ -1,9 +1,10 @@
-"""Tests for strategies/wheel.py — strike analysis and performance summary."""
+"""Tests for strategies/wheel.py — strike analysis, performance summary, and paper menu."""
 import pytest
 from io import StringIO
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch, call
 
-from strategies.wheel import show_strikes, show_summary
+from strategies.wheel import show_strikes, show_summary, wheel_paper_menu
 from config import BUDGET_USD, OTM_LEVELS
 
 
@@ -68,3 +69,49 @@ class TestShowSummary:
         # Check for expected stat labels (may or may not have data)
         # The output should contain some reporting, even if "No completed trades yet"
         assert len(output) > 0
+
+
+class TestWheelPaperMenuExecutor:
+    """Verify wheel_paper_menu delegates to enter_trade when opening positions."""
+
+    @patch("strategies.wheel.enter_trade")
+    @patch("builtins.input", side_effect=["1", ""])   # choice=1, accept default strike
+    @patch("sys.stdout", new_callable=StringIO)
+    def test_sell_put_calls_enter_trade(self, _out, _inp, mock_enter):
+        """Choosing [1] (Sell Put) should call enter_trade with a CSP candidate."""
+        from database import save_wheel_state
+        save_wheel_state("ETH", {
+            "stage": "no_position", "open": None,
+            "wins": 0, "losses": 0, "cycles": 0,
+            "total_premium": 0.0, "asset_held": None, "cost_basis": None,
+        })
+
+        wheel_paper_menu("ETH", spot=2000.0, iv=0.80, days=7)
+
+        mock_enter.assert_called_once()
+        c = mock_enter.call_args[0][0]
+        assert c.strategy == "CSP"
+        assert c.asset == "ETH"
+        assert c.spot == 2000.0
+        assert c.iv == 0.80
+        assert c.days == 7
+
+    @patch("strategies.wheel.enter_trade")
+    @patch("builtins.input", side_effect=["4", ""])   # choice=4, accept default strike
+    @patch("sys.stdout", new_callable=StringIO)
+    def test_sell_call_calls_enter_trade(self, _out, _inp, mock_enter):
+        """Choosing [4] (Sell Covered Call) should call enter_trade with a CC candidate."""
+        from database import save_wheel_state
+        save_wheel_state("ETH", {
+            "stage": "holding", "open": None,
+            "wins": 0, "losses": 0, "cycles": 0,
+            "total_premium": 0.0, "asset_held": 0.05, "cost_basis": 2000.0,
+            "broker": "deribit_paper",
+        })
+
+        wheel_paper_menu("ETH", spot=2000.0, iv=0.80, days=7)
+
+        mock_enter.assert_called_once()
+        c = mock_enter.call_args[0][0]
+        assert c.strategy == "CC"
+        assert c.asset == "ETH"

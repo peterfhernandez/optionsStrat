@@ -18,18 +18,19 @@ show_summary()
     Print a performance summary of all wheel trades.
 """
 
-from datetime import date, timedelta
+from datetime import date
+from types import SimpleNamespace
 
 from config import BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS
 from database import (
     load_wheel_state,
     save_wheel_state,
-    create_single_trade,
     close_single_trade,
     get_wheel_stats,
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from models import get_session, Single
+from trading.executor import enter_trade
 from ui.display import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 
 
@@ -175,37 +176,19 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
         K      = float(input(f"\n  Strike [enter for ${K_sug:,.0f}]: $") or K_sug)
         qty    = BUDGET_USD / K
         premium = bs_put(spot, K, T, RISK_FREE_RATE, iv) * qty
-        expiry  = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
 
-        s["stage"] = "short_put"
-        s["open"] = {
-            "type": "Put",
-            "strike": K,
-            "expiry": expiry,
-            "premium": round(premium, 4),
-            "spot_open": spot,
-            "qty": qty,
-            "days": days,
-            "asset": asset,
-        }
-        s["total_premium"] += premium
-        save_wheel_state(asset, s)
-
-        # Insert into database
-        trade = create_single_trade(
+        c = SimpleNamespace(
+            strategy="CSP",
             asset=asset,
-            date_open=date.today(),
-            option_type="Put",
-            strike=K,
-            expiry=expiry,
-            spot_open=spot,
-            premium=round(premium, 4),
-            qty=qty,
+            spot=spot,
+            iv=iv,
             days=days,
-            stage="short_put",
-            notes=f"{asset} paper, {days}d",
+            strike=str(K),
+            prob_profit=0,
+            yield_ann=0,
+            liquidity_tag="manual",
         )
-
+        enter_trade(c)
         ok(f"Sell Put @ ${K:,.0f}  |  Premium: ${premium:.2f}")
 
     # [2] Expire position
@@ -293,37 +276,19 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
 
         K       = float(input(f"\n  Strike [enter for ${K_sug:,.0f}]: $") or K_sug)
         premium = bs_call(spot, K, T, RISK_FREE_RATE, iv) * qty
-        expiry  = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
 
-        s["stage"] = "short_call"
-        s["open"] = {
-            "type": "Call",
-            "strike": K,
-            "expiry": expiry,
-            "premium": round(premium, 4),
-            "spot_open": spot,
-            "qty": qty,
-            "days": days,
-            "asset": asset,
-        }
-        s["total_premium"] += premium
-        save_wheel_state(asset, s)
-
-        # Insert into database
-        trade = create_single_trade(
+        c = SimpleNamespace(
+            strategy="CC",
             asset=asset,
-            date_open=date.today(),
-            option_type="Call",
-            strike=K,
-            expiry=expiry,
-            spot_open=spot,
-            premium=round(premium, 4),
-            qty=qty,
+            spot=spot,
+            iv=iv,
             days=days,
-            stage="short_call",
-            notes=f"{asset} paper, {days}d",
+            strike=str(K),
+            prob_profit=0,
+            yield_ann=0,
+            liquidity_tag="manual",
         )
-
+        enter_trade(c)
         ok(f"Sell Call @ ${K:,.0f}  |  Premium: ${premium:.2f}")
 
 

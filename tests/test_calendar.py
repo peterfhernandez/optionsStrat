@@ -2,7 +2,7 @@
 tests/test_calendar.py
 ======================
 Tests for strategies/calendar.py — P&L helpers, breakeven finder,
-and status checker (pure functions, no I/O).
+status checker (pure functions, no I/O), and executor delegation.
 
 Test strategy
 -------------
@@ -13,9 +13,12 @@ Tier 1 — pure functions, no mocking:
     _find_breakevens     : returns two prices, be_lo < strike < be_hi,
                            wider debit → narrower profit zone
     check_calendar_status: ok / warn / stop / tp status thresholds
+
+Tier 2 — executor delegation:
+    calendar_paper_menu [1] calls enter_trade with Cal-C / Cal-P candidate
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -309,5 +312,57 @@ class TestCheckCalendarStatus:
             _, _, _, msg = check_calendar_status(spot, iv, 7, 28, open_position)
         assert isinstance(msg, str)
         assert len(msg) > 0
+
+
+# ── Executor delegation ───────────────────────────────────────────────────────
+
+class TestCalendarPaperMenuExecutor:
+    """Verify calendar_paper_menu delegates to enter_trade when opening a position."""
+
+    def _run_open_menu(self, option_type_input, mock_enter):
+        """Helper: open a calendar position with mocked input."""
+        from io import StringIO
+        from strategies.calendar import calendar_paper_menu
+        from database.calendar_db import save_calendar_state
+
+        save_calendar_state("ETH", {
+            "open": None, "total_pnl": 0.0,
+            "wins": 0, "losses": 0, "trades": 0,
+        })
+        mock_enter.return_value = {
+            "strike": 2000.0, "option_type": "Call",
+            "near_prem": 10.0, "far_prem": 20.0, "net_debit": 10.0,
+            "qty": 0.05, "expiry_near": "10-May-2026",
+            "expiry_far": "09-Jun-2026", "spot_open": 2000.0,
+            "near_days": 7, "far_days": 30, "asset": "ETH", "trade_id": 1,
+        }
+
+        inputs = iter(["1", option_type_input, ""])  # choice=1, call/put, default strike
+        with patch("builtins.input", side_effect=inputs), \
+             patch("sys.stdout", new_callable=StringIO), \
+             patch("strategies.calendar.draw_calendar_zone"):
+            calendar_paper_menu("ETH", spot=2000.0, iv=0.80, near_days=7, far_days=30)
+
+    @patch("strategies.calendar.enter_trade")
+    def test_open_call_calls_enter_trade(self, mock_enter):
+        """Opening a Call calendar should call enter_trade with Cal-C candidate."""
+        self._run_open_menu("1", mock_enter)
+
+        mock_enter.assert_called_once()
+        c = mock_enter.call_args[0][0]
+        assert c.strategy == "Cal-C"
+        assert c.asset == "ETH"
+        assert c.spot == 2000.0
+        assert c.days == 7
+        assert c.far_days == 30
+
+    @patch("strategies.calendar.enter_trade")
+    def test_open_put_calls_enter_trade(self, mock_enter):
+        """Opening a Put calendar should call enter_trade with Cal-P candidate."""
+        self._run_open_menu("2", mock_enter)
+
+        mock_enter.assert_called_once()
+        c = mock_enter.call_args[0][0]
+        assert c.strategy == "Cal-P"
 
 

@@ -23,7 +23,8 @@ check_stop_loss(spot, iv, days, op)
                                 Evaluate stop-loss status for open position
 """
 
-from datetime import date, timedelta
+from datetime import date
+from types import SimpleNamespace
 
 from config        import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
@@ -32,10 +33,10 @@ from config        import (
 from database.strangle_db import (
     load_strangle_state,
     save_strangle_state,
-    create_strangle_trade,
     close_strangle_trade,
 )
 from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
+from trading.executor import enter_trade
 from ui.display       import (
     hdr, sub, inf, ok, warn,
     draw_profit_zone, print_stop_loss_status,
@@ -300,35 +301,20 @@ def strangle_paper_menu(
         cp  = bs_call(spot, Kc, T, RISK_FREE_RATE, iv) * qty
         tot = pp + cp
 
-        expiry = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
-
-        trade = create_strangle_trade(
+        c = SimpleNamespace(
+            strategy="Strangle",
             asset=asset,
-            date_open=date.today(),
+            spot=spot,
+            iv=iv,
+            days=days,
             put_strike=Kp,
             call_strike=Kc,
-            spot_open=spot,
-            total_premium=round(tot, 4),
-            qty=qty,
-            days=days,
-            expiry=expiry,
-            notes=f"{asset} paper strangle, {days}d expiry",
+            prob_profit=0,
+            yield_ann=0,
+            liquidity_tag="manual",
         )
-
-        s["open"] = {
-            "put_strike":    Kp,
-            "call_strike":   Kc,
-            "total_premium": round(tot, 4),
-            "qty":           qty,
-            "expiry":        expiry,
-            "spot_open":     spot,
-            "days":          days,
-            "asset":         asset,
-            "trade_id":      trade.id,
-        }
-        s["total_premium"] += tot
-        s["trades"]        += 1
-        save_strangle_state(asset, s)
+        enter_trade(c)
+        s = load_strangle_state(asset)
 
         ok(f"Strangle opened: Put ${Kp:,.0f} / Call ${Kc:,.0f} | Premium: ${tot:.2f}")
         draw_profit_zone(spot, Kp, Kc, tot, qty, days, iv)

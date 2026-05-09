@@ -26,7 +26,8 @@ _find_breakevens(...)               Numerically locate lower/upper breakeven pri
 check_calendar_status(...)          Evaluate stop / take-profit / warn conditions
 """
 
-from datetime import date, timedelta
+from datetime import date
+from types import SimpleNamespace
 
 from config import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
@@ -35,10 +36,10 @@ from config import (
 from database.calendar_db import (
     load_calendar_state,
     save_calendar_state,
-    create_calendar_trade,
     close_calendar_trade,
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
+from trading.executor import enter_trade
 from ui.display import (
     hdr, sub, inf, ok, warn,
     draw_calendar_zone,
@@ -497,43 +498,21 @@ def calendar_paper_menu(
             far_prem  = bs_put(spot, K, T_far,  r, iv) * qty
 
         net_debit = far_prem - near_prem
-        expiry_near = (date.today() + timedelta(days=days)).strftime("%d-%b-%Y")
-        expiry_far  = (date.today() + timedelta(days=far_days)).strftime("%d-%b-%Y")
 
-        trade = create_calendar_trade(
+        strategy = "Cal-C" if option_type == "Call" else "Cal-P"
+        c = SimpleNamespace(
+            strategy=strategy,
             asset=asset,
-            date_open=date.today(),
-            option_type=option_type,
-            strike=K,
-            expiry_near=expiry_near,
-            expiry_far=expiry_far,
-            near_days=days,
+            spot=spot,
+            iv=iv,
+            days=days,
+            strike=str(K),
             far_days=far_days,
-            qty=qty,
-            spot_open=spot,
-            near_prem=round(near_prem, 4),
-            far_prem=round(far_prem, 4),
-            net_debit=round(net_debit, 4),
-            notes=f"{asset} {option_type} calendar, {days}d/{far_days}d",
+            prob_profit=0,
+            yield_ann=0,
         )
-
-        s["open"] = {
-            "strike":      K,
-            "option_type": option_type,
-            "near_prem":   round(near_prem, 4),
-            "far_prem":    round(far_prem,  4),
-            "net_debit":   round(net_debit, 4),
-            "qty":         qty,
-            "expiry_near": expiry_near,
-            "expiry_far":  expiry_far,
-            "spot_open":   spot,
-            "near_days":   days,
-            "far_days":    far_days,
-            "asset":       asset,
-            "trade_id":    trade.id,
-        }
-        s["trades"] += 1
-        save_calendar_state(asset, s)
+        enter_trade(c)
+        s = load_calendar_state(asset)
 
         ok(
             f"Calendar opened: {option_type} ${K:,.0f}  "

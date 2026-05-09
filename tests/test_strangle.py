@@ -2,7 +2,7 @@
 tests/test_strangle.py
 ======================
 Tests for strategies/strangle.py — P&L helpers, breakeven calculation,
-stop-loss checker, and database state helpers.
+stop-loss checker, database state helpers, and executor delegation.
 
 Test strategy
 -------------
@@ -17,11 +17,11 @@ Tier 2 — database state (uses in-memory SQLite via conftest autouse fixture):
     load_strangle_state : fresh default state, existing state returned
     save_strangle_state : persists all fields, roundtrip
 
-Note: strangle_paper_menu and show_strangle_analysis are not tested here
-because they depend on builtins.input() for interactive prompts.
+Tier 3 — executor delegation:
+    strangle_paper_menu [1] calls enter_trade with Strangle candidate
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -403,3 +403,38 @@ class TestSaveStrangleState:
         })
         loaded = load_strangle_state("ETH")
         assert loaded["open"] is None
+
+
+# ── Executor delegation ───────────────────────────────────────────────────────
+
+class TestStranglePaperMenuExecutor:
+    """Verify strangle_paper_menu delegates to enter_trade when opening a position."""
+
+    @patch("strategies.strangle.enter_trade")
+    @patch("builtins.input", side_effect=["1", "", ""])  # choice=1, default Kp, default Kc
+    @patch("sys.stdout", new_callable=__import__("io").StringIO)
+    def test_open_calls_enter_trade(self, _out, _inp, mock_enter):
+        """Choosing [1] (Open new strangle) should call enter_trade with a Strangle candidate."""
+        from strategies.strangle import strangle_paper_menu
+        save_strangle_state("ETH", {
+            "open": None, "total_premium": 0.0,
+            "wins": 0, "losses": 0, "trades": 0,
+        })
+        mock_enter.return_value = {
+            "put_strike": 1700.0, "call_strike": 2300.0,
+            "total_premium": 50.0, "qty": 0.05,
+            "expiry": "01-Jun-2026", "spot_open": 2000.0,
+            "days": 7, "asset": "ETH", "trade_id": 1,
+        }
+
+        strangle_paper_menu("ETH", spot=2000.0, iv=0.80, days=7)
+
+        mock_enter.assert_called_once()
+        c = mock_enter.call_args[0][0]
+        assert c.strategy == "Strangle"
+        assert c.asset == "ETH"
+        assert c.spot == 2000.0
+        assert c.iv == 0.80
+        assert c.days == 7
+        assert hasattr(c, "put_strike")
+        assert hasattr(c, "call_strike")
