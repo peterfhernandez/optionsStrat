@@ -160,12 +160,27 @@ class DeribitClient(BrokerBase):
 
         return body.get("result", body)
 
+    def _private_get(self, method: str, params: Optional[dict] = None) -> dict:
+        """GET from an authenticated (private) endpoint."""
+        self._ensure_auth()
+        url     = f"{self._base}/{method}"
+        headers = {"Authorization": f"Bearer {self._token}"}
+        resp    = requests.get(url, params=params or {}, headers=headers, timeout=10)
+        resp.raise_for_status()
+        body = resp.json()
+
+        if "error" in body:
+            err = body["error"]
+            raise DeribitError(f"Deribit API error {err.get('code')}: {err.get('message')}")
+
+        return body.get("result", body)
+
     def _private_post(self, method: str, params: dict) -> dict:
         """POST to an authenticated (private) endpoint."""
         self._ensure_auth()
-        url  = f"{self._base}/{method}"
+        url     = f"{self._base}/{method}"
         headers = {"Authorization": f"Bearer {self._token}"}
-        resp = requests.post(url, json=params, headers=headers, timeout=10)
+        resp    = requests.post(url, json=params, headers=headers, timeout=10)
         resp.raise_for_status()
         body = resp.json()
 
@@ -269,36 +284,42 @@ class DeribitClient(BrokerBase):
 
     def get_order_state(self, order_id: str) -> OrderResult:
         """Fetch current state of a single order by ID."""
-        self._ensure_auth()
-        raw = self._request("private/get_order_state", {"order_id": order_id})
+        raw = self._private_get("private/get_order_state", {"order_id": order_id})
         return self._parse_order(raw)
 
     def get_open_orders(self, instrument: Optional[str] = None) -> list[OrderResult]:
         """
         Return all open orders for the account, optionally filtered by instrument.
+        When no instrument is given, queries each supported currency in turn.
         """
-        self._ensure_auth()
         if instrument:
-            raw_list = self._request(
+            raw_list = self._private_get(
                 "private/get_open_orders_by_instrument",
                 {"instrument_name": instrument},
             )
-        else:
-            raw_list = self._request("private/get_open_orders_by_currency", {"currency": "any"})
+            if isinstance(raw_list, dict):
+                raw_list = raw_list.get("orders", [])
+            return [self._parse_order(o) for o in raw_list]
 
-        if isinstance(raw_list, dict):
-            raw_list = raw_list.get("orders", [])
-
-        return [self._parse_order(o) for o in raw_list]
+        # Deribit requires a specific currency — fetch for each and merge.
+        orders: list[OrderResult] = []
+        for currency in ("BTC", "ETH", "USDC"):
+            raw_list = self._private_get(
+                "private/get_open_orders_by_currency",
+                {"currency": currency},
+            )
+            if isinstance(raw_list, dict):
+                raw_list = raw_list.get("orders", [])
+            orders.extend(self._parse_order(o) for o in raw_list)
+        return orders
 
     def get_position(self, instrument: str) -> dict:
         """
         Return current position for the given instrument.
         Returns an empty dict if no position is held.
         """
-        self._ensure_auth()
         try:
-            return self._request(
+            return self._private_get(
                 "private/get_position",
                 {"instrument_name": instrument},
             )

@@ -259,9 +259,8 @@ class TestCancelOrder:
 class TestGetOrderState:
     def test_returns_order_result(self):
         client = _make_client()
-        raw = _raw_order("filled")["order"]   # get_order_state returns the order dict directly
-        with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_request", return_value=raw):
+        raw = _raw_order("filled")["order"]
+        with patch.object(client, "_private_get", return_value=raw):
             result = client.get_order_state("ETH-123456")
         assert result.state == "filled"
 
@@ -269,29 +268,37 @@ class TestGetOrderState:
 # ── get_open_orders ───────────────────────────────────────────────────────────
 
 class TestGetOpenOrders:
-    def test_list_response(self):
+    def test_no_orders_across_all_currencies(self):
         client = _make_client()
-        orders = [_raw_order()["order"], _raw_order()["order"]]
-        with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_request", return_value=orders):
+        with patch.object(client, "_private_get", return_value=[]):
             results = client.get_open_orders()
-        assert len(results) == 2
-        assert all(isinstance(r, OrderResult) for r in results)
+        assert results == []
+
+    def test_merges_orders_across_currencies(self):
+        client = _make_client()
+        one_order = [_raw_order()["order"]]
+        # Return one order for BTC, none for the rest
+        def side_effect(method, params):
+            return one_order if params.get("currency") == "BTC" else []
+        with patch.object(client, "_private_get", side_effect=side_effect):
+            results = client.get_open_orders()
+        assert len(results) == 1
+        assert isinstance(results[0], OrderResult)
 
     def test_dict_response_with_orders_key(self):
+        # Deribit sometimes wraps the list under "orders" — each currency call unwraps it.
         client = _make_client()
-        orders_dict = {"orders": [_raw_order()["order"]]}
-        with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_request", return_value=orders_dict):
+        def side_effect(method, params):
+            return {"orders": [_raw_order()["order"]]} if params.get("currency") == "BTC" else []
+        with patch.object(client, "_private_get", side_effect=side_effect):
             results = client.get_open_orders()
         assert len(results) == 1
 
     def test_filters_by_instrument(self):
         client = _make_client()
-        with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_request", return_value=[]) as mock_req:
+        with patch.object(client, "_private_get", return_value=[]) as mock_get:
             client.get_open_orders("ETH-30MAY25-2000-P")
-        call_args = mock_req.call_args
+        call_args = mock_get.call_args
         assert "ETH-30MAY25-2000-P" in str(call_args)
 
 
@@ -301,21 +308,18 @@ class TestGetPosition:
     def test_returns_position(self):
         client = _make_client()
         pos = {"instrument_name": "ETH-30MAY25-2000-P", "size": -1.0}
-        with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_request", return_value=pos):
+        with patch.object(client, "_private_get", return_value=pos):
             result = client.get_position("ETH-30MAY25-2000-P")
         assert result["size"] == -1.0
 
     def test_not_found_returns_empty_dict(self):
         client = _make_client()
-        with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_request", side_effect=DeribitError("Position not found")):
+        with patch.object(client, "_private_get", side_effect=DeribitError("Position not found")):
             result = client.get_position("ETH-30MAY25-2000-P")
         assert result == {}
 
     def test_other_deribit_error_propagates(self):
         client = _make_client()
-        with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_request", side_effect=DeribitError("Something else")):
+        with patch.object(client, "_private_get", side_effect=DeribitError("Something else")):
             with pytest.raises(DeribitError):
                 client.get_position("ETH-30MAY25-2000-P")
