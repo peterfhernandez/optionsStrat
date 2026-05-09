@@ -18,25 +18,62 @@ Tier 2 — mocked I/O:
     run_monitor         : active asset reused, other assets fetched,
                           failed fetch skips asset, registry called per asset
 
+Tier 3 — broker forwarding:
+    broker place_order called on auto-close for wheel, strangle, calendar
+    run_monitor forwards broker kwarg to checkers
+
 Approach
 --------
 _load_state and _save_state are mocked to avoid filesystem I/O.
-append_strangle_row and append_trade_row are mocked to avoid openpyxl.
 bs_put and bs_call are mocked to control trigger conditions precisely.
+DeribitClient is patched globally so no network calls are made.
 """
 
 from datetime import date, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 
 import pytest
 
+from access import OrderResult
 from automation.monitor import (
     _days_remaining,
     _check_strangle,
     _check_wheel,
+    _check_calendar,
     run_monitor,
     TAKE_PROFIT_THRESHOLD)
 from config import STOP_LOSS_MULTIPLIER
+
+
+# ── Shared broker helpers ─────────────────────────────────────────────────────
+
+def _fake_order(order_id: str = "TEST-ORD-1") -> OrderResult:
+    return OrderResult(
+        order_id=order_id, instrument="ETH-TEST", direction="buy",
+        amount=10000.0, price=None, state="open",
+        filled_amount=0.0, avg_price=None, label=None,
+    )
+
+
+def _make_broker(order_id: str = "TEST-ORD-1") -> MagicMock:
+    """Return a mock BrokerBase whose place_order always succeeds."""
+    m = MagicMock()
+    type(m).broker_name = PropertyMock(return_value="deribit_paper")
+    m.place_order.return_value = _fake_order(order_id)
+    return m
+
+
+@pytest.fixture(autouse=True)
+def _mock_deribit(monkeypatch):
+    """Prevent any test from hitting the real Deribit network.
+
+    run_monitor() defaults to DeribitClient(paper=True) when no broker is
+    passed. This fixture replaces that constructor with a controlled mock.
+    """
+    mock_instance = _make_broker()
+    with patch("automation.monitor.DeribitClient", return_value=mock_instance), \
+         patch("trading.executor.DeribitClient",   return_value=mock_instance):
+        yield mock_instance
 
 
 # ── Shared fixtures ───────────────────────────────────────────────────────────
@@ -532,7 +569,7 @@ class TestRunMonitor:
         """If IV fetch fails for a non-active asset, active IV is used as fallback."""
         import automation.monitor as monitor_module
         used_ivs = []
-        def tracking_checker(asset, spot, iv, silent):
+        def tracking_checker(asset, spot, iv, silent, broker=None):
             used_ivs.append((asset, iv))
             return False
 
@@ -544,3 +581,96 @@ class TestRunMonitor:
 
         non_eth = [(a, iv) for a, iv in used_ivs if a != "ETH"]
         assert all(iv == active_iv for _, iv in non_eth)
+
+
+# ── Broker forwarding ─────────────────────────────────────────────────────────
+
+class TestBrokerForwarding:
+    """Verify that auto-close events place orders through the broker."""
+
+    def test_strangle_stop_loss_calls_broker(self, strangle_state):
+        """Stop-loss on a strangle must invoke broker.place_order twice (put + call)."""
+        p0      = strangle_state["open"]["total_premium"]
+        qty     = strangle_state["open"]["qty"]
+        per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
+        broker = _make_broker()
+
+        with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
+             patch("automation.monitor.save_strangle_state",  MagicMock()), \
+             patch("automation.monitor.bs_put",               return_value=per_unit), \
+             patch("automation.monitor.bs_call",              return_value=per_unit), \
+             patch("automation.monitor.close_strangle_trade", MagicMock()):
+            _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)
+
+        assert broker.place_order.call_count == 2
+
+    def test_wheel_stop_loss_calls_broker(self, wheel_state_put):
+        """Stop-loss on a wheel put must invoke broker.place_order once."""
+        from database.wheel_db import save_wheel_state
+        save_wheel_state("ETH", wheel_state_put)
+        p0       = wheel_state_put["open"]["premium"]
+        qty      = wheel_state_put["open"]["qty"]
+        per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty + 1
+        broker   = _make_broker()
+
+        with patch("automation.monitor.bs_put",  return_value=per_unit), \
+             patch("automation.monitor.bs_call", return_value=per_unit):
+            _check_wheel("ETH", 2000.0, 0.80, True, broker=broker)
+
+        broker.place_order.assert_called_once()
+
+    def test_calendar_stop_loss_calls_broker(self, today_expiry):
+        """Stop-loss on a calendar must invoke broker.place_order twice (near + far)."""
+        from database.calendar_db import save_calendar_state
+        far_expiry = (date.today() + timedelta(days=30)).strftime("%d-%b-%Y")
+        state = {
+            "open": {
+                "strike":      2000.0,
+                "option_type": "Call",
+                "net_debit":   10.0,
+                "qty":         0.125,
+                "near_days":   7,
+                "far_days":    30,
+                "expiry_near": today_expiry,  # triggers EXPIRY (days_left == 0)
+                "expiry_far":  far_expiry,
+                "spot_open":   2000.0,
+                "asset":       "ETH",
+            },
+            "wins": 0, "losses": 0, "trades": 1, "total_pnl": 0.0,
+        }
+        save_calendar_state("ETH", state)
+        broker = _make_broker()
+
+        with patch("automation.monitor.bs_call", return_value=5.0), \
+             patch("automation.monitor.bs_put",  return_value=5.0):
+            _check_calendar("ETH", 2000.0, 0.80, True, broker=broker)
+
+        assert broker.place_order.call_count == 2
+
+    def test_run_monitor_forwards_broker(self):
+        """run_monitor passes the broker kwarg through to each checker."""
+        import automation.monitor as monitor_module
+        broker = _make_broker()
+        received_brokers = []
+
+        def tracking_checker(asset, spot, iv, silent, broker=None):
+            received_brokers.append(broker)
+            return False
+
+        with patch.object(monitor_module, "_REGISTRY", [tracking_checker]), \
+             patch("market.market_data.get_spot_price", return_value=80000.0), \
+             patch("market.market_data.get_deribit_iv", return_value=0.60):
+            run_monitor(2000.0, 0.80, 7, "ETH", silent=True, broker=broker)
+
+        assert all(b is broker for b in received_brokers)
+
+    def test_run_monitor_default_broker_is_deribit(self):
+        """When no broker is passed, run_monitor creates a DeribitClient."""
+        import automation.monitor as monitor_module
+        with patch.object(monitor_module, "_REGISTRY", [MagicMock(return_value=False)]), \
+             patch("market.market_data.get_spot_price", return_value=80000.0), \
+             patch("market.market_data.get_deribit_iv", return_value=0.60), \
+             patch("automation.monitor.DeribitClient") as mock_cls:
+            mock_cls.return_value = _make_broker()
+            run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
+        mock_cls.assert_called_once()

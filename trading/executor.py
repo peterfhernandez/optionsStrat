@@ -21,7 +21,7 @@ _enter_strangle(c, T, broker) Short Strangle
 _enter_calendar(c, T, broker) Calendar spread
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from config import (
@@ -354,3 +354,77 @@ def enter_trade(
         return _enter_calendar(c, T, broker)
 
     raise ValueError(f"Unsupported strategy '{c.strategy}'")
+
+
+# ── Close helpers ────────────────────────────────────────────────────────────
+
+def _parse_expiry(expiry_str: str) -> date:
+    """Parse an expiry string in any of the formats used by the state files."""
+    for fmt in ("%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(expiry_str.strip(), fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognised expiry format: {expiry_str!r}")
+
+
+def close_wheel_position(op: dict, broker: BrokerBase, spot: float) -> "OrderResult":
+    """
+    Place a market buy order to close a short put or call leg.
+
+    Parameters
+    ----------
+    op:     The open-position dict stored in wheel state.
+    broker: Broker adapter (same one used to open the trade).
+    spot:   Current spot price (used to compute contract amount).
+    """
+    asset     = op["asset"]
+    opt_type  = op["type"].lower()   # "put" | "call"
+    expiry_dt = _parse_expiry(op["expiry"])
+    K         = op["strike"]
+    amount    = _broker_amount(asset, spot)
+    instrument = make_instrument(asset, expiry_dt, K, opt_type)
+    return broker.place_order(
+        instrument, "buy", amount, "market",
+        label=f"CLOSE-{op['type'].upper()}-{asset}",
+    )
+
+
+def close_strangle_position(
+    op: dict, broker: BrokerBase, spot: float
+) -> "tuple[OrderResult, OrderResult]":
+    """
+    Place market buy orders to close both legs of a short strangle.
+
+    Returns (put_order, call_order).
+    """
+    asset     = op["asset"]
+    expiry_dt = _parse_expiry(op["expiry"])
+    amount    = _broker_amount(asset, spot)
+    put_instr  = make_instrument(asset, expiry_dt, op["put_strike"],  "put")
+    call_instr = make_instrument(asset, expiry_dt, op["call_strike"], "call")
+    put_order  = broker.place_order(put_instr,  "buy", amount, "market", label=f"CLOSE-STR-P-{asset}")
+    call_order = broker.place_order(call_instr, "buy", amount, "market", label=f"CLOSE-STR-C-{asset}")
+    return put_order, call_order
+
+
+def close_calendar_position(
+    op: dict, broker: BrokerBase, spot: float
+) -> "tuple[OrderResult, OrderResult]":
+    """
+    Close a calendar spread: buy back the near leg (we were short) and
+    sell back the far leg (we were long).
+
+    Returns (near_order, far_order).
+    """
+    asset     = op["asset"]
+    ot        = op["option_type"].lower()
+    K         = op["strike"]
+    amount    = _broker_amount(asset, spot)
+    near_dt   = _parse_expiry(op["expiry_near"])
+    far_dt    = _parse_expiry(op["expiry_far"])
+    near_instr = make_instrument(asset, near_dt, K, ot)
+    far_instr  = make_instrument(asset, far_dt,  K, ot)
+    near_order = broker.place_order(near_instr, "buy",  amount, "market", label=f"CLOSE-CAL-NEAR-{asset}")
+    far_order  = broker.place_order(far_instr,  "sell", amount, "market", label=f"CLOSE-CAL-FAR-{asset}")
+    return near_order, far_order

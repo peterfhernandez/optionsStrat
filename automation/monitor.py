@@ -33,7 +33,7 @@ from datetime import date, datetime
 from config  import (
     SUPPORTED_ASSETS, RISK_FREE_RATE,
     STOP_LOSS_MULTIPLIER, BUDGET_USD,
-    CALENDAR_STOP_PCT,
+    CALENDAR_STOP_PCT, DERIBIT_PAPER,
 )
 from market.pricing import bs_put, bs_call
 from ui.display import ok, warn, err, hdr, inf, sub, GR, RD, YL, CY, WH, GY, R
@@ -41,6 +41,8 @@ from database.strangle_db import load_strangle_state, save_strangle_state, close
 from database.calendar_db import load_calendar_state, save_calendar_state, close_calendar_trade
 from database.wheel_db import load_wheel_state, save_wheel_state, close_single_trade
 from models import get_session, Single
+from access import BrokerBase, DeribitClient
+from trading.executor import close_wheel_position, close_strangle_position, close_calendar_position
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ def _check_strangle(
     spot: float,
     iv: float,
     silent: bool,
+    broker: BrokerBase | None = None,
 ) -> bool:
     """
     Evaluate an open strangle position and auto-close if thresholds are met.
@@ -155,6 +158,9 @@ def _check_strangle(
             notes=note,
         )
 
+    if broker is not None:
+        close_strangle_position(op, broker, spot)
+
     if pnl >= 0:
         state["wins"]   += 1
     else:
@@ -172,6 +178,7 @@ def _check_wheel(
     spot: float,
     iv: float,
     silent: bool,
+    broker: BrokerBase | None = None,
 ) -> bool:
     """
     Evaluate an open wheel position and auto-close if thresholds are met.
@@ -262,6 +269,9 @@ def _check_wheel(
             notes=note,
         )
 
+    if broker is not None:
+        close_wheel_position(op, broker, spot)
+
     if pnl >= 0:
         state["wins"]   += 1
     else:
@@ -280,6 +290,7 @@ def _check_calendar(
     spot: float,
     iv: float,
     silent: bool,
+    broker: BrokerBase | None = None,
 ) -> bool:
     """
     Evaluate an open calendar spread position and auto-close if thresholds are met.
@@ -371,6 +382,9 @@ def _check_calendar(
             notes=note,
         )
 
+    if broker is not None:
+        close_calendar_position(op, broker, spot)
+
     if pnl >= 0:
         state["wins"]  += 1
     else:
@@ -403,6 +417,8 @@ def run_monitor(
     days: int,
     asset: str,
     silent: bool = True,
+    *,
+    broker: BrokerBase | None = None,
 ) -> None:
     """
     Check all open positions across all assets and strategies.
@@ -412,13 +428,18 @@ def run_monitor(
 
     Parameters
     ----------
-    spot   : float  Current spot price for the active asset
-    iv     : float  Current IV for the active asset
-    days   : int    Days to expiry (used for IV context only)
-    asset  : str    Currently selected asset (used for spot/IV context)
-    silent : bool   True = only print on trigger; False = print all statuses
+    spot   : float       Current spot price for the active asset
+    iv     : float       Current IV for the active asset
+    days   : int         Days to expiry (used for IV context only)
+    asset  : str         Currently selected asset (used for spot/IV context)
+    silent : bool        True = only print on trigger; False = print all statuses
+    broker : BrokerBase  Adapter used to place close orders on auto-close.
+                         Defaults to DeribitClient(paper=DERIBIT_PAPER).
     """
     from market.market_data import get_spot_price, get_deribit_iv
+
+    if broker is None:
+        broker = DeribitClient(paper=DERIBIT_PAPER)
 
     if not silent:
         hdr("Position Monitor")
@@ -441,7 +462,7 @@ def run_monitor(
             a_iv = get_deribit_iv(a, a_spot, days) or iv
 
         for checker in _REGISTRY:
-            triggered = checker(a, a_spot, a_iv, silent)
+            triggered = checker(a, a_spot, a_iv, silent, broker)
             if triggered:
                 any_triggered = True
 
