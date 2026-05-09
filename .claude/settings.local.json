@@ -8,7 +8,8 @@
       "Bash(python -c ' *)",
       "Bash(python -m pytest tests/test_scanner.py -x -q)",
       "Bash(python -m pytest tests/test_scanner.py::TestRunScanner::test_valid_selection_calls_enter_trade_with_broker -x -q -s)",
-      "Bash(python -m pytest -x -q)"
+      "Bash(python -m pytest -x -q)",
+      "Bash(python -m pytest tests/test_summary.py -v)"
     ]
   }
 }
