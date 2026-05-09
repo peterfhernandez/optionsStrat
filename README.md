@@ -65,6 +65,30 @@ The `DERIBIT_PAPER` flag in `config.py` controls which environment the adapter t
 
 ---
 
+### Trade executor (`trading/executor.py`)
+
+`enter_trade(candidate, days, broker)` is the single entry point for opening a position.
+
+- **Database record always written** — every call persists the trade to SQLite regardless of whether a broker is supplied.
+- **Optional live order** — pass a `BrokerBase` adapter (e.g. `DeribitClient`) to also submit the order to the exchange.
+
+```python
+from trading.executor import enter_trade
+from access import DeribitClient
+
+broker = DeribitClient(paper=True)          # omit for paper-only
+result = enter_trade(candidate, broker=broker)
+# result["broker_order_id"] contains the exchange order ID when a broker is used
+```
+
+For multi-leg strategies the result dict contains per-leg order IDs:
+- Strangle: `broker_put_order_id`, `broker_call_order_id`
+- Calendar: `broker_near_order_id`, `broker_far_order_id`
+
+**Price conversion** — Black-Scholes premiums (USD) are converted to Deribit index prices (`price / spot`) before submission. Amounts follow Deribit conventions: USD notional for inverse contracts (BTC/ETH), contract count for linear contracts (SOL/XRP).
+
+---
+
 ### Database models (`models/`)
 
 All trade data is persisted in `optionsStrat.db` (SQLite). Call `models.init_db()` once on startup to create the schema.

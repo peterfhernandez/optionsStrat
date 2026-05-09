@@ -1,38 +1,81 @@
 """
 trading/executor.py
 ===================
-Paper trade execution logic for all strategies.
+Trade execution logic for all strategies.
+
+Positions are always recorded to the local database (paper trading).
+When a broker adapter is supplied the same trade is also submitted as a
+live/paper order via the access layer.
 
 Public API
 ----------
-enter_trade(candidate, days)
-    Open the paper position described by candidate and persist + log it.
+enter_trade(candidate, days, broker)
+    Open the position described by candidate, persist it, and optionally
+    place a live order through the supplied broker.
 
 Internal helpers
 ----------------
-_enter_csp(c, T)      Open Cash-Secured Put position
-_enter_cc(c, T)       Open Covered Call position
-_enter_strangle(c, T) Open Short Strangle position
-_enter_calendar(c, T) Open Calendar position
+_enter_csp(c, T, broker)      Cash-Secured Put
+_enter_cc(c, T, broker)       Covered Call
+_enter_strangle(c, T, broker) Short Strangle
+_enter_calendar(c, T, broker) Calendar spread
 """
 
 from datetime import date, timedelta
+from typing import Optional
 
 from config import (
-    BUDGET_USD, RISK_FREE_RATE, CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
+    BUDGET_USD, RISK_FREE_RATE, CALENDAR_FAR_DAYS, DERIBIT_PAPER,
 )
 from database import load_wheel_state, save_wheel_state, create_single_trade
 from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
 from database.calendar_db import load_calendar_state, save_calendar_state, create_calendar_trade
 from market.pricing import bs_put, bs_call
+from access import BrokerBase, OrderResult, make_instrument, DeribitClient
+
+# Assets whose Deribit contracts are inverse (amount = USD notional).
+# All other assets are linear (amount = number of contracts).
+_INVERSE_ASSETS = {"BTC", "ETH"}
 
 
-def _enter_csp(c, T: float) -> dict:
+def _index_price(price_usd: float, spot: float) -> float:
+    """Convert a USD option price to Deribit index price (price / spot)."""
+    return round(price_usd / spot, 6)
+
+
+def _broker_amount(asset: str, spot: float) -> float:
+    """Return the Deribit order amount for one full budget allocation."""
+    if asset.upper() in _INVERSE_ASSETS:
+        return float(BUDGET_USD)           # USD notional for inverse contracts
+    return round(BUDGET_USD / spot, 4)    # contract count for linear contracts
+
+
+def _place_option(
+    broker: BrokerBase,
+    asset: str,
+    expiry_date: date,
+    strike: float,
+    option_type: str,    # "put" | "call"
+    direction: str,      # "buy" | "sell"
+    price_usd: float,    # BS price per-unit in USD
+    spot: float,
+    label: Optional[str] = None,
+) -> OrderResult:
+    """Build the instrument name and submit a single-leg order to the broker."""
+    instrument = make_instrument(asset, expiry_date, strike, option_type)
+    amount     = _broker_amount(asset, spot)
+    lmt_price  = _index_price(price_usd, spot)
+    return broker.place_order(instrument, direction, amount, "limit", lmt_price, label)
+
+
+def _enter_csp(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     """Open a Cash-Secured Put position in the wheel state."""
-    K       = float(c.strike.replace("$", "").replace(",", ""))
-    qty     = BUDGET_USD / K
-    premium = bs_put(c.spot, K, T, RISK_FREE_RATE, c.iv) * qty
-    expiry  = (date.today() + timedelta(days=c.days)).strftime("%d-%b-%Y")
+    K          = float(c.strike.replace("$", "").replace(",", ""))
+    qty        = BUDGET_USD / K
+    unit_price = bs_put(c.spot, K, T, RISK_FREE_RATE, c.iv)
+    premium    = unit_price * qty
+    expiry_dt  = date.today() + timedelta(days=c.days)
+    expiry     = expiry_dt.strftime("%d-%b-%Y")
 
     s = load_wheel_state(c.asset)
     s["stage"] = "short_put"
@@ -66,19 +109,29 @@ def _enter_csp(c, T: float) -> dict:
             f"liq={c.liquidity_tag}"
         ),
     )
+
+    if broker is not None:
+        order = _place_option(
+            broker, c.asset, expiry_dt, K, "put", "sell",
+            unit_price, c.spot, label=f"CSP-{c.asset}",
+        )
+        s["open"]["broker_order_id"] = order.order_id
+
     return s["open"]
 
 
-def _enter_cc(c, T: float) -> dict:
+def _enter_cc(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     """Open a Covered Call position. Requires wheel state in 'holding'."""
     s = load_wheel_state(c.asset)
     if s["stage"] != "holding":
         raise RuntimeError(f"Cannot enter CC for {c.asset}: wheel stage={s['stage']}")
 
-    K       = float(c.strike.replace("$", "").replace(",", ""))
-    qty     = s["asset_held"] or (BUDGET_USD / c.spot)
-    premium = bs_call(c.spot, K, T, RISK_FREE_RATE, c.iv) * qty
-    expiry  = (date.today() + timedelta(days=c.days)).strftime("%d-%b-%Y")
+    K          = float(c.strike.replace("$", "").replace(",", ""))
+    qty        = s["asset_held"] or (BUDGET_USD / c.spot)
+    unit_price = bs_call(c.spot, K, T, RISK_FREE_RATE, c.iv)
+    premium    = unit_price * qty
+    expiry_dt  = date.today() + timedelta(days=c.days)
+    expiry     = expiry_dt.strftime("%d-%b-%Y")
 
     s["stage"] = "short_call"
     s["open"]  = {
@@ -111,18 +164,29 @@ def _enter_cc(c, T: float) -> dict:
             f"liq={c.liquidity_tag}"
         ),
     )
+
+    if broker is not None:
+        order = _place_option(
+            broker, c.asset, expiry_dt, K, "call", "sell",
+            unit_price, c.spot, label=f"CC-{c.asset}",
+        )
+        s["open"]["broker_order_id"] = order.order_id
+
     return s["open"]
 
 
-def _enter_strangle(c, T: float) -> dict:
+def _enter_strangle(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
     """Open a short strangle position."""
-    Kp  = c.put_strike
-    Kc  = c.call_strike
-    qty = BUDGET_USD / c.spot
-    pp  = bs_put (c.spot, Kp, T, RISK_FREE_RATE, c.iv) * qty
-    cp  = bs_call(c.spot, Kc, T, RISK_FREE_RATE, c.iv) * qty
-    tot = pp + cp
-    expiry = (date.today() + timedelta(days=c.days)).strftime("%d-%b-%Y")
+    Kp         = c.put_strike
+    Kc         = c.call_strike
+    qty        = BUDGET_USD / c.spot
+    put_price  = bs_put (c.spot, Kp, T, RISK_FREE_RATE, c.iv)
+    call_price = bs_call(c.spot, Kc, T, RISK_FREE_RATE, c.iv)
+    pp         = put_price  * qty
+    cp         = call_price * qty
+    tot        = pp + cp
+    expiry_dt  = date.today() + timedelta(days=c.days)
+    expiry     = expiry_dt.strftime("%d-%b-%Y")
 
     trade = create_strangle_trade(
         asset=c.asset,
@@ -156,11 +220,24 @@ def _enter_strangle(c, T: float) -> dict:
     s["total_premium"] = s.get("total_premium", 0.0) + tot
     s["trades"]        = s.get("trades",        0)   + 1
     save_strangle_state(c.asset, s)
+
+    if broker is not None:
+        put_order  = _place_option(
+            broker, c.asset, expiry_dt, Kp, "put",  "sell",
+            put_price, c.spot, label=f"STR-P-{c.asset}",
+        )
+        call_order = _place_option(
+            broker, c.asset, expiry_dt, Kc, "call", "sell",
+            call_price, c.spot, label=f"STR-C-{c.asset}",
+        )
+        s["open"]["broker_put_order_id"]  = put_order.order_id
+        s["open"]["broker_call_order_id"] = call_order.order_id
+
     return s["open"]
 
 
-def _enter_calendar(c, T: float) -> dict:
-    """Open a calendar (Cal-C or Cal-P) position."""
+def _enter_calendar(c, T: float, broker: Optional[BrokerBase] = None) -> dict:
+    """Open a calendar (Cal-C or Cal-P) spread position."""
     K           = float(c.strike.split()[0].replace("$", "").replace(",", ""))
     far_days    = c.far_days or CALENDAR_FAR_DAYS
     T_far       = far_days / 365.0
@@ -168,12 +245,16 @@ def _enter_calendar(c, T: float) -> dict:
     option_type = "Call" if c.strategy == "Cal-C" else "Put"
     bs_fn       = bs_call if option_type == "Call" else bs_put
 
-    near_prem = bs_fn(c.spot, K, T,     RISK_FREE_RATE, c.iv) * qty
-    far_prem  = bs_fn(c.spot, K, T_far, RISK_FREE_RATE, c.iv) * qty
-    net_debit = far_prem - near_prem
+    near_price = bs_fn(c.spot, K, T,     RISK_FREE_RATE, c.iv)
+    far_price  = bs_fn(c.spot, K, T_far, RISK_FREE_RATE, c.iv)
+    near_prem  = near_price * qty
+    far_prem   = far_price  * qty
+    net_debit  = far_prem - near_prem
 
-    expiry_near = (date.today() + timedelta(days=c.days)).strftime("%d-%b-%Y")
-    expiry_far  = (date.today() + timedelta(days=far_days)).strftime("%d-%b-%Y")
+    expiry_near_dt = date.today() + timedelta(days=c.days)
+    expiry_far_dt  = date.today() + timedelta(days=far_days)
+    expiry_near    = expiry_near_dt.strftime("%d-%b-%Y")
+    expiry_far     = expiry_far_dt.strftime("%d-%b-%Y")
 
     trade = create_calendar_trade(
         asset=c.asset,
@@ -214,26 +295,58 @@ def _enter_calendar(c, T: float) -> dict:
     }
     s["trades"] = s.get("trades", 0) + 1
     save_calendar_state(c.asset, s)
+
+    if broker is not None:
+        ot = option_type.lower()
+        # Calendar: sell near leg, buy far leg
+        near_order = _place_option(
+            broker, c.asset, expiry_near_dt, K, ot, "sell",
+            near_price, c.spot, label=f"CAL-NEAR-{c.asset}",
+        )
+        far_order = _place_option(
+            broker, c.asset, expiry_far_dt,  K, ot, "buy",
+            far_price, c.spot, label=f"CAL-FAR-{c.asset}",
+        )
+        s["open"]["broker_near_order_id"] = near_order.order_id
+        s["open"]["broker_far_order_id"]  = far_order.order_id
+
     return s["open"]
 
 
-def enter_trade(c, days: int | None = None) -> dict:
+def enter_trade(
+    c,
+    days: Optional[int] = None,
+    broker: Optional[BrokerBase] = None,
+) -> dict:
     """
-    Open the paper position described by c and persist + log it.
+    Open the position described by c, persist it, and place an order through
+    the broker.
 
-    The strategy tag on the candidate selects the right opener.
-    Returns the freshly written open dict.
+    Parameters
+    ----------
+    c:      Strategy candidate with .strategy, .asset, .spot, .iv, .days, etc.
+    days:   Override c.days when supplied.
+    broker: BrokerBase adapter.  Defaults to DeribitClient(paper=DERIBIT_PAPER)
+            so trades are always submitted to Deribit testnet unless DERIBIT_PAPER
+            is set to False or a different adapter is supplied explicitly.
+
+    Returns
+    -------
+    The open-position dict, with broker_order_id field(s) appended.
     """
+    if broker is None:
+        broker = DeribitClient(paper=DERIBIT_PAPER)
+
     days_eff = days or c.days
     T        = days_eff / 365.0
 
     if c.strategy == "CSP":
-        return _enter_csp(c, T)
+        return _enter_csp(c, T, broker)
     if c.strategy == "CC":
-        return _enter_cc(c, T)
+        return _enter_cc(c, T, broker)
     if c.strategy == "Strangle":
-        return _enter_strangle(c, T)
+        return _enter_strangle(c, T, broker)
     if c.strategy in ("Cal-C", "Cal-P"):
-        return _enter_calendar(c, T)
+        return _enter_calendar(c, T, broker)
 
     raise ValueError(f"Unsupported strategy '{c.strategy}'")
