@@ -675,14 +675,19 @@ class TestBrokerForwarding:
             run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
         mock_cls.assert_called_once()
 
-    def test_broker_http_error_does_not_record_close(self, strangle_state):
-        """A 502/503 from the broker must not save the close to the DB or state."""
+    def _make_http_error(self, status: int) -> "req.exceptions.HTTPError":
         import requests as req
+        resp = req.models.Response()
+        resp.status_code = status
+        return req.exceptions.HTTPError(f"{status} Error", response=resp)
+
+    def test_broker_5xx_does_not_record_close(self, strangle_state):
+        """A 502/503 (server down) must not save the close — retry next cycle."""
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]
         per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
         broker = _make_broker()
-        broker.place_order.side_effect = req.exceptions.HTTPError("502 Bad Gateway")
+        broker.place_order.side_effect = self._make_http_error(502)
 
         mock_save  = MagicMock()
         mock_close = MagicMock()
@@ -697,8 +702,28 @@ class TestBrokerForwarding:
         mock_close.assert_not_called()
         mock_save.assert_not_called()
 
+    def test_broker_4xx_records_close_locally(self, strangle_state):
+        """A 400 (instrument gone) must still record the close in DB and state."""
+        p0      = strangle_state["open"]["total_premium"]
+        qty     = strangle_state["open"]["qty"]
+        per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
+        broker = _make_broker()
+        broker.place_order.side_effect = self._make_http_error(400)
+
+        mock_save  = MagicMock()
+        mock_close = MagicMock()
+        with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
+             patch("automation.monitor.save_strangle_state",  mock_save), \
+             patch("automation.monitor.bs_put",               return_value=per_unit), \
+             patch("automation.monitor.bs_call",              return_value=per_unit), \
+             patch("automation.monitor.close_strangle_trade", mock_close):
+            result = _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)
+
+        assert result is True
+        mock_save.assert_called_once()
+
     def test_broker_connection_error_does_not_record_close(self, strangle_state):
-        """A network connection error must not save the close to the DB or state."""
+        """A network connection error must not save the close — retry next cycle."""
         import requests as req
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]

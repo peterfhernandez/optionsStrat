@@ -77,18 +77,35 @@ def _days_remaining(expiry_str: str) -> int:
 
 # ── Broker call helper ────────────────────────────────────────────────────────
 
-def _try_broker_close(fn, *args, label: str = "") -> bool:
-    """Call a broker close function; catch network/server errors and warn instead of crashing."""
+_BROKER_OK     = "ok"       # order placed successfully
+_BROKER_SKIP   = "skip"    # instrument gone (4xx) — record close locally
+_BROKER_ABORT  = "abort"   # transient server/network error — do not close
+
+
+def _try_broker_close(fn, *args, label: str = "") -> str:
+    """
+    Attempt a broker close.  Returns one of _BROKER_OK / _BROKER_SKIP / _BROKER_ABORT.
+
+    4xx errors mean the instrument no longer exists on the exchange (e.g. expired
+    option); the position should still be recorded as closed locally.
+    5xx / network errors are transient — leave the position open for the next cycle.
+    """
     try:
         fn(*args)
-        return True
+        return _BROKER_OK
     except requests.exceptions.HTTPError as exc:
-        warn(f"Broker order failed ({label}): {exc} — position NOT closed")
+        status = exc.response.status_code if exc.response is not None else 0
+        if 400 <= status < 500:
+            warn(f"Broker rejected order ({label}) [{status}] — instrument gone, recording close locally")
+            return _BROKER_SKIP
+        warn(f"Broker server error ({label}) [{status}]: {exc} — position NOT closed")
+        return _BROKER_ABORT
     except requests.exceptions.ConnectionError as exc:
         warn(f"Broker unreachable ({label}): {exc} — position NOT closed")
+        return _BROKER_ABORT
     except Exception as exc:
         warn(f"Broker error ({label}): {exc} — position NOT closed")
-    return False
+        return _BROKER_ABORT
 
 
 # ── Strangle checker ──────────────────────────────────────────────────────────
@@ -165,7 +182,7 @@ def _check_strangle(
           f"Premium: ${p0:.2f}  |  P&L: {colour}${pnl:.2f}{R}")
 
     if broker is not None:
-        if not _try_broker_close(close_strangle_position, op, broker, spot, label="strangle"):
+        if _try_broker_close(close_strangle_position, op, broker, spot, label="strangle") == _BROKER_ABORT:
             return False
 
     trade_id = op.get("trade_id")
@@ -265,7 +282,7 @@ def _check_wheel(
     print(f"  Strike ${K:,.0f}  |  Premium: ${p0:.2f}  |  P&L: {colour}${pnl:.2f}{R}")
 
     if broker is not None:
-        if not _try_broker_close(close_wheel_position, op, broker, spot, label="wheel"):
+        if _try_broker_close(close_wheel_position, op, broker, spot, label="wheel") == _BROKER_ABORT:
             return False
 
     # Close the open Single trade record in the database
@@ -391,7 +408,7 @@ def _check_calendar(
     print(f"  Strike ${K:,.0f}  |  Net debit: ${net_debit:.2f}  |  P&L: {col}${pnl:.2f}{R}")
 
     if broker is not None:
-        if not _try_broker_close(close_calendar_position, op, broker, spot, label="calendar"):
+        if _try_broker_close(close_calendar_position, op, broker, spot, label="calendar") == _BROKER_ABORT:
             return False
 
     trade_id = op.get("trade_id")
