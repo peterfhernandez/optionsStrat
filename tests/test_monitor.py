@@ -674,3 +674,36 @@ class TestBrokerForwarding:
             mock_cls.return_value = _make_broker()
             run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
         mock_cls.assert_called_once()
+
+    def test_broker_http_error_does_not_crash(self, strangle_state):
+        """A 502/503 from the broker should warn but not raise."""
+        import requests as req
+        p0      = strangle_state["open"]["total_premium"]
+        qty     = strangle_state["open"]["qty"]
+        per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
+        broker = _make_broker()
+        broker.place_order.side_effect = req.exceptions.HTTPError("502 Bad Gateway")
+
+        with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
+             patch("automation.monitor.save_strangle_state",  MagicMock()), \
+             patch("automation.monitor.bs_put",               return_value=per_unit), \
+             patch("automation.monitor.bs_call",              return_value=per_unit), \
+             patch("automation.monitor.close_strangle_trade", MagicMock()):
+            # Should not raise
+            _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)
+
+    def test_broker_connection_error_does_not_crash(self, strangle_state):
+        """A network connection error from the broker should warn but not raise."""
+        import requests as req
+        p0      = strangle_state["open"]["total_premium"]
+        qty     = strangle_state["open"]["qty"]
+        per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
+        broker = _make_broker()
+        broker.place_order.side_effect = req.exceptions.ConnectionError("unreachable")
+
+        with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
+             patch("automation.monitor.save_strangle_state",  MagicMock()), \
+             patch("automation.monitor.bs_put",               return_value=per_unit), \
+             patch("automation.monitor.bs_call",              return_value=per_unit), \
+             patch("automation.monitor.close_strangle_trade", MagicMock()):
+            _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)

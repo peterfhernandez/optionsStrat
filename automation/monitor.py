@@ -29,6 +29,7 @@ _REGISTRY                           List of checker functions to call
 """
 
 from datetime import date, datetime
+import requests
 
 from config  import (
     SUPPORTED_ASSETS, RISK_FREE_RATE,
@@ -72,6 +73,22 @@ def _days_remaining(expiry_str: str) -> int:
         except ValueError:
             continue
     return 0  # unrecognised format → treat as expired
+
+
+# ── Broker call helper ────────────────────────────────────────────────────────
+
+def _try_broker_close(fn, *args, label: str = "") -> bool:
+    """Call a broker close function; catch network/server errors and warn instead of crashing."""
+    try:
+        fn(*args)
+        return True
+    except requests.exceptions.HTTPError as exc:
+        warn(f"Broker order failed ({label}): {exc} — position recorded as closed locally")
+    except requests.exceptions.ConnectionError as exc:
+        warn(f"Broker unreachable ({label}): {exc} — position recorded as closed locally")
+    except Exception as exc:
+        warn(f"Broker error ({label}): {exc} — position recorded as closed locally")
+    return False
 
 
 # ── Strangle checker ──────────────────────────────────────────────────────────
@@ -159,7 +176,7 @@ def _check_strangle(
         )
 
     if broker is not None:
-        close_strangle_position(op, broker, spot)
+        _try_broker_close(close_strangle_position, op, broker, spot, label="strangle")
 
     if pnl >= 0:
         state["wins"]   += 1
@@ -270,7 +287,7 @@ def _check_wheel(
         )
 
     if broker is not None:
-        close_wheel_position(op, broker, spot)
+        _try_broker_close(close_wheel_position, op, broker, spot, label="wheel")
 
     if pnl >= 0:
         state["wins"]   += 1
@@ -383,7 +400,7 @@ def _check_calendar(
         )
 
     if broker is not None:
-        close_calendar_position(op, broker, spot)
+        _try_broker_close(close_calendar_position, op, broker, spot, label="calendar")
 
     if pnl >= 0:
         state["wins"]  += 1
