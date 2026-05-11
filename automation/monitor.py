@@ -83,11 +83,11 @@ def _try_broker_close(fn, *args, label: str = "") -> bool:
         fn(*args)
         return True
     except requests.exceptions.HTTPError as exc:
-        warn(f"Broker order failed ({label}): {exc} — position recorded as closed locally")
+        warn(f"Broker order failed ({label}): {exc} — position NOT closed")
     except requests.exceptions.ConnectionError as exc:
-        warn(f"Broker unreachable ({label}): {exc} — position recorded as closed locally")
+        warn(f"Broker unreachable ({label}): {exc} — position NOT closed")
     except Exception as exc:
-        warn(f"Broker error ({label}): {exc} — position recorded as closed locally")
+        warn(f"Broker error ({label}): {exc} — position NOT closed")
     return False
 
 
@@ -164,6 +164,10 @@ def _check_strangle(
     print(f"  Put ${Kp:,.0f} / Call ${Kc:,.0f}  |  "
           f"Premium: ${p0:.2f}  |  P&L: {colour}${pnl:.2f}{R}")
 
+    if broker is not None:
+        if not _try_broker_close(close_strangle_position, op, broker, spot, label="strangle"):
+            return False
+
     trade_id = op.get("trade_id")
     if trade_id:
         close_strangle_trade(
@@ -174,9 +178,6 @@ def _check_strangle(
             result=result,
             notes=note,
         )
-
-    if broker is not None:
-        _try_broker_close(close_strangle_position, op, broker, spot, label="strangle")
 
     if pnl >= 0:
         state["wins"]   += 1
@@ -263,6 +264,10 @@ def _check_wheel(
           f"⚡ AUTO-CLOSE [{trigger}] {asset} {opt_type}{R}")
     print(f"  Strike ${K:,.0f}  |  Premium: ${p0:.2f}  |  P&L: {colour}${pnl:.2f}{R}")
 
+    if broker is not None:
+        if not _try_broker_close(close_wheel_position, op, broker, spot, label="wheel"):
+            return False
+
     # Close the open Single trade record in the database
     stage_tag = "short_put" if opt_type == "Put" else "short_call"
     session = get_session()
@@ -285,9 +290,6 @@ def _check_wheel(
             result=result,
             notes=note,
         )
-
-    if broker is not None:
-        _try_broker_close(close_wheel_position, op, broker, spot, label="wheel")
 
     if pnl >= 0:
         state["wins"]   += 1
@@ -388,6 +390,10 @@ def _check_calendar(
     print(f"\n  {trig_col}⚡ AUTO-CLOSE [{trigger}] {asset} {opt_type} Calendar{R}")
     print(f"  Strike ${K:,.0f}  |  Net debit: ${net_debit:.2f}  |  P&L: {col}${pnl:.2f}{R}")
 
+    if broker is not None:
+        if not _try_broker_close(close_calendar_position, op, broker, spot, label="calendar"):
+            return False
+
     trade_id = op.get("trade_id")
     if trade_id:
         close_calendar_trade(
@@ -398,9 +404,6 @@ def _check_calendar(
             result=result,
             notes=note,
         )
-
-    if broker is not None:
-        _try_broker_close(close_calendar_position, op, broker, spot, label="calendar")
 
     if pnl >= 0:
         state["wins"]  += 1

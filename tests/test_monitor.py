@@ -675,8 +675,8 @@ class TestBrokerForwarding:
             run_monitor(2000.0, 0.80, 7, "ETH", silent=True)
         mock_cls.assert_called_once()
 
-    def test_broker_http_error_does_not_crash(self, strangle_state):
-        """A 502/503 from the broker should warn but not raise."""
+    def test_broker_http_error_does_not_record_close(self, strangle_state):
+        """A 502/503 from the broker must not save the close to the DB or state."""
         import requests as req
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]
@@ -684,16 +684,21 @@ class TestBrokerForwarding:
         broker = _make_broker()
         broker.place_order.side_effect = req.exceptions.HTTPError("502 Bad Gateway")
 
+        mock_save  = MagicMock()
+        mock_close = MagicMock()
         with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
-             patch("automation.monitor.save_strangle_state",  MagicMock()), \
+             patch("automation.monitor.save_strangle_state",  mock_save), \
              patch("automation.monitor.bs_put",               return_value=per_unit), \
              patch("automation.monitor.bs_call",              return_value=per_unit), \
-             patch("automation.monitor.close_strangle_trade", MagicMock()):
-            # Should not raise
-            _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)
+             patch("automation.monitor.close_strangle_trade", mock_close):
+            result = _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)
 
-    def test_broker_connection_error_does_not_crash(self, strangle_state):
-        """A network connection error from the broker should warn but not raise."""
+        assert result is False
+        mock_close.assert_not_called()
+        mock_save.assert_not_called()
+
+    def test_broker_connection_error_does_not_record_close(self, strangle_state):
+        """A network connection error must not save the close to the DB or state."""
         import requests as req
         p0      = strangle_state["open"]["total_premium"]
         qty     = strangle_state["open"]["qty"]
@@ -701,9 +706,15 @@ class TestBrokerForwarding:
         broker = _make_broker()
         broker.place_order.side_effect = req.exceptions.ConnectionError("unreachable")
 
+        mock_save  = MagicMock()
+        mock_close = MagicMock()
         with patch("automation.monitor.load_strangle_state",  return_value=strangle_state), \
-             patch("automation.monitor.save_strangle_state",  MagicMock()), \
+             patch("automation.monitor.save_strangle_state",  mock_save), \
              patch("automation.monitor.bs_put",               return_value=per_unit), \
              patch("automation.monitor.bs_call",              return_value=per_unit), \
-             patch("automation.monitor.close_strangle_trade", MagicMock()):
-            _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)
+             patch("automation.monitor.close_strangle_trade", mock_close):
+            result = _check_strangle("ETH", 2000.0, 0.80, True, broker=broker)
+
+        assert result is False
+        mock_close.assert_not_called()
+        mock_save.assert_not_called()
