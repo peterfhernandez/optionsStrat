@@ -39,7 +39,8 @@ Use deribit.make_instrument() to build these from trade parameters.
 import os
 import time
 import logging
-from datetime import date
+from collections import defaultdict
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -157,12 +158,21 @@ class DeribitClient(BrokerBase):
         """
         url  = f"{self._base}/{method}"
         resp = requests.get(url, params=params or {}, timeout=10)
-        resp.raise_for_status()
-        body = resp.json()
+        try:
+            body = resp.json()
+        except Exception:
+            resp.raise_for_status()
+            raise
 
         if "error" in body:
             err = body["error"]
             raise DeribitError(f"Deribit API error {err.get('code')}: {err.get('message')}")
+
+        if not resp.ok:
+            raise requests.HTTPError(
+                f"{resp.status_code} error: {resp.text} (params={params})",
+                response=resp,
+            )
 
         return body.get("result", body)
 
@@ -181,18 +191,30 @@ class DeribitClient(BrokerBase):
 
         return body.get("result", body)
 
-    def _private_post(self, method: str, params: dict) -> dict:
-        """POST to an authenticated (private) endpoint."""
+    def _private_request(self, method: str, params: dict) -> dict:
+        """Call an authenticated private endpoint via GET with query params."""
         self._ensure_auth()
         url     = f"{self._base}/{method}"
         headers = {"Authorization": f"Bearer {self._token}"}
-        resp    = requests.post(url, json=params, headers=headers, timeout=10)
-        resp.raise_for_status()
-        body = resp.json()
+        resp    = requests.get(url, params=params, headers=headers, timeout=10)
+        try:
+            body = resp.json()
+        except Exception:
+            resp.raise_for_status()
+            raise
 
         if "error" in body:
             err = body["error"]
-            raise DeribitError(f"Deribit API error {err.get('code')}: {err.get('message')}")
+            raise DeribitError(
+                f"Deribit API error {err.get('code')}: {err.get('message')} "
+                f"(params={params})"
+            )
+
+        if not resp.ok:
+            raise requests.HTTPError(
+                f"{resp.status_code} error: {resp.text} (params={params})",
+                response=resp,
+            )
 
         return body.get("result", body)
 
@@ -236,6 +258,30 @@ class DeribitClient(BrokerBase):
             result.get("expires_in", 900),
         )
 
+    @staticmethod
+    def _effective_tick(info: dict, price: float) -> float:
+        """
+        Return the tick size that applies to *price* for the given instrument
+        info dict.  Deribit instruments can have price-dependent ticks via
+        tick_size_steps, e.g.:
+            tick_size = 0.0001
+            tick_size_steps = [{"above_price": 0.005, "tick_size": 0.0005}]
+        means: tick = 0.0001 for price ≤ 0.005, else tick = 0.0005.
+        """
+        tick = info.get("tick_size", 0.0001)
+        for step in sorted(
+            info.get("tick_size_steps", []),
+            key=lambda s: s["above_price"],
+        ):
+            if price > step["above_price"]:
+                tick = step["tick_size"]
+        return tick
+
+    @staticmethod
+    def _snap_to_tick(price: float, tick: float) -> float:
+        """Round price to the nearest valid tick."""
+        return round(round(price / tick) * tick, 10)
+
     def place_order(
         self,
         instrument: str,
@@ -266,14 +312,26 @@ class DeribitClient(BrokerBase):
             "instrument_name": instrument,
             "amount":          amount,
             "type":            order_type,
-            "time_in_force":   time_in_force,
         }
         if order_type == "limit":
-            params["price"] = price
+            # Fetch live tick info so we respect variable tick_size_steps.
+            try:
+                inst_info = self._request(
+                    "public/get_instrument", {"instrument_name": instrument}
+                )
+                tick = self._effective_tick(inst_info, float(price))
+            except Exception:
+                tick = 0.0001  # safe fallback
+            params["price"] = self._snap_to_tick(float(price), tick)
+        if time_in_force != "good_til_cancelled":
+            # Only send time_in_force when it differs from the API default to
+            # avoid validation failures on instruments that don't accept it.
+            params["time_in_force"] = time_in_force
         if label:
-            params["label"] = label
+            # Deribit labels: alphanumeric + underscore only (no hyphens).
+            params["label"] = label.replace("-", "_")
 
-        raw = self._private_post(endpoint, params)
+        raw = self._private_request(endpoint, params)
         result = self._parse_order(raw)
         logger.info(
             "Order placed: %s %s %s %s @ %s → %s (id=%s)",
@@ -284,7 +342,7 @@ class DeribitClient(BrokerBase):
 
     def cancel_order(self, order_id: str) -> dict:
         """Cancel an open order. Returns the raw Deribit response."""
-        result = self._private_post("private/cancel", {"order_id": order_id})
+        result = self._private_request("private/cancel", {"order_id": order_id})
         logger.info("Order cancelled: %s", order_id)
         return result
 
@@ -318,6 +376,79 @@ class DeribitClient(BrokerBase):
                 raw_list = raw_list.get("orders", [])
             orders.extend(self._parse_order(o) for o in raw_list)
         return orders
+
+    def find_instrument(
+        self,
+        asset: str,
+        target_expiry: date,
+        strike: float,
+        option_type: str,
+    ) -> str:
+        """
+        Return the best available instrument name for the given parameters.
+
+        Queries public/get_instruments for all non-expired options, then:
+          1. Picks the listed expiry closest to target_expiry.
+          2. Within that expiry, picks the listed strike closest to strike.
+
+        Falls back to the computed instrument name unchanged if the lookup
+        fails (network error, empty testnet, etc.).
+        """
+        ticker   = _ASSET_TICKER.get(asset.upper(), asset.upper())
+        currency = "USDC" if ticker.endswith("_USDC") else ticker
+        opt_char = "P" if option_type.lower().startswith("p") else "C"
+        fallback = make_instrument(asset, target_expiry, strike, option_type)
+
+        try:
+            instruments = self._request(
+                "public/get_instruments",
+                {"currency": currency, "kind": "option", "expired": "false"},
+            )
+        except Exception as exc:
+            logger.warning("find_instrument: get_instruments failed (%s) — using %s", exc, fallback)
+            return fallback
+
+        if not isinstance(instruments, list):
+            return fallback
+
+        # Group strikes by expiry for the right option type.
+        expiry_strikes: dict[date, list[float]] = defaultdict(list)
+        for inst in instruments:
+            name = inst.get("instrument_name", "")
+            if not (name.startswith(ticker + "-") and name.endswith("-" + opt_char)):
+                continue
+            parts = name.split("-")
+            # Inverse: BTC-22MAY26-81000-C (4 parts)
+            # Linear:  SOL_USDC-22MAY26-150-C (4 parts after split on first "-")
+            # Actually split gives e.g. ['BTC', '22MAY26', '81000', 'C']
+            if len(parts) < 4:
+                continue
+            try:
+                exp_date = datetime.strptime(parts[-3], "%d%b%y").date()
+                expiry_strikes[exp_date].append(float(parts[-2]))
+            except (ValueError, IndexError):
+                continue
+
+        if not expiry_strikes:
+            logger.warning(
+                "find_instrument: no %s %s options listed — using %s",
+                ticker, opt_char, fallback,
+            )
+            return fallback
+
+        # Step 1: nearest expiry to target.
+        best_expiry = min(expiry_strikes, key=lambda d: abs((d - target_expiry).days))
+
+        # Step 2: nearest strike within that expiry.
+        best_strike = min(expiry_strikes[best_expiry], key=lambda s: abs(s - strike))
+
+        result = make_instrument(asset, best_expiry, best_strike, option_type)
+        if result != fallback:
+            logger.info(
+                "find_instrument: %s not available; using %s instead",
+                fallback, result,
+            )
+        return result
 
     def get_position(self, instrument: str) -> dict:
         """

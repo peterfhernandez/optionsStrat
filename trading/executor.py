@@ -38,16 +38,43 @@ from access import BrokerBase, OrderResult, make_instrument, DeribitClient
 _INVERSE_ASSETS = {"BTC", "ETH"}
 
 
-def _index_price(price_usd: float, spot: float) -> float:
-    """Convert a USD option price to Deribit index price (price / spot)."""
-    return round(price_usd / spot, 6)
+def _next_friday(from_date: date) -> date:
+    """Return the nearest Friday on or after from_date (Deribit weekly expiry day)."""
+    days_ahead = (4 - from_date.weekday()) % 7   # 4 = Friday
+    return from_date + timedelta(days=days_ahead)
 
 
-def _broker_amount(asset: str, spot: float) -> float:
-    """Return the Deribit order amount for one full budget allocation."""
+def _expiry_date(days: int) -> date:
+    """
+    Calculate a Deribit-valid expiry date.
+    Snaps the target date (today + days) to the next Friday, since Deribit
+    only lists options expiring on Fridays.
+    """
+    target = date.today() + timedelta(days=days)
+    return _next_friday(target)
+
+
+def _order_price(asset: str, price_usd: float, spot: float) -> float:
+    """
+    Convert a USD option price to the Deribit order price format, rounded to
+    the exchange tick size (0.0001 for all supported option contracts).
+    Inverse contracts (BTC, ETH): price as fraction of underlying (price / spot).
+    Linear USDC contracts (SOL, XRP): price in USDC directly.
+    """
     if asset.upper() in _INVERSE_ASSETS:
-        return float(BUDGET_USD)           # USD notional for inverse contracts
-    return round(BUDGET_USD / spot, 4)    # contract count for linear contracts
+        return round(price_usd / spot, 4)
+    return round(price_usd, 4)
+
+
+def _broker_amount(asset: str, spot: float) -> int:
+    """
+    Return the Deribit order amount for one full budget allocation.
+    Always returns an int so requests serialises it without a decimal point
+    (Deribit rejects '250.0'; it requires '250').
+    """
+    if asset.upper() in _INVERSE_ASSETS:
+        return int(BUDGET_USD)             # USD notional for inverse contracts
+    return max(1, int(BUDGET_USD / spot))  # whole contracts for linear assets
 
 
 def _place_option(
@@ -62,9 +89,10 @@ def _place_option(
     label: Optional[str] = None,
 ) -> OrderResult:
     """Build the instrument name and submit a single-leg order to the broker."""
-    instrument = make_instrument(asset, expiry_date, strike, option_type)
+    # Resolve to the closest listed instrument (expiry + strike) on the exchange.
+    instrument = broker.find_instrument(asset, expiry_date, strike, option_type)
     amount     = _broker_amount(asset, spot)
-    lmt_price  = _index_price(price_usd, spot)
+    lmt_price  = _order_price(asset, price_usd, spot)
     return broker.place_order(instrument, direction, amount, "limit", lmt_price, label)
 
 
@@ -74,21 +102,27 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
     qty        = BUDGET_USD / K
     unit_price = bs_put(c.spot, K, T, RISK_FREE_RATE, c.iv)
     premium    = unit_price * qty
-    expiry_dt  = date.today() + timedelta(days=c.days)
+    expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
+
+    order = _place_option(
+        broker, c.asset, expiry_dt, K, "put", "sell",
+        unit_price, c.spot, label=f"CSP-{c.asset}",
+    )
 
     s = load_wheel_state(c.asset)
     s["stage"]  = "short_put"
     s["broker"] = broker.broker_name
     s["open"]   = {
-        "type":      "Put",
-        "strike":    K,
-        "expiry":    expiry,
-        "premium":   round(premium, 4),
-        "spot_open": c.spot,
-        "qty":       qty,
-        "days":      c.days,
-        "asset":     c.asset,
+        "type":             "Put",
+        "strike":           K,
+        "expiry":           expiry,
+        "premium":          round(premium, 4),
+        "spot_open":        c.spot,
+        "qty":              qty,
+        "days":             c.days,
+        "asset":            c.asset,
+        "broker_order_id":  order.order_id,
     }
     s["total_premium"] = s.get("total_premium", 0.0) + premium
     save_wheel_state(c.asset, s)
@@ -112,12 +146,6 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
         ),
     )
 
-    order = _place_option(
-        broker, c.asset, expiry_dt, K, "put", "sell",
-        unit_price, c.spot, label=f"CSP-{c.asset}",
-    )
-    s["open"]["broker_order_id"] = order.order_id
-
     return s["open"]
 
 
@@ -131,7 +159,7 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
     qty        = s["asset_held"] or (BUDGET_USD / c.spot)
     unit_price = bs_call(c.spot, K, T, RISK_FREE_RATE, c.iv)
     premium    = unit_price * qty
-    expiry_dt  = date.today() + timedelta(days=c.days)
+    expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
     s["stage"]  = "short_call"
@@ -146,6 +174,12 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
         "days":      c.days,
         "asset":     c.asset,
     }
+    order = _place_option(
+        broker, c.asset, expiry_dt, K, "call", "sell",
+        unit_price, c.spot, label=f"CC-{c.asset}",
+    )
+
+    s["open"]["broker_order_id"] = order.order_id
     s["total_premium"] = s.get("total_premium", 0.0) + premium
     save_wheel_state(c.asset, s)
 
@@ -168,12 +202,6 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
         ),
     )
 
-    order = _place_option(
-        broker, c.asset, expiry_dt, K, "call", "sell",
-        unit_price, c.spot, label=f"CC-{c.asset}",
-    )
-    s["open"]["broker_order_id"] = order.order_id
-
     return s["open"]
 
 
@@ -187,8 +215,17 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
     pp         = put_price  * qty
     cp         = call_price * qty
     tot        = pp + cp
-    expiry_dt  = date.today() + timedelta(days=c.days)
+    expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
+
+    put_order  = _place_option(
+        broker, c.asset, expiry_dt, Kp, "put",  "sell",
+        put_price, c.spot, label=f"STR-P-{c.asset}",
+    )
+    call_order = _place_option(
+        broker, c.asset, expiry_dt, Kc, "call", "sell",
+        call_price, c.spot, label=f"STR-C-{c.asset}",
+    )
 
     trade = create_strangle_trade(
         asset=c.asset,
@@ -211,30 +248,21 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
     s = load_strangle_state(c.asset)
     s["broker"] = broker.broker_name
     s["open"] = {
-        "put_strike":    Kp,
-        "call_strike":   Kc,
-        "total_premium": round(tot, 4),
-        "qty":           qty,
-        "expiry":        expiry,
-        "spot_open":     c.spot,
-        "days":          c.days,
-        "asset":         c.asset,
-        "trade_id":      trade.id,
+        "put_strike":           Kp,
+        "call_strike":          Kc,
+        "total_premium":        round(tot, 4),
+        "qty":                  qty,
+        "expiry":               expiry,
+        "spot_open":            c.spot,
+        "days":                 c.days,
+        "asset":                c.asset,
+        "trade_id":             trade.id,
+        "broker_put_order_id":  put_order.order_id,
+        "broker_call_order_id": call_order.order_id,
     }
     s["total_premium"] = s.get("total_premium", 0.0) + tot
     s["trades"]        = s.get("trades",        0)   + 1
     save_strangle_state(c.asset, s)
-
-    put_order  = _place_option(
-        broker, c.asset, expiry_dt, Kp, "put",  "sell",
-        put_price, c.spot, label=f"STR-P-{c.asset}",
-    )
-    call_order = _place_option(
-        broker, c.asset, expiry_dt, Kc, "call", "sell",
-        call_price, c.spot, label=f"STR-C-{c.asset}",
-    )
-    s["open"]["broker_put_order_id"]  = put_order.order_id
-    s["open"]["broker_call_order_id"] = call_order.order_id
 
     return s["open"]
 
@@ -254,10 +282,21 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     far_prem   = far_price  * qty
     net_debit  = far_prem - near_prem
 
-    expiry_near_dt = date.today() + timedelta(days=c.days)
-    expiry_far_dt  = date.today() + timedelta(days=far_days)
+    expiry_near_dt = _expiry_date(c.days)
+    expiry_far_dt  = _expiry_date(far_days)
     expiry_near    = expiry_near_dt.strftime("%d-%b-%Y")
     expiry_far     = expiry_far_dt.strftime("%d-%b-%Y")
+
+    ot = option_type.lower()
+    # Calendar: sell near leg, buy far leg
+    near_order = _place_option(
+        broker, c.asset, expiry_near_dt, K, ot, "sell",
+        near_price, c.spot, label=f"CAL-NEAR-{c.asset}",
+    )
+    far_order = _place_option(
+        broker, c.asset, expiry_far_dt,  K, ot, "buy",
+        far_price, c.spot, label=f"CAL-FAR-{c.asset}",
+    )
 
     trade = create_calendar_trade(
         asset=c.asset,
@@ -284,35 +323,24 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     s = load_calendar_state(c.asset)
     s["broker"] = broker.broker_name
     s["open"] = {
-        "strike":      K,
-        "option_type": option_type,
-        "near_prem":   round(near_prem, 4),
-        "far_prem":    round(far_prem,  4),
-        "net_debit":   round(net_debit, 4),
-        "qty":         qty,
-        "expiry_near": expiry_near,
-        "expiry_far":  expiry_far,
-        "spot_open":   c.spot,
-        "near_days":   c.days,
-        "far_days":    far_days,
-        "asset":       c.asset,
-        "trade_id":    trade.id,
+        "strike":               K,
+        "option_type":          option_type,
+        "near_prem":            round(near_prem, 4),
+        "far_prem":             round(far_prem,  4),
+        "net_debit":            round(net_debit, 4),
+        "qty":                  qty,
+        "expiry_near":          expiry_near,
+        "expiry_far":           expiry_far,
+        "spot_open":            c.spot,
+        "near_days":            c.days,
+        "far_days":             far_days,
+        "asset":                c.asset,
+        "trade_id":             trade.id,
+        "broker_near_order_id": near_order.order_id,
+        "broker_far_order_id":  far_order.order_id,
     }
     s["trades"] = s.get("trades", 0) + 1
     save_calendar_state(c.asset, s)
-
-    ot = option_type.lower()
-    # Calendar: sell near leg, buy far leg
-    near_order = _place_option(
-        broker, c.asset, expiry_near_dt, K, ot, "sell",
-        near_price, c.spot, label=f"CAL-NEAR-{c.asset}",
-    )
-    far_order = _place_option(
-        broker, c.asset, expiry_far_dt,  K, ot, "buy",
-        far_price, c.spot, label=f"CAL-FAR-{c.asset}",
-    )
-    s["open"]["broker_near_order_id"] = near_order.order_id
-    s["open"]["broker_far_order_id"]  = far_order.order_id
 
     return s["open"]
 

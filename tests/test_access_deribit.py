@@ -176,6 +176,7 @@ class TestRequest:
     def test_http_error_propagates(self):
         client = _make_client()
         mock_resp = MagicMock()
+        mock_resp.json.side_effect = ValueError("no json")
         mock_resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error")
 
         with patch("requests.get", return_value=mock_resp):
@@ -205,7 +206,7 @@ class TestPlaceOrder:
     def test_sell_limit_success(self):
         client = _make_client()
         with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_private_post", return_value=_raw_order()):
+             patch.object(client, "_private_request", return_value=_raw_order()):
             result = client.place_order("ETH-30MAY25-2000-P", "sell", 1, "limit", 0.05)
 
         assert isinstance(result, OrderResult)
@@ -229,14 +230,14 @@ class TestPlaceOrder:
         raw = _raw_order()
         raw["order"]["order_state"] = "filled"
         with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_private_post", return_value=raw):
+             patch.object(client, "_private_request", return_value=raw):
             result = client.place_order("ETH-30MAY25-2000-P", "sell", 1, "market")
         assert result.state == "filled"
 
     def test_label_passed_through(self):
         client = _make_client()
         with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_private_post", return_value=_raw_order()) as mock_post:
+             patch.object(client, "_private_request", return_value=_raw_order()) as mock_post:
             client.place_order("ETH-30MAY25-2000-P", "sell", 1, "limit", 0.05, label="wheel_csp")
 
         call_params = mock_post.call_args[0][1]
@@ -249,7 +250,7 @@ class TestCancelOrder:
     def test_cancel_returns_raw(self):
         client = _make_client()
         with patch.object(client, "_ensure_auth"), \
-             patch.object(client, "_private_post", return_value={"order_state": "cancelled"}):
+             patch.object(client, "_private_request", return_value={"order_state": "cancelled"}):
             result = client.cancel_order("ETH-123456")
         assert result["order_state"] == "cancelled"
 
@@ -323,3 +324,112 @@ class TestGetPosition:
         with patch.object(client, "_private_get", side_effect=DeribitError("Something else")):
             with pytest.raises(DeribitError):
                 client.get_position("ETH-30MAY25-2000-P")
+
+
+# ── tick helpers ─────────────────────────────────────────────────────────────
+
+class TestTickHelpers:
+    def test_effective_tick_base(self):
+        # Price below the step threshold → base tick
+        info = {"tick_size": 0.0001, "tick_size_steps": [{"above_price": 0.005, "tick_size": 0.0005}]}
+        assert DeribitClient._effective_tick(info, 0.003) == 0.0001
+
+    def test_effective_tick_stepped(self):
+        # Price above the step threshold → larger tick
+        info = {"tick_size": 0.0001, "tick_size_steps": [{"above_price": 0.005, "tick_size": 0.0005}]}
+        assert DeribitClient._effective_tick(info, 0.0226) == 0.0005
+
+    def test_effective_tick_no_steps(self):
+        info = {"tick_size": 0.0001}
+        assert DeribitClient._effective_tick(info, 0.05) == 0.0001
+
+    def test_snap_to_tick_rounds_down(self):
+        # 0.0226 → nearest 0.0005 multiple = 0.0225
+        result = DeribitClient._snap_to_tick(0.0226, 0.0005)
+        assert abs(result - 0.0225) < 1e-9
+
+    def test_snap_to_tick_rounds_up(self):
+        # 0.0228 → nearest 0.0005 multiple = 0.0230
+        result = DeribitClient._snap_to_tick(0.0228, 0.0005)
+        assert abs(result - 0.0230) < 1e-9
+
+    def test_snap_to_tick_already_valid(self):
+        result = DeribitClient._snap_to_tick(0.0225, 0.0005)
+        assert abs(result - 0.0225) < 1e-9
+
+    def test_place_order_snaps_price(self):
+        # Full integration: place_order fetches instrument info and snaps price
+        client = _make_client()
+        inst_info = {
+            "tick_size": 0.0001,
+            "tick_size_steps": [{"above_price": 0.005, "tick_size": 0.0005}],
+        }
+        with patch.object(client, "_ensure_auth"), \
+             patch.object(client, "_request", return_value=inst_info), \
+             patch.object(client, "_private_request", return_value=_raw_order()) as mock_priv:
+            client.place_order("ETH-22MAY26-2300-C", "sell", 250, "limit", 0.0226)
+        sent_price = mock_priv.call_args[0][1]["price"]
+        assert abs(sent_price - 0.0225) < 1e-9, f"expected 0.0225, got {sent_price}"
+
+
+# ── find_instrument ───────────────────────────────────────────────────────────
+
+def _inst(name: str) -> dict:
+    return {"instrument_name": name}
+
+
+class TestFindInstrument:
+    def test_snaps_to_nearest_strike_same_expiry(self):
+        client = _make_client()
+        instruments = [_inst(n) for n in [
+            "ETH-22MAY26-2200-C", "ETH-22MAY26-2300-C", "ETH-22MAY26-2400-C",
+        ]]
+        with patch.object(client, "_request", return_value=instruments):
+            result = client.find_instrument("ETH", date(2026, 5, 22), 2280.0, "call")
+        assert result == "ETH-22MAY26-2300-C"
+
+    def test_exact_match_unchanged(self):
+        client = _make_client()
+        instruments = [_inst("ETH-22MAY26-2300-C")]
+        with patch.object(client, "_request", return_value=instruments):
+            result = client.find_instrument("ETH", date(2026, 5, 22), 2300.0, "call")
+        assert result == "ETH-22MAY26-2300-C"
+
+    def test_snaps_to_nearest_expiry_when_target_missing(self):
+        # Target expiry 22MAY26 not listed; 08MAY26 is 14 days away, 29MAY26 is 7 days away.
+        client = _make_client()
+        instruments = [_inst(n) for n in [
+            "ETH-08MAY26-2300-C", "ETH-29MAY26-2300-C",
+        ]]
+        with patch.object(client, "_request", return_value=instruments):
+            result = client.find_instrument("ETH", date(2026, 5, 22), 2300.0, "call")
+        assert result == "ETH-29MAY26-2300-C"
+
+    def test_filters_correct_option_type(self):
+        client = _make_client()
+        # Only puts listed — requesting a call should fall back to computed name.
+        instruments = [_inst("ETH-22MAY26-2300-P")]
+        with patch.object(client, "_request", return_value=instruments):
+            result = client.find_instrument("ETH", date(2026, 5, 22), 2300.0, "call")
+        assert result == "ETH-22MAY26-2300-C"   # fallback
+
+    def test_network_failure_returns_computed(self):
+        client = _make_client()
+        with patch.object(client, "_request", side_effect=Exception("timeout")):
+            result = client.find_instrument("ETH", date(2026, 5, 22), 2300.0, "call")
+        assert result == "ETH-22MAY26-2300-C"
+
+    def test_linear_asset_uses_usdc_currency(self):
+        client = _make_client()
+        instruments = [_inst("SOL_USDC-22MAY26-150-P")]
+        with patch.object(client, "_request", return_value=instruments) as mock_req:
+            client.find_instrument("SOL", date(2026, 5, 22), 150.0, "put")
+        assert mock_req.call_args[0][1]["currency"] == "USDC"
+
+    def test_expired_param_is_lowercase_string(self):
+        # requests serialises Python False as "False"; Deribit requires "false".
+        client = _make_client()
+        with patch.object(client, "_request", return_value=[]) as mock_req:
+            client.find_instrument("ETH", date(2026, 5, 22), 2300.0, "call")
+        expired_param = mock_req.call_args[0][1]["expired"]
+        assert expired_param == "false", f"expected 'false', got {expired_param!r}"

@@ -9,6 +9,7 @@ OrderResult objects so callers stay platform-agnostic.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Optional
 
 
@@ -92,3 +93,20 @@ class BrokerBase(ABC):
         Return current position for the given instrument.
         Returns an empty dict if no position exists.
         """
+
+    def find_instrument(
+        self,
+        asset: str,
+        target_expiry: date,
+        strike: float,
+        option_type: str,
+    ) -> str:
+        """
+        Return the best available instrument name for the given parameters.
+
+        The default implementation builds the name from the supplied parameters
+        with no exchange lookup.  Subclasses (e.g. DeribitClient) override this
+        to snap to a listed expiry and strike.
+        """
+        from access import make_instrument
+        return make_instrument(asset, target_expiry, strike, option_type)

@@ -16,9 +16,11 @@ import pytest
 from access import OrderResult
 from trading.executor import (
     enter_trade,
-    _index_price,
+    _order_price,
     _broker_amount,
     _place_option,
+    _next_friday,
+    _expiry_date,
 )
 
 
@@ -40,8 +42,13 @@ def _order(order_id: str = "ORD-1") -> OrderResult:
 
 def _mock_broker(*order_ids, name: str = "deribit_paper") -> MagicMock:
     """Return a broker mock whose place_order returns _order instances in sequence."""
+    from access import make_instrument
     broker = MagicMock()
     type(broker).broker_name = property(lambda self: name)
+    # find_instrument returns a real instrument name so _place_option can use it.
+    broker.find_instrument.side_effect = (
+        lambda asset, expiry, strike, opt: make_instrument(asset, expiry, strike, opt)
+    )
     if len(order_ids) == 1:
         broker.place_order.return_value = _order(order_ids[0])
     else:
@@ -63,22 +70,72 @@ def _candidate(**kwargs):
     return SimpleNamespace(**defaults)
 
 
-# ── _index_price / _broker_amount ─────────────────────────────────────────────
+# ── _next_friday / _expiry_date ──────────────────────────────────────────────
+
+class TestExpiryHelpers:
+    def test_next_friday_from_friday(self):
+        fri = date(2026, 5, 15)   # a Friday
+        assert _next_friday(fri) == fri
+
+    def test_next_friday_from_tuesday(self):
+        tue = date(2026, 5, 12)   # a Tuesday
+        assert _next_friday(tue) == date(2026, 5, 15)
+
+    def test_next_friday_from_saturday(self):
+        sat = date(2026, 5, 16)   # a Saturday
+        assert _next_friday(sat) == date(2026, 5, 22)
+
+    def test_expiry_date_always_friday(self):
+        for days in [1, 7, 14, 30, 60]:
+            result = _expiry_date(days)
+            assert result.weekday() == 4, f"days={days} gave {result} ({result.strftime('%A')})"
+
+    def test_expiry_date_not_in_past(self):
+        from datetime import date as _date
+        assert _expiry_date(7) >= _date.today()
+
+
+# ── _order_price / _broker_amount ─────────────────────────────────────────────
 
 class TestHelpers:
-    def test_index_price_inverse(self):
-        # $50 option on a $2000 spot → 0.025 index price
-        assert _index_price(50.0, 2000.0) == pytest.approx(0.025, rel=1e-5)
+    def test_order_price_inverse(self):
+        # $50 option on a $2000 spot → 0.025 index price for BTC/ETH
+        assert _order_price("ETH", 50.0, 2000.0) == pytest.approx(0.025, rel=1e-4)
+        assert _order_price("BTC", 500.0, 100000.0) == pytest.approx(0.005, rel=1e-4)
+
+    def test_order_price_inverse_tick_size(self):
+        # Price must be rounded to 4 decimal places (Deribit tick = 0.0001)
+        result = _order_price("ETH", 44.342, 2000.0)
+        assert result == round(44.342 / 2000.0, 4)
+        assert len(str(result).split(".")[-1]) <= 4
+
+    def test_order_price_linear(self):
+        # Linear USDC contracts: price is the USD value directly, not divided by spot
+        assert _order_price("SOL", 5.0, 150.0) == pytest.approx(5.0, rel=1e-4)
+        assert _order_price("XRP", 0.10, 2.5) == pytest.approx(0.10, rel=1e-4)
+
+    def test_order_price_linear_tick_size(self):
+        result = _order_price("SOL", 5.12345, 150.0)
+        assert result == round(5.12345, 4)
 
     def test_broker_amount_inverse(self):
         from config import BUDGET_USD
-        assert _broker_amount("ETH", 2000.0) == float(BUDGET_USD)
-        assert _broker_amount("BTC", 50000.0) == float(BUDGET_USD)
+        result_eth = _broker_amount("ETH", 2000.0)
+        result_btc = _broker_amount("BTC", 50000.0)
+        assert result_eth == int(BUDGET_USD)
+        assert result_btc == int(BUDGET_USD)
+        assert isinstance(result_eth, int)   # must serialise without decimal point
 
-    def test_broker_amount_linear(self):
+    def test_broker_amount_linear_is_integer(self):
         from config import BUDGET_USD
         result = _broker_amount("SOL", 200.0)
-        assert result == pytest.approx(BUDGET_USD / 200.0, rel=1e-4)
+        assert result == int(BUDGET_USD / 200.0)
+        assert isinstance(result, int)
+
+    def test_broker_amount_linear_minimum_one(self):
+        result = _broker_amount("SOL", 10_000.0)
+        assert result == 1
+        assert isinstance(result, int)
 
 
 # ── Default broker ────────────────────────────────────────────────────────────

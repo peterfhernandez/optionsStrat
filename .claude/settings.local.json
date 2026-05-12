@@ -12,7 +12,8 @@
       "Bash(python -m pytest tests/test_summary.py -v)",
       "Bash(python -m pytest tests/test_wheel.py tests/test_strangle.py tests/test_calendar.py -v)",
       "Bash(python -m pytest --tb=short -q)",
-      "Bash(python -m pytest tests/test_monitor.py -x -q)"
+      "Bash(python -m pytest tests/test_monitor.py -x -q)",
+      "Bash(python -m pytest tests/test_executor.py -q)"
     ]
   }
 }

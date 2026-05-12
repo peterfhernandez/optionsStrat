@@ -29,6 +29,10 @@ except ImportError:
     print("Please run: pip install requests openpyxl colorama")
     sys.exit(1)
 
+# ── Database ──────────────────────────────────────────────────────────────────
+from models import init_db
+init_db()
+
 # ── Menu system ───────────────────────────────────────────────────────────────
 from ui.menus import run_app
 
