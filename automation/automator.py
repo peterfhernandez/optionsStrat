@@ -52,6 +52,7 @@ from database import load_wheel_state
 from database.strangle_db import load_strangle_state
 from database.calendar_db import load_calendar_state
 from strategies.scanner import Candidate, _build_candidates
+from automation.monitor import run_monitor
 
 
 # Default automation thresholds — exposed as kwargs on run_automation so
@@ -184,6 +185,8 @@ def run_automation(
         eligible   : int       — how many passed the filters before ranking
     """
     from market.market_data import get_spot_price, get_deribit_iv
+
+    run_monitor(active_spot, active_iv, days, active_asset, silent=silent, broker=broker)
 
     if not silent:
         hdr("Auto-Strategy Runner")

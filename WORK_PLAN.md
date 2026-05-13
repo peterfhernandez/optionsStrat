@@ -19,20 +19,20 @@ Steps (6 phases, 22+ steps)
 
 ## PHASE 3: Update Strategy Modules (parallel steps 8-12, depend on Phase 2)
 
-1. Introduce trading.executor to execute trades - 🔄 IN PROGRESS
-  a. execute trades with Deribit (paper only)
-  b. store data in db (refer PHASE 7)
-  c. remove anything pointing to Excel
-2. Update wheel.py — replace _save/_load/_state_file with trading.trade_persistence calls - trade persistense to be stored in db - 📌 TO DO
-3. Update strangle.py: refactor for trade_persistence and executor — same pattern - 📌 TO DO
-4. Update calendar.py — same pattern - 📌 TO DO
+1. Introduce trading.executor to execute trades - ✅ DONE
+  a. execute trades with Deribit (paper only) - ✅ DONE
+  b. store data in db (refer PHASE 7) - ✅ DONE
+  c. remove anything pointing to Excel - ✅ DONE
+2. Update wheel.py — replace _save/_load/_state_file with trading.trade_persistence calls - trade persistense to be stored in db - ✅ DONE
+3. Update strangle.py: refactor for trade_persistence and executor — same pattern - ✅ DONE
+4. Update calendar.py — same pattern - ✅ DONE
 5. Update monitor.py — use executor for auto-close - 📌 TO DO
 6. Move monitor.py to automation package - ✅ DONE
 7. Update scanner.py — add price caching from market.cache - 📌 TO DO
 
 ## PHASE 4: Update Tests & Configuration (depends on Phase 3)
 
-1. Create tests/test_trading.py — test executor (paper mode + live stubs), portfolio manager, position P&L - 📌 TO DO
+1. Create tests/test_trading.py — test executor (paper mode + live stubs), portfolio manager, position P&L - 🔄 IN PROGRESS
 2. Create tests/test_automation.py — move existing automator tests - 📌 TO DO
 3. Update conftest.py — add fixtures for new modules - 📌 TO DO
 4. Update config.py — add TRADING_MODE switch and Deribit placeholder credentials - 📌 TO DO
@@ -40,8 +40,8 @@ Steps (6 phases, 22+ steps)
 
 ## PHASE 5: Deprecation & Cleanup (depends on Phase 4)
 
-1. Deprecate crypto_options_trade.py — add comment, don't import from it - 🔄 IN PROGRESS
-2. Verify no circular dependencies — clean root module imports - 📌 TO DO
+1. Deprecate crypto_options_trade.py — add comment, don't import from it - ✅ DONE
+2. Verify no circular dependencies — clean root module imports - ✅ DONE
 3. Deprecate excel\excel.py - ✅ DONE
 
 ## PHASE 6: New Features (depends on Phase 2)
@@ -78,7 +78,7 @@ Steps (6 phases, 22+ steps)
 2. Track trading state - ✅ DONE
 3. Track open positions in db - portfolio - ✅ DONE
 4. Track historical trades - need strat, underlying, spot, premium, trading fee, p&l, and cum p&l - ✅ DONE
-5. Deprecate excel.excel - 🔄 IN PROGRESS
+5. Deprecate excel.excel - ✅ DONE
 
 ## Relevant Files
 

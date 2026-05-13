@@ -359,6 +359,11 @@ class TestEnterTrade:
 
 class TestRunAutomation:
 
+    @pytest.fixture(autouse=True)
+    def _patch_monitor(self):
+        with patch("automation.automator.run_monitor"):
+            yield
+
     def test_no_candidate_returns_status_no_candidate(self):
         """If _build_candidates yields nothing eligible, automation does
         nothing — this is the 'try again in 1 hour' contract."""
@@ -541,4 +546,21 @@ class TestRunAutomation:
         custom_broker.place_order.assert_called_once()
         s = load_wheel_state("ETH")
         assert s["broker"] == "custom_broker"
+
+    def test_monitor_is_called_before_candidate_selection(self):
+        """run_monitor must be invoked before _build_candidates."""
+        call_order = []
+        with patch("automation.automator.run_monitor",
+                   side_effect=lambda *a, **kw: call_order.append("monitor")) as mock_monitor, \
+             patch("automation.automator._build_candidates",
+                   side_effect=lambda *a, **kw: call_order.append("candidates") or []), \
+             patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("market.market_data.get_spot_price", return_value=2000.0), \
+             patch("market.market_data.get_deribit_iv",  return_value=0.80):
+            run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, silent=True,
+            )
+        assert call_order == ["monitor", "candidates"]
+        mock_monitor.assert_called_once_with(2000.0, 0.80, 7, "ETH", silent=True, broker=None)
 
