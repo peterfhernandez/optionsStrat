@@ -205,8 +205,10 @@ class DeribitClient(BrokerBase):
 
         if "error" in body:
             err = body["error"]
+            detail = err.get("data") or ""
+            suffix = f" — {detail}" if detail else ""
             raise DeribitError(
-                f"Deribit API error {err.get('code')}: {err.get('message')} "
+                f"Deribit API error {err.get('code')}: {err.get('message')}{suffix} "
                 f"(params={params})"
             )
 
@@ -314,15 +316,31 @@ class DeribitClient(BrokerBase):
             "type":            order_type,
         }
         if order_type == "limit":
-            # Fetch live tick info so we respect variable tick_size_steps.
+            # Fetch live instrument info for tick size, min_price, min_trade_amount.
+            inst_info: dict = {}
             try:
                 inst_info = self._request(
                     "public/get_instrument", {"instrument_name": instrument}
                 )
-                tick = self._effective_tick(inst_info, float(price))
-            except Exception:
-                tick = 0.0001  # safe fallback
-            params["price"] = self._snap_to_tick(float(price), tick)
+            except Exception as exc:
+                logger.warning("place_order: get_instrument failed (%s) — using fallbacks", exc)
+            tick      = self._effective_tick(inst_info, float(price)) if inst_info else 0.0001
+            min_price = float(inst_info.get("min_price", 0.0))
+            min_amt   = float(inst_info.get("min_trade_amount", 1))
+            snapped   = self._snap_to_tick(float(price), tick)
+            if snapped < min_price:
+                logger.warning(
+                    "place_order: price %.6f below min_price %.6f for %s — raising to min_price",
+                    snapped, min_price, instrument,
+                )
+                snapped = self._snap_to_tick(min_price, tick)
+            params["price"] = snapped
+            if float(amount) < min_amt:
+                logger.warning(
+                    "place_order: amount %s below min_trade_amount %s for %s — raising",
+                    amount, min_amt, instrument,
+                )
+                params["amount"] = int(min_amt) if min_amt == int(min_amt) else min_amt
         if time_in_force != "good_til_cancelled":
             # Only send time_in_force when it differs from the API default to
             # avoid validation failures on instruments that don't accept it.

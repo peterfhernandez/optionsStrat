@@ -371,6 +371,52 @@ class TestTickHelpers:
         sent_price = mock_priv.call_args[0][1]["price"]
         assert abs(sent_price - 0.0225) < 1e-9, f"expected 0.0225, got {sent_price}"
 
+    def test_place_order_raises_price_to_min_price(self):
+        # If BS price is below min_price, order price should be raised to min_price.
+        client = _make_client()
+        inst_info = {"tick_size": 0.01, "min_price": 5.0, "min_trade_amount": 1}
+        with patch.object(client, "_ensure_auth"), \
+             patch.object(client, "_request", return_value=inst_info), \
+             patch.object(client, "_private_request", return_value=_raw_order()) as mock_priv:
+            client.place_order("SOL_USDC-22MAY26-96-C", "sell", 2, "limit", 2.9)
+        sent_price = mock_priv.call_args[0][1]["price"]
+        assert abs(sent_price - 5.0) < 1e-9, f"expected min_price 5.0, got {sent_price}"
+
+    def test_place_order_raises_amount_to_min_trade_amount(self):
+        # If amount is below min_trade_amount, it should be raised to the minimum.
+        client = _make_client()
+        inst_info = {"tick_size": 0.01, "min_price": 0.0, "min_trade_amount": 10}
+        with patch.object(client, "_ensure_auth"), \
+             patch.object(client, "_request", return_value=inst_info), \
+             patch.object(client, "_private_request", return_value=_raw_order()) as mock_priv:
+            client.place_order("SOL_USDC-22MAY26-96-C", "sell", 2, "limit", 3.0)
+        sent_amount = mock_priv.call_args[0][1]["amount"]
+        assert sent_amount == 10, f"expected min_trade_amount 10, got {sent_amount}"
+
+    def test_place_order_get_instrument_failure_uses_fallback(self):
+        # If get_instrument fails, falls back to tick=0.0001 and no min constraints.
+        client = _make_client()
+        with patch.object(client, "_ensure_auth"), \
+             patch.object(client, "_request", side_effect=Exception("network error")), \
+             patch.object(client, "_private_request", return_value=_raw_order()) as mock_priv:
+            client.place_order("SOL_USDC-22MAY26-96-C", "sell", 2, "limit", 2.9)
+        sent_price = mock_priv.call_args[0][1]["price"]
+        assert abs(sent_price - 2.9) < 1e-9
+
+    def test_deribit_error_includes_data_field(self):
+        # DeribitError message should include error.data when present.
+        client = _make_client()
+        error_body = {
+            "error": {"code": -32602, "message": "Invalid params", "data": {"reason": "price_out_of_range"}}
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = error_body
+        mock_resp.ok = True
+        with patch.object(client, "_ensure_auth"), \
+             patch("requests.get", return_value=mock_resp):
+            with pytest.raises(DeribitError, match="price_out_of_range"):
+                client.place_order("SOL_USDC-22MAY26-96-C", "sell", 2, "limit", 2.9)
+
 
 # ── find_instrument ───────────────────────────────────────────────────────────
 
