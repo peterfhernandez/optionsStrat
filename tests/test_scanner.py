@@ -396,16 +396,16 @@ class TestBuildCandidates:
         return lambda *a, **kw: liquid_book
 
     def test_produces_correct_count(self):
-        """3 OTM levels × 3 strategies + 2 ATM calendar candidates = 11 per asset."""
+        """3 OTM levels × 5 strategies (CSP,CC,Strangle,BPS,BCS) + 2 ATM calendars = 17 per asset."""
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
-        assert len(results) == len(OTM_LEVELS) * 3 + 2  # +2 for Cal-C and Cal-P
+        assert len(results) == len(OTM_LEVELS) * 5 + 2
 
     def test_all_strategies_present(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
         strategies = {c.strategy for c in results}
-        assert strategies == {"CSP", "CC", "Strangle", "Cal-C", "Cal-P"}
+        assert strategies == {"CSP", "CC", "Strangle", "Cal-C", "Cal-P", "BPS", "BCS"}
 
     def test_all_otm_levels_present(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
@@ -424,7 +424,7 @@ class TestBuildCandidates:
         """Low-priced assets like XRP should still produce valid non-zero strikes."""
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("XRP", 1.40, 0.47, 7)
-        assert len(results) == len(OTM_LEVELS) * 3 + 2
+        assert len(results) == len(OTM_LEVELS) * 5 + 2
         assert all(c.asset == "XRP" for c in results)
         assert all("$0" not in c.strike for c in results if c.strategy in {"CSP", "CC", "Strangle"})
 

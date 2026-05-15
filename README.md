@@ -2,7 +2,7 @@
 
 Personal paper trading and planning tool for crypto options strategies on Deribit.
 Supports **ETH**, **BTC**, **SOL**, and **XRP** strategies.
-Built to practice the **Wheel Strategy**, **Short Strangle**, and **Calendar Spreads** before trading with real money.
+Built to practice the **Wheel Strategy**, **Short Strangle**, **Calendar Spreads**, and **Credit Spreads** before trading with real money.
 
 ---
 
@@ -25,7 +25,7 @@ Built to practice the **Wheel Strategy**, **Short Strangle**, and **Calendar Spr
 | `trading/` | Order execution and portfolio management |
 | `market/` | Market data fetching (`market_data.py`, `pricing.py`) |
 | `ui/` | User interface (`display.py`, `menus.py`) |
-| `strategies/` | Trading strategy implementations (wheel, strangle, calendar, monitor, scanner) |
+| `strategies/` | Trading strategy implementations (wheel, strangle, calendar, spread, monitor, scanner) |
 | `tests/` | Comprehensive test suite |
 
 ### Broker access layer (`access/`)
@@ -98,6 +98,7 @@ All trade data is persisted in `optionsStrat.db` (SQLite). Call `models.init_db(
 | `Single` | `singles` | Wheel strategy trades — replaces the Paper Trades Excel tab |
 | `Strangle` | `strangles` | Short strangle trades — replaces the Strangles Excel tab |
 | `Calendar` | `calendars` | Calendar spread trades — replaces the Calendars Excel tab |
+| `Spread` | `spreads` | Credit spread trades (Bull Put Spread, Bear Call Spread) |
 | `TradeState` | `trade_state` | Per-strategy, per-asset runtime state — replaces `*_state_*.json` files |
 | `TradeLedger` | `trade_ledger` | Unified trade log used for open-position and trade-history views |
 
@@ -114,6 +115,8 @@ All trade data is persisted in `optionsStrat.db` (SQLite). Call `models.init_db(
 - **Strike & premium analysis** — shows 10%, 15%, 20% OTM options with estimated premiums, annualised yield and probability of profit
 - **Wheel paper trading simulator** — tracks the full Put → Assign → Call cycle
 - **Short Strangle paper trading** — sell both sides, with a live profit zone chart
+- **Calendar Spread paper trading** — ATM call or put calendar with spread-value monitor
+- **Credit Spread paper trading** — Bull Put Spread (BPS) and Bear Call Spread (BCS) with max-loss bar
 - **Portfolio view** — list open positions with live unrealised P&L
 - **Stop-loss monitor** — warns at 1.5x and triggers at 2.0x premium (adjustable), take-profit at 5% remaining value (>2 days from expiry)
 - **Daily or weekly expiry** — switchable in the menu
@@ -155,6 +158,40 @@ Step 6 → If called away: sell the asset at strike. Cycle complete. Go to Step 
 - Supported assets: ETH, BTC, SOL, XRP
 
 **Note on Deribit:** Most options on Deribit are *cash-settled* — you don't automatically receive the asset on assignment. If assigned, buy the asset spot manually to continue the wheel.
+
+---
+
+### 4. Credit Spreads (Bull Put Spread / Bear Call Spread)
+Sell an OTM option and buy a further OTM option at the same expiry. Limits both max profit and max loss.
+
+**Bull Put Spread (BPS)** — bullish/neutral outlook:
+```
+Sell put at strike A (e.g. 10% OTM)
+Buy  put at strike B (e.g. 15% OTM, lower)
+→ Collect net credit (A premium − B premium)
+→ Max profit = net credit (if spot > strike A at expiry)
+→ Max loss   = (A − B) × qty − net credit
+→ Breakeven  = A − (net credit / qty)
+```
+
+**Bear Call Spread (BCS)** — bearish/neutral outlook:
+```
+Sell call at strike A (e.g. 10% OTM above spot)
+Buy  call at strike B (e.g. 15% OTM above spot, higher)
+→ Collect net credit (A premium − B premium)
+→ Max profit = net credit (if spot < strike A at expiry)
+→ Max loss   = (B − A) × qty − net credit
+→ Breakeven  = A + (net credit / qty)
+```
+
+**Key advantage over naked shorts:** max loss is bounded — you can never lose more than the strike width minus the credit received, regardless of how far the market moves.
+
+**Monitor thresholds:**
+- **75% of max loss** — warning displayed
+- **100% of max loss** — auto stop-loss triggered
+- **≤10% of credit remaining** — auto take-profit (position nearly worthless)
+
+**Spread width:** configurable via `SPREAD_WIDTH_PCT` in `config.py` (default 5% OTM offset for the long protection leg).
 
 ---
 
@@ -257,7 +294,7 @@ Every candidate the scanner produces carries a liquidity tag derived from Deribi
 | **Low** | Anything thinner — wider spreads, harder fills |
 | _blank_ | Order book unavailable — automator treats as unrated, ineligible |
 
-For multi-leg trades (Strangle, Cal-C, Cal-P) the tag is the **worst-of-legs** roll-up:
+For multi-leg trades (Strangle, Cal-C, Cal-P, BPS, BCS) the tag is the **worst-of-legs** roll-up:
 the smallest open interest, the smallest 24h volume, and the widest IV spread across
 the two legs. A trade is only as fillable as its weakest leg, so the rating reflects
 that bottleneck rather than averaging it away. If either leg's book is missing, the
@@ -346,4 +383,4 @@ This tool is for **personal paper trading and education only**.
 
 ---
 
-*Last updated: May 2026*
+*Last updated: May 2026 — added Credit Spread strategy (BPS / BCS)*

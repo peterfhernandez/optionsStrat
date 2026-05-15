@@ -20,6 +20,13 @@ from .calendar_db import (
     close_calendar_trade,
     get_calendar_stats,
 )
+from .spread_db import (
+    load_spread_state,
+    save_spread_state,
+    create_spread_trade,
+    close_spread_trade,
+    get_spread_stats,
+)
 
 __all__ = [
     "load_wheel_state",
@@ -37,4 +44,9 @@ __all__ = [
     "create_calendar_trade",
     "close_calendar_trade",
     "get_calendar_stats",
+    "load_spread_state",
+    "save_spread_state",
+    "create_spread_trade",
+    "close_spread_trade",
+    "get_spread_stats",
 ]

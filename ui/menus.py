@@ -23,6 +23,7 @@ import strategies.scanner as scanner
 from strategies.wheel import show_strikes, wheel_paper_menu
 from strategies.strangle import show_strangle_analysis, strangle_paper_menu
 from strategies.calendar import show_calendar_analysis, calendar_paper_menu
+from strategies.spread import show_spread_analysis, spread_paper_menu
 from strategies.summary import show_summary
 from automation.monitor import run_monitor
 from trading.portfolio import collect_open_positions
@@ -206,7 +207,9 @@ def strategies_menu(
   {CY}[4]{R}  Strangle — paper trading simulator
   {CY}[5]{R}  Calendar Spread — analysis + P&L chart
   {CY}[6]{R}  Calendar Spread — paper trading simulator
-  {CY}[7]{R}  Record live trade  {GY}(wheel){R}
+  {CY}[7]{R}  Credit Spread — analysis (BPS / BCS)
+  {CY}[8]{R}  Credit Spread — paper trading simulator
+  {CY}[9]{R}  Record live trade  {GY}(wheel){R}
   {CY}[M]{R}  Monitor all positions
   {CY}[Y]{R}  Set minimum yield filter  {GY}(currently {scanner.MIN_YIELD_PCT:.0f}%/yr){R}
   {CY}[R]{R}  Recommendations scanner
@@ -241,6 +244,12 @@ def strategies_menu(
             )
 
         elif choice == "7":
+            show_spread_analysis(asset, spot, iv, days)
+
+        elif choice == "8":
+            spread_paper_menu(asset, spot, iv, days)
+
+        elif choice == "9":
             warn("Live trade recording not yet wired — use the original tool for now.")
 
         elif choice == "M":
@@ -260,7 +269,7 @@ def strategies_menu(
             break
 
         else:
-            warn("Invalid choice — enter 0–7, Y or R")
+            warn("Invalid choice — enter 0–9, M, Y or R")
 
 
 # ── Main menu ─────────────────────────────────────────────────────────────────

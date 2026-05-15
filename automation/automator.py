@@ -51,6 +51,7 @@ from trading.executor import enter_trade
 from database import load_wheel_state
 from database.strangle_db import load_strangle_state
 from database.calendar_db import load_calendar_state
+from database.spread_db import load_spread_state
 from strategies.scanner import Candidate, _build_candidates
 from automation.monitor import run_monitor
 
@@ -136,6 +137,11 @@ def _blocked_strategies(asset: str) -> set[str]:
     c = load_calendar_state(asset)
     if c.get("open"):
         blocked.update({"Cal-C", "Cal-P"})
+
+    # Spread state from database
+    sp = load_spread_state(asset)
+    if sp.get("open"):
+        blocked.update({"BPS", "BCS"})
 
     return blocked
 

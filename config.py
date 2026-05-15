@@ -92,6 +92,12 @@ CALENDAR_NEAR_DAYS = 7    # near (short) leg expiry for calendar spreads (days)
 CALENDAR_FAR_DAYS  = 30   # far  (long)  leg expiry for calendar spreads (days)
 CALENDAR_STOP_PCT  = 0.50 # stop if spread value drops to 50% of net debit paid
 
+# ── Credit Spread ─────────────────────────────────────────────────────────────
+
+# Width of the spread as a fraction of the short strike OTM distance.
+# Example: OTM_LEVELS=[0.10] short at 10% OTM → long at 15% OTM (width=0.05)
+SPREAD_WIDTH_PCT   = 0.05   # additional OTM offset for the long (protection) leg
+
 # Cycle order for the main-menu toggles ([4] near leg, [5] far leg).
 # Pressing the toggle steps through these in order; when the current
 # value isn't in the list the toggle resets to the first one.

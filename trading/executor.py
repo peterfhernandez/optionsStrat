@@ -25,12 +25,13 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from config import (
-    BUDGET_USD, RISK_FREE_RATE, CALENDAR_FAR_DAYS, DERIBIT_PAPER,
+    BUDGET_USD, RISK_FREE_RATE, CALENDAR_FAR_DAYS, SPREAD_WIDTH_PCT, DERIBIT_PAPER,
 )
 from database import load_wheel_state, save_wheel_state, create_single_trade
 from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
 from database.calendar_db import load_calendar_state, save_calendar_state, create_calendar_trade
-from market.pricing import bs_put, bs_call
+from database.spread_db import load_spread_state, save_spread_state, create_spread_trade
+from market.pricing import bs_put, bs_call, round_strike
 from access import BrokerBase, OrderResult, make_instrument, DeribitClient
 
 # Assets whose Deribit contracts are inverse (amount = USD notional).
@@ -345,6 +346,87 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     return s["open"]
 
 
+def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
+    """Open a credit spread (BPS or BCS) position."""
+    from config import SUPPORTED_ASSETS
+    spread_type = c.strategy   # "BPS" | "BCS"
+    otm         = c.otm_pct
+    width       = SPREAD_WIDTH_PCT
+    cfg         = SUPPORTED_ASSETS[c.asset]
+    strike_rnd  = cfg["strike_round"]
+
+    if spread_type == "BPS":
+        short_k = round_strike(c.spot * (1 - otm),          strike_rnd)
+        long_k  = round_strike(c.spot * (1 - otm - width),  strike_rnd)
+        short_p = bs_put(c.spot, short_k, T, RISK_FREE_RATE, c.iv)
+        long_p  = bs_put(c.spot, long_k,  T, RISK_FREE_RATE, c.iv)
+        otype   = "put"
+    else:  # BCS
+        short_k = round_strike(c.spot * (1 + otm),          strike_rnd)
+        long_k  = round_strike(c.spot * (1 + otm + width),  strike_rnd)
+        short_p = bs_call(c.spot, short_k, T, RISK_FREE_RATE, c.iv)
+        long_p  = bs_call(c.spot, long_k,  T, RISK_FREE_RATE, c.iv)
+        otype   = "call"
+
+    qty        = BUDGET_USD / c.spot
+    net_credit = (short_p - long_p) * qty
+    max_loss   = abs(short_k - long_k) * qty - net_credit
+    expiry_dt  = _expiry_date(c.days)
+    expiry     = expiry_dt.strftime("%d-%b-%Y")
+
+    short_order = _place_option(
+        broker, c.asset, expiry_dt, short_k, otype, "sell",
+        short_p, c.spot, label=f"SPR-S-{c.asset}",
+    )
+    long_order = _place_option(
+        broker, c.asset, expiry_dt, long_k, otype, "buy",
+        long_p, c.spot, label=f"SPR-L-{c.asset}",
+    )
+
+    trade = create_spread_trade(
+        asset=c.asset,
+        spread_type=spread_type,
+        date_open=date.today(),
+        short_strike=short_k,
+        long_strike=long_k,
+        spot_open=c.spot,
+        net_credit=round(net_credit, 4),
+        max_loss=round(max_loss, 4),
+        qty=qty,
+        days=c.days,
+        expiry=expiry,
+        broker=broker.broker_name,
+        notes=(
+            f"AUTO {c.asset} {spread_type}, {c.days}d, "
+            f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
+            f"liq={c.liquidity_tag or 'N/A'}"
+        ),
+    )
+
+    s = load_spread_state(c.asset)
+    s["broker"] = broker.broker_name
+    s["open"] = {
+        "spread_type":            spread_type,
+        "short_strike":           short_k,
+        "long_strike":            long_k,
+        "net_credit":             round(net_credit, 4),
+        "max_loss":               round(max_loss, 4),
+        "qty":                    qty,
+        "expiry":                 expiry,
+        "spot_open":              c.spot,
+        "days":                   c.days,
+        "asset":                  c.asset,
+        "trade_id":               trade.id,
+        "broker_short_order_id":  short_order.order_id,
+        "broker_long_order_id":   long_order.order_id,
+    }
+    s["net_credit"] = s.get("net_credit", 0.0) + net_credit
+    s["trades"]     = s.get("trades", 0) + 1
+    save_spread_state(c.asset, s)
+
+    return s["open"]
+
+
 def enter_trade(
     c,
     days: Optional[int] = None,
@@ -380,6 +462,8 @@ def enter_trade(
         return _enter_strangle(c, T, broker)
     if c.strategy in ("Cal-C", "Cal-P"):
         return _enter_calendar(c, T, broker)
+    if c.strategy in ("BPS", "BCS"):
+        return _enter_spread(c, T, broker)
 
     raise ValueError(f"Unsupported strategy '{c.strategy}'")
 
@@ -456,3 +540,31 @@ def close_calendar_position(
     near_order = broker.place_order(near_instr, "buy",  amount, "market", label=f"CLOSE-CAL-NEAR-{asset}")
     far_order  = broker.place_order(far_instr,  "sell", amount, "market", label=f"CLOSE-CAL-FAR-{asset}")
     return near_order, far_order
+
+
+def close_spread_position(
+    op: dict, broker: BrokerBase, spot: float
+) -> "tuple[OrderResult, OrderResult]":
+    """
+    Close a credit spread: buy back the short leg and sell back the long leg.
+
+    Returns (short_order, long_order).
+    """
+    asset      = op["asset"]
+    expiry_dt  = _parse_expiry(op["expiry"])
+    amount     = _broker_amount(asset, spot)
+    spread_type = op["spread_type"]
+    ot         = "put" if spread_type == "BPS" else "call"
+
+    short_instr = make_instrument(asset, expiry_dt, op["short_strike"], ot)
+    long_instr  = make_instrument(asset, expiry_dt, op["long_strike"],  ot)
+
+    # Buy back the short leg (close our short position)
+    short_order = broker.place_order(
+        short_instr, "buy", amount, "market", label=f"CLOSE-SPR-S-{asset}"
+    )
+    # Sell back the long leg (close our long protection)
+    long_order = broker.place_order(
+        long_instr, "sell", amount, "market", label=f"CLOSE-SPR-L-{asset}"
+    )
+    return short_order, long_order

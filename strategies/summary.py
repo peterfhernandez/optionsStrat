@@ -18,6 +18,7 @@ from database import get_wheel_stats, get_strangle_stats, get_calendar_stats
 from database import load_wheel_state
 from database.strangle_db import load_strangle_state
 from database.calendar_db import load_calendar_state
+from database.spread_db import load_spread_state, get_spread_stats
 from ui.display import hdr, sub, inf
 from access import BrokerBase, DeribitClient
 
@@ -69,6 +70,20 @@ def _show_open_positions() -> None:
             )
             any_open = True
 
+        sp = load_spread_state(asset)
+        if sp.get("open"):
+            op     = sp["open"]
+            broker = sp.get("broker", "—")
+            inf(
+                f"  {asset} {op.get('spread_type', 'Spread')}",
+                f"short ${op.get('short_strike', 0):,.2f} / "
+                f"long ${op.get('long_strike', 0):,.2f}  "
+                f"expiry {op.get('expiry', '?')}  "
+                f"credit ${op.get('net_credit', 0):.2f}  "
+                f"broker {broker}",
+            )
+            any_open = True
+
     if not any_open:
         inf("No open positions", "")
 
@@ -96,6 +111,7 @@ def show_summary(broker: BrokerBase | None = None) -> None:
         ("Wheel (Singles)", get_wheel_stats()),
         ("Strangles",       get_strangle_stats()),
         ("Calendars",       get_calendar_stats()),
+        ("Credit Spreads",  get_spread_stats()),
     ]
 
     for label, stats in sections:
@@ -103,10 +119,12 @@ def show_summary(broker: BrokerBase | None = None) -> None:
         if stats["trades"] == 0:
             inf("No trades yet", "")
             continue
-        pnl_key   = "total_pnl"   if "total_pnl"  in stats else "total_premium"
-        avg_key   = "avg_pnl"     if "avg_pnl"    in stats else "avg_premium"
-        pnl_label = "Total P&L"   if "total_pnl"  in stats else "Total Premium"
-        avg_label = "Avg P&L"     if "avg_pnl"    in stats else "Avg Premium"
+        if "total_pnl" in stats:
+            pnl_key, pnl_label, avg_key, avg_label = "total_pnl",    "Total P&L",     "avg_pnl",    "Avg P&L"
+        elif "total_credit" in stats:
+            pnl_key, pnl_label, avg_key, avg_label = "total_credit", "Total Credit",  "avg_credit", "Avg Credit"
+        else:
+            pnl_key, pnl_label, avg_key, avg_label = "total_premium","Total Premium", "avg_premium","Avg Premium"
         inf("Trades",        str(stats["trades"]))
         inf("Wins / Losses", f"{stats['wins']} / {stats['losses']}")
         inf("Win Rate",      f"{stats['win_rate']:.1f}%" if stats["trades"] else "N/A")

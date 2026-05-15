@@ -41,9 +41,13 @@ from ui.display import ok, warn, err, hdr, inf, sub, GR, RD, YL, CY, WH, GY, R
 from database.strangle_db import load_strangle_state, save_strangle_state, close_strangle_trade
 from database.calendar_db import load_calendar_state, save_calendar_state, close_calendar_trade
 from database.wheel_db import load_wheel_state, save_wheel_state, close_single_trade
+from database.spread_db import load_spread_state, save_spread_state, close_spread_trade
 from models import get_session, Single
 from access import BrokerBase, DeribitClient
-from trading.executor import close_wheel_position, close_strangle_position, close_calendar_position
+from trading.executor import (
+    close_wheel_position, close_strangle_position,
+    close_calendar_position, close_spread_position,
+)
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -433,6 +437,114 @@ def _check_calendar(
     return True
 
 
+# ── Credit Spread checker ─────────────────────────────────────────────────────
+
+def _check_spread(
+    asset: str,
+    spot: float,
+    iv: float,
+    silent: bool,
+    broker: BrokerBase | None = None,
+) -> bool:
+    """
+    Evaluate an open credit spread position and auto-close if thresholds are met.
+
+    Checks in priority order:
+      1. Expiry reached   → close at intrinsic value
+      2. Stop-loss hit    → cost to close ≥ max_loss
+      3. Take-profit hit  → cost to close ≤ 10% of original credit
+
+    Returns True if a close was triggered, False otherwise.
+    """
+    state = load_spread_state(asset)
+    if not state.get("open"):
+        return False
+
+    op          = state["open"]
+    spread_type = op["spread_type"]
+    short_k     = op["short_strike"]
+    long_k      = op["long_strike"]
+    net_credit  = op["net_credit"]
+    max_loss    = op["max_loss"]
+    qty         = op["qty"]
+    days_left   = _days_remaining(op.get("expiry", ""))
+    T           = max(days_left / 365.0, 1 / 365.0)
+
+    # Current cost to close the spread (short_val - long_val)
+    if spread_type == "BPS":
+        short_val = bs_put(spot, short_k, T, RISK_FREE_RATE, iv) * qty
+        long_val  = bs_put(spot, long_k,  T, RISK_FREE_RATE, iv) * qty
+    else:
+        short_val = bs_call(spot, short_k, T, RISK_FREE_RATE, iv) * qty
+        long_val  = bs_call(spot, long_k,  T, RISK_FREE_RATE, iv) * qty
+    cur_cost = max(short_val - long_val, 0.0)
+    pnl      = net_credit - cur_cost
+
+    trigger = None
+    result  = None
+    note    = None
+
+    if days_left == 0:
+        if spread_type == "BPS":
+            short_int = max(short_k - spot, 0) * qty
+            long_int  = max(long_k  - spot, 0) * qty
+        else:
+            short_int = max(spot - short_k, 0) * qty
+            long_int  = max(spot - long_k,  0) * qty
+        pnl     = net_credit - short_int + long_int
+        trigger = "EXPIRY"
+        result  = "Win" if pnl >= 0 else "Loss"
+        note    = f"Auto-closed at expiry. P&L: ${pnl:.2f}"
+
+    elif max_loss > 0 and cur_cost >= max_loss:
+        trigger = "STOP-LOSS"
+        result  = "Loss (Auto Stop)"
+        note    = f"Auto stop-loss — close cost ${cur_cost:.2f} ≥ max loss ${max_loss:.2f}. P&L: ${pnl:.2f}"
+
+    elif net_credit > 0 and cur_cost <= net_credit * 0.10 and days_left >= MIN_DAYS_FOR_TP:
+        trigger = "TAKE-PROFIT"
+        result  = "Win (Auto TP)"
+        note    = f"Auto take-profit — {pnl/net_credit*100:.0f}% of credit captured. P&L: ${pnl:.2f}"
+
+    if trigger is None:
+        if not silent:
+            col = GR if pnl >= 0 else RD
+            inf(f"  {asset} {spread_type}",
+                f"close_cost=${cur_cost:.2f}  P&L={col}${pnl:.2f}{R}  "
+                f"{days_left}d left  → No action")
+        return False
+
+    col      = GR if pnl >= 0 else RD
+    trig_col = RD if trigger == "STOP-LOSS" else YL if trigger == "EXPIRY" else GR
+    print(f"\n  {trig_col}⚡ AUTO-CLOSE [{trigger}] {asset} {spread_type}{R}")
+    print(f"  Short ${short_k:,.2f} / Long ${long_k:,.2f}  |  "
+          f"Credit: ${net_credit:.2f}  |  P&L: {col}${pnl:.2f}{R}")
+
+    if broker is not None:
+        if _try_broker_close(close_spread_position, op, broker, spot, label="spread") == _BROKER_ABORT:
+            return False
+
+    trade_id = op.get("trade_id")
+    if trade_id:
+        close_spread_trade(
+            trade_id,
+            date_close=date.today(),
+            spot_close=spot,
+            pnl=round(pnl, 4),
+            result=result,
+            notes=note,
+        )
+
+    if pnl >= 0:
+        state["wins"]   = state.get("wins", 0) + 1
+    else:
+        state["losses"] = state.get("losses", 0) + 1
+    state["open"] = None
+    save_spread_state(asset, state)
+    ok(f"{asset} {spread_type} spread auto-closed and logged to database.")
+    return True
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 #
 # To add a new strategy, append a checker function here.
@@ -443,6 +555,7 @@ _REGISTRY = [
     _check_strangle,
     _check_wheel,
     _check_calendar,
+    _check_spread,
 ]
 
 

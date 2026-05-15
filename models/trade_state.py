@@ -4,6 +4,7 @@ from .base import Base
 STRATEGY_WHEEL = "wheel"
 STRATEGY_STRANGLE = "strangle"
 STRATEGY_CALENDAR = "calendar"
+STRATEGY_SPREAD = "spread"
 
 STAGE_NO_POSITION = "no_position"
 STAGE_SHORT_PUT = "short_put"

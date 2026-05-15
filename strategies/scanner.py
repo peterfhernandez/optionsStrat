@@ -35,7 +35,7 @@ import math
 from database.scanner_db import save_scan_results
 from config  import (
     SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
-    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, DERIBIT_PAPER,
+    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, SPREAD_WIDTH_PCT, DERIBIT_PAPER,
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
 from ui.display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
@@ -395,6 +395,62 @@ def _build_candidates(
                 volume_usd    = liq_cal["volume_usd"],
                 iv_spread     = liq_cal["iv_spread"],
                 liquidity_tag = liq_cal["liquidity_tag"],
+            ))
+
+    # ── Credit Spreads (BPS + BCS per OTM level) ─────────────────────────────
+    for otm in OTM_LEVELS:
+        for stype, bs_short, bs_long, side_short, side_long in (
+            ("BPS", bs_put,  bs_put,  "put",  "put"),
+            ("BCS", bs_call, bs_call, "call", "call"),
+        ):
+            width = SPREAD_WIDTH_PCT
+            if stype == "BPS":
+                short_k = _round_strike(spot * (1 - otm),         strike_round)
+                long_k  = _round_strike(spot * (1 - otm - width), strike_round)
+            else:
+                short_k = _round_strike(spot * (1 + otm),         strike_round)
+                long_k  = _round_strike(spot * (1 + otm + width), strike_round)
+
+            qty_sp    = BUDGET_USD / spot
+            short_p   = bs_short(spot, short_k, T, r, iv)
+            long_p    = bs_long (spot, long_k,  T, r, iv)
+            net_cr    = (short_p - long_p) * qty_sp
+            max_ls    = abs(short_k - long_k) * qty_sp - net_cr
+            cap_req   = max_ls + net_cr   # capital at risk = max_loss
+            yld_sp    = (net_cr / cap_req * (365 / days) * 100) if cap_req > 0 else 0.0
+
+            if stype == "BPS":
+                pop_sp = prob_otm_put(spot, short_k, T, r, iv) * 100
+            else:
+                pop_sp = prob_otm_call(spot, short_k, T, r, iv) * 100
+
+            # Worst-of-legs liquidity
+            short_book = _fetch_liquidity(ticker, spot, days, strike_round, otm, side_short)
+            long_book  = _fetch_liquidity(
+                ticker, spot, days, strike_round, otm + width, side_long
+            )
+            liq_sp = _combine_liquidity_legs(short_book, long_book)
+
+            candidates.append(Candidate(
+                asset         = asset,
+                strategy      = stype,
+                otm_pct       = otm,
+                spot          = spot,
+                iv            = iv,
+                strike        = (
+                    f"{_format_strike(short_k, strike_round)}"
+                    f"/{_format_strike(long_k, strike_round)}"
+                ),
+                premium       = round(net_cr, 2),
+                yield_ann     = round(yld_sp, 1),
+                prob_profit   = round(pop_sp, 1),
+                days          = days,
+                put_strike    = short_k if stype == "BPS" else None,
+                call_strike   = short_k if stype == "BCS" else None,
+                open_interest = liq_sp["open_interest"],
+                volume_usd    = liq_sp["volume_usd"],
+                iv_spread     = liq_sp["iv_spread"],
+                liquidity_tag = liq_sp["liquidity_tag"],
             ))
 
     return candidates
