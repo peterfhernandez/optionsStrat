@@ -165,6 +165,41 @@ def close_spread_trade(
             session.close()
 
 
+_CLOSED_RESULTS = ("Win", "Loss", "Win (Auto TP)", "Loss (Auto Stop)", "Expired")
+
+
+def get_open_spreads(asset: Optional[str] = None, session: Optional[Session] = None) -> list[Spread]:
+    """Return all Spread rows with result='Open' from the spreads table."""
+    close_session = session is None
+    if session is None:
+        session = get_session()
+
+    try:
+        query = session.query(Spread).filter(Spread.result == "Open")
+        if asset:
+            query = query.filter(Spread.asset == asset)
+        return query.order_by(Spread.date_open).all()
+    finally:
+        if close_session:
+            session.close()
+
+
+def get_spread_history(asset: Optional[str] = None, session: Optional[Session] = None) -> list[Spread]:
+    """Return all closed Spread rows from the spreads table, newest first."""
+    close_session = session is None
+    if session is None:
+        session = get_session()
+
+    try:
+        query = session.query(Spread).filter(Spread.result.in_(_CLOSED_RESULTS))
+        if asset:
+            query = query.filter(Spread.asset == asset)
+        return query.order_by(Spread.date_close.desc()).all()
+    finally:
+        if close_session:
+            session.close()
+
+
 def get_spread_stats(asset: Optional[str] = None, session: Optional[Session] = None) -> dict:
     """
     Get performance statistics for closed credit spread trades.

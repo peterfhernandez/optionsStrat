@@ -10,18 +10,21 @@ Market data and pricing functions are patched to avoid network calls.
 Coverage
 --------
 collect_open_positions : empty DB returns [], DB state returns summaries
-_position_summary      : Wheel / Strangle / Calendar P&L shapes
+_position_summary      : Wheel / Strangle / Calendar / Spread P&L shapes
+collect_spread_history : returns closed spread rows
 show_portfolio         : prints expected headers and position rows
 """
 
 import pytest
+from datetime import date
 from unittest.mock import patch
 
 from trading import portfolio
-from trading.portfolio import collect_open_positions
+from trading.portfolio import collect_open_positions, collect_spread_history
 from database.wheel_db import save_wheel_state
 from database.strangle_db import save_strangle_state
 from database.calendar_db import save_calendar_state
+from database.spread_db import create_spread_trade, close_spread_trade
 
 
 # ── Shared fixtures ───────────────────────────────────────────────────────────
@@ -180,6 +183,148 @@ def test_failed_price_fetch_returns_position_with_no_pnl(monkeypatch, wheel_open
 
 
 # ── show_portfolio ────────────────────────────────────────────────────────────
+
+def test_returns_spread_open_position(monkeypatch):
+    """Open spread in spreads table appears in collect_open_positions."""
+    monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})
+    monkeypatch.setattr(portfolio, "get_spot_price", lambda asset: 2000.0)
+    monkeypatch.setattr(portfolio, "get_deribit_iv", lambda asset, spot, days: 0.80)
+    monkeypatch.setattr(portfolio, "bs_put",  lambda spot, strike, T, r, iv: 5.0)
+    monkeypatch.setattr(portfolio, "bs_call", lambda spot, strike, T, r, iv: 3.0)
+
+    create_spread_trade(
+        asset="ETH",
+        spread_type="BPS",
+        date_open=date(2099, 1, 1),
+        short_strike=1800.0,
+        long_strike=1700.0,
+        spot_open=2000.0,
+        net_credit=30.0,
+        max_loss=70.0,
+        qty=1.0,
+        days=7,
+        expiry="01-Jan-2099",
+    )
+
+    positions = collect_open_positions()
+    spread = next((p for p in positions if p["strategy"] == "Spread"), None)
+    assert spread is not None
+    assert spread["position"] == "Bull Put Spread"
+    assert spread["strike"] == "$1,800/$1,700"
+    # current_value = (bs_put(short) - bs_put(long)) * qty = (5-5)*1 = 0 → pnl = 30
+    assert spread["unrealised_pnl"] == pytest.approx(30.0)
+
+
+def test_spread_position_no_pnl_when_price_unavailable(monkeypatch):
+    """Spread with no spot price → unrealised_pnl is None."""
+    monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})
+    monkeypatch.setattr(portfolio, "get_spot_price", lambda asset: None)
+
+    create_spread_trade(
+        asset="ETH",
+        spread_type="BCS",
+        date_open=date(2099, 1, 1),
+        short_strike=2200.0,
+        long_strike=2300.0,
+        spot_open=2000.0,
+        net_credit=20.0,
+        max_loss=80.0,
+        qty=1.0,
+        days=7,
+        expiry="01-Jan-2099",
+    )
+
+    positions = collect_open_positions()
+    spread = next((p for p in positions if p["strategy"] == "Spread"), None)
+    assert spread is not None
+    assert spread["unrealised_pnl"] is None
+    assert spread["position"] == "Bear Call Spread"
+
+
+def test_collect_spread_history_returns_closed_trades(monkeypatch):
+    """collect_spread_history returns only closed spreads from spreads table."""
+    monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})
+
+    trade = create_spread_trade(
+        asset="ETH",
+        spread_type="BPS",
+        date_open=date(2025, 1, 1),
+        short_strike=1800.0,
+        long_strike=1700.0,
+        spot_open=2000.0,
+        net_credit=30.0,
+        max_loss=70.0,
+        qty=1.0,
+        days=7,
+        expiry="08-Jan-2025",
+    )
+    close_spread_trade(
+        trade_id=trade.id,
+        date_close=date(2025, 1, 8),
+        spot_close=1900.0,
+        pnl=30.0,
+        result="Win",
+    )
+
+    history = collect_spread_history("ETH")
+    assert len(history) == 1
+    assert history[0]["result"] == "Win"
+    assert history[0]["pnl"] == pytest.approx(30.0)
+    assert history[0]["asset"] == "ETH"
+
+
+def test_collect_spread_history_excludes_open_trades(monkeypatch):
+    """Open spreads are excluded from history."""
+    monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})
+
+    create_spread_trade(
+        asset="ETH",
+        spread_type="BPS",
+        date_open=date(2099, 1, 1),
+        short_strike=1800.0,
+        long_strike=1700.0,
+        spot_open=2000.0,
+        net_credit=30.0,
+        max_loss=70.0,
+        qty=1.0,
+        days=7,
+        expiry="01-Jan-2099",
+    )
+
+    history = collect_spread_history("ETH")
+    assert history == []
+
+
+def test_returns_all_four_strategies(
+    monkeypatch, wheel_open_state, strangle_open_state, calendar_open_state
+):
+    monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})
+    monkeypatch.setattr(portfolio, "get_spot_price", lambda asset: 2000.0)
+    monkeypatch.setattr(portfolio, "get_deribit_iv", lambda asset, spot, days: 0.80)
+    monkeypatch.setattr(portfolio, "bs_put",  lambda spot, strike, T, r, iv: 2.0)
+    monkeypatch.setattr(portfolio, "bs_call", lambda spot, strike, T, r, iv: 3.0)
+
+    save_wheel_state("ETH", wheel_open_state)
+    save_strangle_state("ETH", strangle_open_state)
+    save_calendar_state("ETH", calendar_open_state)
+    create_spread_trade(
+        asset="ETH",
+        spread_type="BPS",
+        date_open=date(2099, 1, 1),
+        short_strike=1800.0,
+        long_strike=1700.0,
+        spot_open=2000.0,
+        net_credit=30.0,
+        max_loss=70.0,
+        qty=1.0,
+        days=7,
+        expiry="01-Jan-2099",
+    )
+
+    positions = collect_open_positions()
+    strategies = {p["strategy"] for p in positions}
+    assert strategies == {"Wheel", "Strangle", "Calendar", "Spread"}
+
 
 def test_show_portfolio_prints_headers(monkeypatch, mock_wb, wheel_open_state, capsys):
     monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})

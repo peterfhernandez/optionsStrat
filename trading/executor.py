@@ -124,6 +124,7 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
         "days":             c.days,
         "asset":            c.asset,
         "broker_order_id":  order.order_id,
+        "instrument":       order.instrument,
     }
     s["total_premium"] = s.get("total_premium", 0.0) + premium
     save_wheel_state(c.asset, s)
@@ -181,6 +182,7 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
     )
 
     s["open"]["broker_order_id"] = order.order_id
+    s["open"]["instrument"]      = order.instrument
     s["total_premium"] = s.get("total_premium", 0.0) + premium
     save_wheel_state(c.asset, s)
 
@@ -260,6 +262,8 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
         "trade_id":             trade.id,
         "broker_put_order_id":  put_order.order_id,
         "broker_call_order_id": call_order.order_id,
+        "put_instrument":       put_order.instrument,
+        "call_instrument":      call_order.instrument,
     }
     s["total_premium"] = s.get("total_premium", 0.0) + tot
     s["trades"]        = s.get("trades",        0)   + 1
@@ -339,6 +343,8 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
         "trade_id":             trade.id,
         "broker_near_order_id": near_order.order_id,
         "broker_far_order_id":  far_order.order_id,
+        "near_instrument":      near_order.instrument,
+        "far_instrument":       far_order.instrument,
     }
     s["trades"] = s.get("trades", 0) + 1
     save_calendar_state(c.asset, s)
@@ -419,6 +425,8 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
         "trade_id":               trade.id,
         "broker_short_order_id":  short_order.order_id,
         "broker_long_order_id":   long_order.order_id,
+        "short_instrument":       short_order.instrument,
+        "long_instrument":        long_order.instrument,
     }
     s["net_credit"] = s.get("net_credit", 0.0) + net_credit
     s["trades"]     = s.get("trades", 0) + 1
@@ -490,12 +498,9 @@ def close_wheel_position(op: dict, broker: BrokerBase, spot: float) -> "OrderRes
     broker: Broker adapter (same one used to open the trade).
     spot:   Current spot price (used to compute contract amount).
     """
-    asset     = op["asset"]
-    opt_type  = op["type"].lower()   # "put" | "call"
-    expiry_dt = _parse_expiry(op["expiry"])
-    K         = op["strike"]
-    amount    = _broker_amount(asset, spot)
-    instrument = make_instrument(asset, expiry_dt, K, opt_type)
+    asset      = op["asset"]
+    amount     = _broker_amount(asset, spot)
+    instrument = op["instrument"]
     return broker.place_order(
         instrument, "buy", amount, "market",
         label=f"CLOSE-{op['type'].upper()}-{asset}",
@@ -510,11 +515,10 @@ def close_strangle_position(
 
     Returns (put_order, call_order).
     """
-    asset     = op["asset"]
-    expiry_dt = _parse_expiry(op["expiry"])
-    amount    = _broker_amount(asset, spot)
-    put_instr  = make_instrument(asset, expiry_dt, op["put_strike"],  "put")
-    call_instr = make_instrument(asset, expiry_dt, op["call_strike"], "call")
+    asset      = op["asset"]
+    amount     = _broker_amount(asset, spot)
+    put_instr  = op["put_instrument"]
+    call_instr = op["call_instrument"]
     put_order  = broker.place_order(put_instr,  "buy", amount, "market", label=f"CLOSE-STR-P-{asset}")
     call_order = broker.place_order(call_instr, "buy", amount, "market", label=f"CLOSE-STR-C-{asset}")
     return put_order, call_order
@@ -529,14 +533,10 @@ def close_calendar_position(
 
     Returns (near_order, far_order).
     """
-    asset     = op["asset"]
-    ot        = op["option_type"].lower()
-    K         = op["strike"]
-    amount    = _broker_amount(asset, spot)
-    near_dt   = _parse_expiry(op["expiry_near"])
-    far_dt    = _parse_expiry(op["expiry_far"])
-    near_instr = make_instrument(asset, near_dt, K, ot)
-    far_instr  = make_instrument(asset, far_dt,  K, ot)
+    asset      = op["asset"]
+    amount     = _broker_amount(asset, spot)
+    near_instr = op["near_instrument"]
+    far_instr  = op["far_instrument"]
     near_order = broker.place_order(near_instr, "buy",  amount, "market", label=f"CLOSE-CAL-NEAR-{asset}")
     far_order  = broker.place_order(far_instr,  "sell", amount, "market", label=f"CLOSE-CAL-FAR-{asset}")
     return near_order, far_order
@@ -551,13 +551,11 @@ def close_spread_position(
     Returns (short_order, long_order).
     """
     asset      = op["asset"]
-    expiry_dt  = _parse_expiry(op["expiry"])
     amount     = _broker_amount(asset, spot)
-    spread_type = op["spread_type"]
-    ot         = "put" if spread_type == "BPS" else "call"
 
-    short_instr = make_instrument(asset, expiry_dt, op["short_strike"], ot)
-    long_instr  = make_instrument(asset, expiry_dt, op["long_strike"],  ot)
+    # Use the exact instrument names recorded at open time — never recompute.
+    short_instr = op["short_instrument"]
+    long_instr  = op["long_instrument"]
 
     # Buy back the short leg (close our short position)
     short_order = broker.place_order(

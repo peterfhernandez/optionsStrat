@@ -69,6 +69,7 @@ _ASSET_TICKER = {
 }
 
 
+
 def make_instrument(asset: str, expiry: date, strike: float, option_type: str) -> str:
     """
     Build a Deribit instrument name from trade parameters.
