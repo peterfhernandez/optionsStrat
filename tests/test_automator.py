@@ -61,9 +61,9 @@ from trading.executor import enter_trade
 
 # ── Helpers / fixtures ───────────────────────────────────────────────────────
 
-def _fake_order(order_id: str = "TEST-ORD-1") -> OrderResult:
+def _fake_order(order_id: str = "TEST-ORD-1", instrument: str = "ETH-30MAY25-2000-P") -> OrderResult:
     return OrderResult(
-        order_id=order_id, instrument="ETH-TEST", direction="sell",
+        order_id=order_id, instrument=instrument, direction="sell",
         amount=10000.0, price=0.025, state="open",
         filled_amount=0.0, avg_price=None, label=None,
     )
@@ -82,12 +82,20 @@ def _mock_deribit(monkeypatch):
 
     enter_trade() defaults to DeribitClient(paper=True) when no broker is
     passed.  This fixture replaces that constructor with a mock whose
-    place_order always succeeds, so Tier 3 / Tier 4 tests exercise only
-    the DB and strategy logic.
+    place_order echoes back the instrument it was called with (so that
+    _strike_from_instrument() can parse the broker-confirmed strike).
     """
+    from access import make_instrument as _make_instr
     mock_instance = MagicMock()
     type(mock_instance).broker_name = PropertyMock(return_value="deribit_paper")
-    mock_instance.place_order.return_value = _fake_order()
+    mock_instance.find_instrument.side_effect = (
+        lambda asset, expiry, strike, opt: _make_instr(asset, expiry, strike, opt)
+    )
+
+    def _place(instrument, direction, amount, order_type="limit", price=None, label=None, **_kw):
+        return _fake_order(instrument=instrument)
+
+    mock_instance.place_order.side_effect = _place
 
     with patch("trading.executor.DeribitClient", return_value=mock_instance):
         yield mock_instance
@@ -530,9 +538,15 @@ class TestRunAutomation:
 
     def test_explicit_broker_is_passed_to_enter_trade(self):
         """run_automation forwards the broker kwarg to enter_trade."""
+        from access import make_instrument as _make_instr
         custom_broker = MagicMock()
         type(custom_broker).broker_name = PropertyMock(return_value="custom_broker")
-        custom_broker.place_order.return_value = _fake_order("CUSTOM-ORD-1")
+        custom_broker.find_instrument.side_effect = (
+            lambda asset, expiry, strike, opt: _make_instr(asset, expiry, strike, opt)
+        )
+        custom_broker.place_order.side_effect = (
+            lambda instrument, *a, **kw: _fake_order("CUSTOM-ORD-1", instrument=instrument)
+        )
 
         cand = _make(strategy="CSP", strike_str="$1800",
                      yield_ann=80.0, prob_profit=95.0, liq="High")
