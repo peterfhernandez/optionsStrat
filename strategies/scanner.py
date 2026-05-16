@@ -613,7 +613,7 @@ def run_scanner(
 
         ok(
             f"{asset}: spot=${spot:,.2f}  IV={iv*100:.0f}%  "
-            f"— scanning {len(OTM_LEVELS)*3 + 2} candidates..."
+            f"— scanning {len(OTM_LEVELS)*5 + 2} candidates..."
         )
         all_candidates.extend(
             _build_candidates(
@@ -659,23 +659,27 @@ def run_scanner(
 
     print(f"""
   {GY}Strategy key:
-  CSP      = Cash-Secured Put (wheel leg 1)
-  CC       = Covered Call     (wheel leg 2)
-  Strangle = Short Strangle   (simultaneous OTM put + call)
+  CSP      = Cash-Secured Put    (wheel leg 1)
+  CC       = Covered Call        (wheel leg 2)
+  Strangle = Short Strangle      (simultaneous OTM put + call)
   Cal-C    = Call Calendar Spread  (buy far call, sell near call — same strike)
   Cal-P    = Put  Calendar Spread  (buy far put,  sell near put  — same strike)
              For Cal: premium = net debit (= max loss)  |  max profit shown separately
+  BPS      = Bull Put Spread     (sell OTM put, buy further OTM put — credit received)
+  BCS      = Bear Call Spread    (sell OTM call, buy further OTM call — credit received)
+             For BPS/BCS: premium = net credit  |  strike = short/long
 
   Liquidity key:
   High = OI ≥ 1,000 contracts and tight IV spread
   Med  = OI ≥ 100 contracts or 24h volume ≥ $50k
   Low  = thin market — wider spreads, harder to fill
-  For multi-leg trades (Strangle, Cal-C, Cal-P) the liquidity tag is
+  For multi-leg trades (Strangle, Cal-C, Cal-P, BPS, BCS) the liquidity tag is
   the WORST of the legs (lowest OI, lowest volume, widest spread) — a
   trade is only as fillable as its weakest leg.
 
   {YL}⚠ Strangles carry unlimited loss potential on the call side.
   {YL}⚠ Calendar spreads carry limited risk (net debit) but require two expiries.
+  {YL}⚠ Credit spreads (BPS/BCS) cap both profit and loss — max loss = spread width minus credit.
   {YL}⚠ All figures are Black-Scholes estimates — not financial advice.{R}
 """)
     warn(f"Min yield filter for ranking ①: {MIN_YIELD_PCT:.0f}%/yr  "

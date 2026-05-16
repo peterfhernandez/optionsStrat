@@ -301,8 +301,8 @@ class DeribitClient(BrokerBase):
         For limit orders, price is required.
         For market orders, price is ignored.
 
-        Amount semantics (Deribit):
-          • BTC/ETH inverse contracts: USD notional (minimum 10 USD)
+        Amount semantics (Deribit OPTIONS — differs from futures):
+          • BTC/ETH inverse options: coin units (BTC or ETH), minimum ~0.1
           • SOL_USDC / XRP_USDC linear: number of contracts (minimum 1)
         """
         if direction not in ("buy", "sell"):

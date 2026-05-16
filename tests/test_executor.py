@@ -126,13 +126,15 @@ class TestHelpers:
         result = _order_price("SOL", 5.12345, 150.0)
         assert result == round(5.12345, 4)
 
-    def test_broker_amount_inverse(self):
+    def test_broker_amount_inverse_is_coin_units(self):
+        """BTC/ETH options: amount must be in coin units (BTC/ETH), not USD notional."""
         from config import BUDGET_USD
         result_eth = _broker_amount("ETH", 2000.0)
         result_btc = _broker_amount("BTC", 50000.0)
-        assert result_eth == int(BUDGET_USD)
-        assert result_btc == int(BUDGET_USD)
-        assert isinstance(result_eth, int)   # must serialise without decimal point
+        assert result_eth == pytest.approx(BUDGET_USD / 2000.0, rel=1e-4)
+        assert result_btc == pytest.approx(BUDGET_USD / 50000.0, rel=1e-4)
+        # Must NOT equal the raw USD budget (old wrong behaviour)
+        assert result_btc != int(BUDGET_USD)
 
     def test_broker_amount_linear_is_integer(self):
         from config import BUDGET_USD
@@ -376,3 +378,41 @@ class TestEnterTradeDispatch:
         c = _candidate(strategy="UNKNOWN")
         with pytest.raises(ValueError, match="Unsupported strategy"):
             enter_trade(c, broker=_mock_broker("X"))
+
+    def test_btc_budget_too_small_raises_before_api_call(self):
+        """With a $250 budget and BTC at $79,000, the minimum contract (~0.1 BTC)
+        costs far more than the budget — enter_trade must raise early, not hit the API."""
+        c = _candidate(asset="BTC", spot=79_000.0, strategy="Cal-C",
+                       days=7, far_days=30, strike="$79000 ATM", otm_pct=0.0,
+                       premium=10.0, yield_ann=50.0)
+        broker = _mock_broker()
+        with pytest.raises(ValueError, match="too small"):
+            enter_trade(c, broker=broker)
+        broker.place_order.assert_not_called()
+
+    def test_eth_budget_too_small_raises_before_api_call(self):
+        """ETH at $4,000 → minimum 0.1 ETH = $400 > $250 budget."""
+        c = _candidate(asset="ETH", spot=4_000.0, strategy="CSP",
+                       days=7, strike="$3600", otm_pct=0.1,
+                       premium=10.0, yield_ann=50.0)
+        broker = _mock_broker()
+        with pytest.raises(ValueError, match="too small"):
+            enter_trade(c, broker=broker)
+        broker.place_order.assert_not_called()
+
+    def test_eth_affordable_does_not_raise(self):
+        """ETH at $1,000 → 0.25 ETH ≥ 0.1 ETH minimum — budget check passes."""
+        from unittest.mock import patch
+        c = _candidate(asset="ETH", spot=1_000.0, strategy="CSP",
+                       days=7, strike="$900", otm_pct=0.1,
+                       premium=5.0, yield_ann=50.0)
+        broker = _mock_broker("ORD-X")
+        # Patch all DB/state calls so only the budget check matters
+        with patch("trading.executor.load_wheel_state", return_value={"stage": None}), \
+             patch("trading.executor.save_wheel_state"), \
+             patch("trading.executor.create_single_trade"):
+            # Should not raise ValueError about budget
+            try:
+                enter_trade(c, broker=broker)
+            except (KeyError, TypeError):
+                pass  # state dict errors are fine — we only care the budget check passed

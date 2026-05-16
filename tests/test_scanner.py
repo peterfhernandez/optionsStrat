@@ -139,6 +139,14 @@ def sample_candidates():
                   iv=0.90, strike="$69", premium=0.5, yield_ann=8.0,
                   prob_profit=92.0, days=7, liquidity_tag="Low",
                   open_interest=80.0, volume_usd=500.0, iv_spread=0.15),
+        Candidate(asset="ETH", strategy="BPS",      otm_pct=0.10, spot=2000.0,
+                  iv=0.80, strike="$1800/$1700", premium=5.0, yield_ann=45.0,
+                  prob_profit=80.0, days=7, liquidity_tag="High",
+                  open_interest=3000.0, volume_usd=100000.0, iv_spread=0.015),
+        Candidate(asset="ETH", strategy="BCS",      otm_pct=0.10, spot=2000.0,
+                  iv=0.80, strike="$2200/$2300", premium=4.5, yield_ann=40.0,
+                  prob_profit=79.0, days=7, liquidity_tag="Med",
+                  open_interest=2000.0, volume_usd=80000.0, iv_spread=0.02),
     ]
 
 

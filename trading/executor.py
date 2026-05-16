@@ -76,15 +76,21 @@ def _order_price(asset: str, price_usd: float, spot: float) -> float:
     return round(price_usd, 4)
 
 
-def _broker_amount(asset: str, spot: float) -> int:
+def _broker_amount(asset: str, spot: float) -> float:
     """
     Return the Deribit order amount for one full budget allocation.
-    Always returns an int so requests serialises it without a decimal point
-    (Deribit rejects '250.0'; it requires '250').
+
+    Deribit amount semantics for OPTIONS (not futures):
+      BTC/ETH inverse options : amount in coin units (BTC or ETH)
+      SOL_USDC / XRP_USDC     : amount in integer contracts
+
+    Note: Deribit futures use USD notional, but options always use the
+    underlying coin unit.  Sending BUDGET_USD (e.g. 250) as the amount
+    for a BTC option would mean 250 BTC (~$20M), causing not_enough_funds.
     """
     if asset.upper() in _INVERSE_ASSETS:
-        return int(BUDGET_USD)             # USD notional for inverse contracts
-    return max(1, int(BUDGET_USD / spot))  # whole contracts for linear assets
+        return round(BUDGET_USD / spot, 4)  # coin units (e.g. 0.00316 BTC)
+    return max(1, int(BUDGET_USD / spot))   # whole contracts for linear assets
 
 
 def _place_option(
@@ -475,6 +481,19 @@ def enter_trade(
     """
     if broker is None:
         broker = DeribitClient(paper=DERIBIT_PAPER)
+
+    # For BTC/ETH inverse options, Deribit minimum is ~0.1 coin.
+    # With a small USD budget this may be unaffordable — warn early.
+    if c.asset.upper() in _INVERSE_ASSETS:
+        min_coin   = 0.1          # Deribit minimum for BTC/ETH options
+        min_cost   = min_coin * c.spot
+        coin_amt   = BUDGET_USD / c.spot
+        if coin_amt < min_coin:
+            raise ValueError(
+                f"Budget ${BUDGET_USD:.0f} is too small for {c.asset} options on Deribit. "
+                f"Minimum contract is {min_coin} {c.asset} ≈ ${min_cost:,.0f}. "
+                f"Consider using SOL or XRP (USDC-settled, smaller contract sizes)."
+            )
 
     days_eff = days or c.days
     T        = days_eff / 365.0
