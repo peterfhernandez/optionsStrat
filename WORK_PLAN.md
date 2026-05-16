@@ -2,7 +2,7 @@
 
 TL;DR: Reorganize into organized packages (automation, trading, strategies, excel, market, ui), implement portfolio management with position listing and manual/auto close, add live/paper trading switch (prepared for future Deribit API), and clean up root folder to entry points only.
 
-Steps (6 phases, 22+ steps)
+Steps (6 phases, 22+ steps) - 🔄 IN PROGRESS
 
 ## PHASE 1: Create New Package Structure (parallel steps 1-5) - ✅ DONE
 
@@ -26,17 +26,17 @@ Steps (6 phases, 22+ steps)
 2. Update wheel.py — replace _save/_load/_state_file with trading.trade_persistence calls - trade persistense to be stored in db - ✅ DONE
 3. Update strangle.py: refactor for trade_persistence and executor — same pattern - ✅ DONE
 4. Update calendar.py — same pattern - ✅ DONE
-5. Update monitor.py — use executor for auto-close - 📌 TO DO
+5. Update monitor.py — use executor for auto-close - ✅ DONE
 6. Move monitor.py to automation package - ✅ DONE
 7. Update scanner.py — add price caching from market.cache - 📌 TO DO
 
 ## PHASE 4: Update Tests & Configuration (depends on Phase 3)
 
-1. Create tests/test_trading.py — test executor (paper mode + live stubs), portfolio manager, position P&L - 🔄 IN PROGRESS
-2. Create tests/test_automation.py — move existing automator tests - 📌 TO DO
-3. Update conftest.py — add fixtures for new modules - 📌 TO DO
+1. Create tests/test_trading.py — test executor (paper mode + live stubs), portfolio manager, position P&L - ✅ DONE
+2. Create tests/test_automation.py — move existing automator tests - ✅ DONE
+3. Update conftest.py — add fixtures for new modules - ✅ DONE
 4. Update config.py — add TRADING_MODE switch and Deribit placeholder credentials - 📌 TO DO
-5. Update all existing tests — fix import paths, no logic changes - 📌 TO DO
+5. Update all existing tests — fix import paths, no logic changes - ✅ DONE
 
 ## PHASE 5: Deprecation & Cleanup (depends on Phase 4)
 
@@ -52,7 +52,7 @@ Steps (6 phases, 22+ steps)
 4. Wire up automatic manual close in main and strategy menus — the correct positions are closed, due to end of strategy, or stop loss - ✅ DONE
 5. Implement trades list, with p/l per trade, and cumulative p/l - ✅ DONE
 6. Implement the same for 1 or 2 more Coins - ✅ DONE
-7. Implement 1 or 2 more options strategies - 📌 TO DO for Credit spread
+7. Implement 1 or 2 more options strategies - ✅ DONE
 8. Remove the Wheel from Strategies and automate.py - 📌 TO DO
 9. Add trading fees (0.04% of underlying spot, or 0.0004BTC, whichever is lower, fee cannot be > 12.5% of option price) - 📌 TO DO
 10. Check that recorded trades and portfolio tracking includes the correct date - 📌 TO DO
@@ -67,7 +67,7 @@ Steps (6 phases, 22+ steps)
   a. wheel - ✅ DONE
   b. strangle - ✅ DONE
   c. calendar spread - ✅ DONE
-  d. credit spread - 📌 TO DO
+  d. credit spread - ✅ DONE
   e. Executor - ✅ DONE
   f. Automate - ✅ DONE
   g. Monitor - ✅ DONE

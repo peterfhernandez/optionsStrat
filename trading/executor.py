@@ -55,6 +55,15 @@ def _expiry_date(days: int) -> date:
     return _next_friday(target)
 
 
+def _strike_from_instrument(instrument: str) -> float:
+    """
+    Parse the strike price from a broker instrument name.
+    Deribit format: {TICKER}-{DDMMMYY}-{STRIKE}-{C|P}
+    e.g. "ETH-30MAY25-2000-P" -> 2000.0, "SOL_USDC-30MAY25-150-P" -> 150.0
+    """
+    return float(instrument.split("-")[-2])
+
+
 def _order_price(asset: str, price_usd: float, spot: float) -> float:
     """
     Convert a USD option price to the Deribit order price format, rounded to
@@ -110,6 +119,7 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
         broker, c.asset, expiry_dt, K, "put", "sell",
         unit_price, c.spot, label=f"CSP-{c.asset}",
     )
+    K = _strike_from_instrument(order.instrument)
 
     s = load_wheel_state(c.asset)
     s["stage"]  = "short_put"
@@ -180,6 +190,8 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
         broker, c.asset, expiry_dt, K, "call", "sell",
         unit_price, c.spot, label=f"CC-{c.asset}",
     )
+    K = _strike_from_instrument(order.instrument)
+    s["open"]["strike"] = K
 
     s["open"]["broker_order_id"] = order.order_id
     s["open"]["instrument"]      = order.instrument
@@ -229,6 +241,8 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
         broker, c.asset, expiry_dt, Kc, "call", "sell",
         call_price, c.spot, label=f"STR-C-{c.asset}",
     )
+    Kp = _strike_from_instrument(put_order.instrument)
+    Kc = _strike_from_instrument(call_order.instrument)
 
     trade = create_strangle_trade(
         asset=c.asset,
@@ -302,6 +316,7 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
         broker, c.asset, expiry_far_dt,  K, ot, "buy",
         far_price, c.spot, label=f"CAL-FAR-{c.asset}",
     )
+    K = _strike_from_instrument(near_order.instrument)
 
     trade = create_calendar_trade(
         asset=c.asset,
@@ -388,6 +403,8 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
         broker, c.asset, expiry_dt, long_k, otype, "buy",
         long_p, c.spot, label=f"SPR-L-{c.asset}",
     )
+    short_k = _strike_from_instrument(short_order.instrument)
+    long_k  = _strike_from_instrument(long_order.instrument)
 
     trade = create_spread_trade(
         asset=c.asset,

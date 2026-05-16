@@ -26,10 +26,10 @@ from trading.executor import (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _order(order_id: str = "ORD-1") -> OrderResult:
+def _order(order_id: str = "ORD-1", instrument: str = "ETH-30MAY25-2000-P") -> OrderResult:
     return OrderResult(
         order_id=order_id,
-        instrument="ETH-30MAY25-2000-P",
+        instrument=instrument,
         direction="sell",
         amount=10000.0,
         price=0.025,
@@ -41,7 +41,12 @@ def _order(order_id: str = "ORD-1") -> OrderResult:
 
 
 def _mock_broker(*order_ids, name: str = "deribit_paper") -> MagicMock:
-    """Return a broker mock whose place_order returns _order instances in sequence."""
+    """
+    Return a broker mock whose place_order returns OrderResult instances in sequence.
+    The instrument in each OrderResult echoes the instrument arg passed to place_order,
+    so that _strike_from_instrument() reflects the broker-confirmed (find_instrument-resolved)
+    strike rather than a fixed value.
+    """
     from access import make_instrument
     broker = MagicMock()
     type(broker).broker_name = property(lambda self: name)
@@ -49,10 +54,13 @@ def _mock_broker(*order_ids, name: str = "deribit_paper") -> MagicMock:
     broker.find_instrument.side_effect = (
         lambda asset, expiry, strike, opt: make_instrument(asset, expiry, strike, opt)
     )
-    if len(order_ids) == 1:
-        broker.place_order.return_value = _order(order_ids[0])
-    else:
-        broker.place_order.side_effect = [_order(oid) for oid in order_ids]
+    order_id_iter = iter(order_ids)
+
+    def _place(instrument, direction, amount, order_type="limit", price=None, label=None, **_kw):
+        oid = next(order_id_iter)
+        return _order(oid, instrument=instrument)
+
+    broker.place_order.side_effect = _place
     return broker
 
 
@@ -238,6 +246,23 @@ class TestEnterCSP:
         enter_trade(c, days=14, broker=broker)
         t_arg = mock_bs.call_args.args[2]
         assert t_arg == pytest.approx(14 / 365.0)
+
+    def test_broker_confirmed_strike_recorded(self, mock_bs, mock_load, mock_create, mock_save):
+        """Strike saved to DB and state must be the broker-confirmed one from order.instrument."""
+        from access import make_instrument
+        from datetime import date as _date
+        broker = _mock_broker("PUT-ORD-6")
+        # Broker snaps $1950 request to the nearest listed strike (1900 on Deribit).
+        snapped_instrument = "ETH-30MAY25-1900-P"
+        broker.find_instrument.side_effect = lambda *a, **kw: snapped_instrument
+
+        c = _candidate(strategy="CSP", strike="$1950")
+        result = enter_trade(c, broker=broker)
+
+        assert result["strike"] == 1900.0
+        assert mock_create.call_args.kwargs["strike"] == 1900.0
+        saved_state = mock_save.call_args.args[1]
+        assert saved_state["open"]["strike"] == 1900.0
 
 
 # ── CC ────────────────────────────────────────────────────────────────────────
