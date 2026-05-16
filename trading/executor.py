@@ -103,12 +103,21 @@ def _place_option(
     price_usd: float,    # BS price per-unit in USD
     spot: float,
     label: Optional[str] = None,
+    T: Optional[float] = None,
+    iv: Optional[float] = None,
 ) -> OrderResult:
     """Build the instrument name and submit a single-leg order to the broker."""
     # Resolve to the closest listed instrument (expiry + strike) on the exchange.
-    instrument = broker.find_instrument(asset, expiry_date, strike, option_type)
-    amount     = _broker_amount(asset, spot)
-    lmt_price  = _order_price(asset, price_usd, spot)
+    instrument   = broker.find_instrument(asset, expiry_date, strike, option_type)
+    actual_strike = _strike_from_instrument(instrument)
+
+    # Recompute BS price if the exchange snapped to a different strike.
+    if actual_strike != strike and T is not None and iv is not None:
+        bs_fn     = bs_call if option_type.lower().startswith("c") else bs_put
+        price_usd = bs_fn(spot, actual_strike, T, RISK_FREE_RATE, iv)
+
+    amount    = _broker_amount(asset, spot)
+    lmt_price = _order_price(asset, price_usd, spot)
     return broker.place_order(instrument, direction, amount, "limit", lmt_price, label)
 
 
@@ -123,7 +132,7 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
 
     order = _place_option(
         broker, c.asset, expiry_dt, K, "put", "sell",
-        unit_price, c.spot, label=f"CSP-{c.asset}",
+        unit_price, c.spot, label=f"CSP-{c.asset}", T=T, iv=c.iv,
     )
     K = _strike_from_instrument(order.instrument)
 
@@ -194,7 +203,7 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
     }
     order = _place_option(
         broker, c.asset, expiry_dt, K, "call", "sell",
-        unit_price, c.spot, label=f"CC-{c.asset}",
+        unit_price, c.spot, label=f"CC-{c.asset}", T=T, iv=c.iv,
     )
     K = _strike_from_instrument(order.instrument)
     s["open"]["strike"] = K
@@ -241,11 +250,11 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
 
     put_order  = _place_option(
         broker, c.asset, expiry_dt, Kp, "put",  "sell",
-        put_price, c.spot, label=f"STR-P-{c.asset}",
+        put_price, c.spot, label=f"STR-P-{c.asset}", T=T, iv=c.iv,
     )
     call_order = _place_option(
         broker, c.asset, expiry_dt, Kc, "call", "sell",
-        call_price, c.spot, label=f"STR-C-{c.asset}",
+        call_price, c.spot, label=f"STR-C-{c.asset}", T=T, iv=c.iv,
     )
     Kp = _strike_from_instrument(put_order.instrument)
     Kc = _strike_from_instrument(call_order.instrument)
@@ -301,28 +310,30 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     option_type = "Call" if c.strategy == "Cal-C" else "Put"
     bs_fn       = bs_call if option_type == "Call" else bs_put
 
-    near_price = bs_fn(c.spot, K, T,     RISK_FREE_RATE, c.iv)
-    far_price  = bs_fn(c.spot, K, T_far, RISK_FREE_RATE, c.iv)
-    near_prem  = near_price * qty
-    far_prem   = far_price  * qty
-    net_debit  = far_prem - near_prem
-
     expiry_near_dt = _expiry_date(c.days)
     expiry_far_dt  = _expiry_date(far_days)
     expiry_near    = expiry_near_dt.strftime("%d-%b-%Y")
     expiry_far     = expiry_far_dt.strftime("%d-%b-%Y")
 
     ot = option_type.lower()
-    # Calendar: sell near leg, buy far leg
+    # Calendar: sell near leg, buy far leg.
+    # Near leg resolves first; its actual strike is enforced on the far leg
+    # so we never accidentally open a diagonal spread.
+    near_price = bs_fn(c.spot, K, T, RISK_FREE_RATE, c.iv)
     near_order = _place_option(
         broker, c.asset, expiry_near_dt, K, ot, "sell",
-        near_price, c.spot, label=f"CAL-NEAR-{c.asset}",
+        near_price, c.spot, label=f"CAL-NEAR-{c.asset}", T=T, iv=c.iv,
     )
-    far_order = _place_option(
-        broker, c.asset, expiry_far_dt,  K, ot, "buy",
-        far_price, c.spot, label=f"CAL-FAR-{c.asset}",
+    K          = _strike_from_instrument(near_order.instrument)
+    near_price = bs_fn(c.spot, K, T,     RISK_FREE_RATE, c.iv)
+    far_price  = bs_fn(c.spot, K, T_far, RISK_FREE_RATE, c.iv)
+    far_order  = _place_option(
+        broker, c.asset, expiry_far_dt, K, ot, "buy",
+        far_price, c.spot, label=f"CAL-FAR-{c.asset}", T=T_far, iv=c.iv,
     )
-    K = _strike_from_instrument(near_order.instrument)
+    near_prem = near_price * qty
+    far_prem  = far_price  * qty
+    net_debit = far_prem - near_prem
 
     trade = create_calendar_trade(
         asset=c.asset,
@@ -403,11 +414,11 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
 
     short_order = _place_option(
         broker, c.asset, expiry_dt, short_k, otype, "sell",
-        short_p, c.spot, label=f"SPR-S-{c.asset}",
+        short_p, c.spot, label=f"SPR-S-{c.asset}", T=T, iv=c.iv,
     )
     long_order = _place_option(
         broker, c.asset, expiry_dt, long_k, otype, "buy",
-        long_p, c.spot, label=f"SPR-L-{c.asset}",
+        long_p, c.spot, label=f"SPR-L-{c.asset}", T=T, iv=c.iv,
     )
     short_k = _strike_from_instrument(short_order.instrument)
     long_k  = _strike_from_instrument(long_order.instrument)

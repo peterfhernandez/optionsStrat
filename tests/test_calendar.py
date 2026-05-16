@@ -325,17 +325,26 @@ class TestCalendarPaperMenuExecutor:
         from strategies.calendar import calendar_paper_menu
         from database.calendar_db import save_calendar_state
 
-        save_calendar_state("ETH", {
-            "open": None, "total_pnl": 0.0,
-            "wins": 0, "losses": 0, "trades": 0,
-        })
-        mock_enter.return_value = {
+        open_trade = {
             "strike": 2000.0, "option_type": "Call",
             "near_prem": 10.0, "far_prem": 20.0, "net_debit": 10.0,
             "qty": 0.05, "expiry_near": "10-May-2026",
             "expiry_far": "09-Jun-2026", "spot_open": 2000.0,
             "near_days": 7, "far_days": 30, "asset": "ETH", "trade_id": 1,
         }
+        save_calendar_state("ETH", {
+            "open": None, "total_pnl": 0.0,
+            "wins": 0, "losses": 0, "trades": 0,
+        })
+
+        def _fake_enter(c, broker=None):
+            save_calendar_state("ETH", {
+                "open": open_trade, "total_pnl": 0.0,
+                "wins": 0, "losses": 0, "trades": 1,
+            })
+            return open_trade
+
+        mock_enter.side_effect = _fake_enter
 
         inputs = iter(["1", option_type_input, ""])  # choice=1, call/put, default strike
         with patch("builtins.input", side_effect=inputs), \

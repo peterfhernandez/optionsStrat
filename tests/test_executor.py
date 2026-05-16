@@ -368,7 +368,7 @@ class TestEnterCalendar:
             c = _candidate(strategy="Cal-P", strike="$1800", far_days=60)
             result = enter_trade(c, broker=broker)
             assert result["option_type"] == "Put"
-            assert mock_bp.call_count == 2   # near + far legs
+            assert mock_bp.call_count == 3   # near (pre-snap) + near (post-snap) + far
 
 
 # ── enter_trade dispatch ──────────────────────────────────────────────────────

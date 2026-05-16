@@ -512,13 +512,14 @@ def calendar_paper_menu(
             yield_ann=0,
         )
         enter_trade(c)
-        s = load_calendar_state(asset)
+        s  = load_calendar_state(asset)
+        op = s["open"]
 
         ok(
-            f"Calendar opened: {option_type} ${K:,.0f}  "
-            f"{days}d/{far_days}d  |  Net debit: ${net_debit:.2f}"
+            f"Calendar opened: {option_type} ${op['strike']:,.4g}  "
+            f"{days}d/{far_days}d  |  Net debit: ${op['net_debit']:.2f}"
         )
-        draw_calendar_zone(spot, K, net_debit, qty, days, far_days, iv, option_type)
+        draw_calendar_zone(spot, op["strike"], op["net_debit"], op["qty"], days, far_days, iv, option_type)
 
     # [2] Show P&L chart
     elif choice == "2":
