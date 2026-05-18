@@ -69,20 +69,31 @@ class TestLoadCalendarState:
             assert key in s
 
     def test_persisted_row_is_returned_on_second_call(self):
-        save_calendar_state("SOL", {
-            "open": None, "total_pnl": 42.0, "wins": 2, "losses": 1, "trades": 3,
-        })
+        """After creating trades, load aggregates their stats."""
+        # Create 3 closed trades for SOL
+        for i in range(2):
+            trade = _open_trade(asset="SOL")
+            close_calendar_trade(trade.id, trade.date_open, 2000.0, 20.0, "Win")
+
+        trade = _open_trade(asset="SOL")
+        close_calendar_trade(trade.id, trade.date_open, 2000.0, 2.0, "Loss")
+
         s = load_calendar_state("SOL")
         assert s["total_pnl"] == pytest.approx(42.0)
         assert s["wins"]      == 2
+        assert s["losses"]    == 1
         assert s["trades"]    == 3
 
     def test_separate_assets_are_independent(self):
-        save_calendar_state("ETH", {
-            "open": None, "total_pnl": 100.0, "wins": 1, "losses": 0, "trades": 1,
-        })
+        # Create trade for ETH
+        trade = _open_trade(asset="ETH")
+        trade.result = "Win"
+        trade.pnl = 100.0
+
+        # BTC should have no trades
         btc = load_calendar_state("BTC")
         assert btc["total_pnl"] == 0.0  # BTC untouched
+        assert btc["wins"]      == 0
 
 
 # ── save_calendar_state ───────────────────────────────────────────────────────
@@ -90,32 +101,47 @@ class TestLoadCalendarState:
 class TestSaveCalendarState:
 
     def test_creates_new_row_on_first_save(self):
-        save_calendar_state("XRP", {
-            "open": None, "total_pnl": 25.0, "wins": 1, "losses": 0, "trades": 1,
-        })
+        """save_calendar_state updates broker on existing record."""
+        trade = _open_trade(asset="XRP")
+        close_calendar_trade(trade.id, trade.date_open, 2000.0, 25.0, "Win")
+        save_calendar_state("XRP", {"broker": "deribit_paper"})
+
         s = load_calendar_state("XRP")
         assert s["total_pnl"] == pytest.approx(25.0)
+        assert s["broker"] == "deribit_paper"
 
     def test_update_overwrites_previous_values(self):
-        save_calendar_state("ETH", {
-            "open": None, "total_pnl": 50.0, "wins": 1, "losses": 0, "trades": 1,
-        })
-        save_calendar_state("ETH", {
-            "open": None, "total_pnl": 120.0, "wins": 2, "losses": 1, "trades": 3,
-        })
+        """Creating more trades updates the aggregated stats."""
+        # First trade
+        trade1 = _open_trade(asset="ETH")
+        close_calendar_trade(trade1.id, trade1.date_open, 2000.0, 50.0, "Win")
+
+        # Second set of trades
+        trade2 = _open_trade(asset="ETH")
+        close_calendar_trade(trade2.id, trade2.date_open, 2000.0, 70.0, "Win")
+
+        trade3 = _open_trade(asset="ETH")
+        close_calendar_trade(trade3.id, trade3.date_open, 2000.0, 0.0, "Loss")
+
         s = load_calendar_state("ETH")
         assert s["total_pnl"] == pytest.approx(120.0)
         assert s["wins"]      == 2
+        assert s["losses"]    == 1
         assert s["trades"]    == 3
 
     def test_open_position_dict_stored_and_retrieved(self):
-        op = {"strike": 2000.0, "option_type": "Call", "trade_id": 7}
-        save_calendar_state("ETH", {
-            "open": op, "total_pnl": 0.0, "wins": 0, "losses": 0, "trades": 1,
-        })
+        """Open trade position is reconstructed from recent open record."""
+        trade = _open_trade(
+            asset="ETH",
+            strike=2000.0,
+            option_type="Call"
+        )
+        # Leave it open
+
         s = load_calendar_state("ETH")
+        assert s["open"] is not None
         assert s["open"]["strike"]     == pytest.approx(2000.0)
-        assert s["open"]["trade_id"]   == 7
+        assert s["open"]["option_type"] == "Call"
 
     def test_clear_open_position_to_none(self):
         save_calendar_state("ETH", {

@@ -14,7 +14,7 @@ from database.wheel_db import (
 )
 from models.base import Base
 from models.singles import Single
-from models.trade_state import TradeState, STRATEGY_WHEEL
+from models import STRATEGY_WHEEL
 
 
 @pytest.fixture(scope="function")
@@ -30,7 +30,7 @@ def session():
 
 class TestLoadSaveWheelState:
     def test_load_fresh_state(self, session):
-        """First load should return default state and create a DB row."""
+        """First load with no trades should return default state."""
         state = load_wheel_state("ETH", session=session)
 
         assert state["stage"] == "no_position"
@@ -41,49 +41,62 @@ class TestLoadSaveWheelState:
         assert state["losses"] == 0
         assert state["cycles"] == 0
 
-        # Verify row was created
-        row = session.query(TradeState).filter_by(strategy=STRATEGY_WHEEL, asset="ETH").first()
-        assert row is not None
-
-    def test_load_existing_state(self, session):
-        """Loading an existing state should return saved values."""
-        # Create a state manually
-        row = TradeState(
-            strategy=STRATEGY_WHEEL,
+    def test_load_existing_trades(self, session):
+        """Loading state should aggregate stats from existing trades."""
+        # Create some trades
+        trade1 = create_single_trade(
             asset="BTC",
+            date_open=datetime.date(2026, 5, 1),
+            option_type="Put",
+            strike=50000.0,
+            expiry="13-May-2026",
+            spot_open=55000.0,
+            premium=100.0,
+            qty=0.005,
+            days=7,
             stage="short_put",
-            total_premium=100.0,
-            wins=5,
-            losses=2,
-            cycles=2,
+            session=session,
         )
-        session.add(row)
+        trade1.result = "Win"
         session.commit()
 
-        # Load it
+        # Load state
         state = load_wheel_state("BTC", session=session)
         assert state["stage"] == "short_put"
         assert state["total_premium"] == 100.0
-        assert state["wins"] == 5
-        assert state["losses"] == 2
-        assert state["cycles"] == 2
+        assert state["wins"] == 1
+        assert state["losses"] == 0
+        assert state["cycles"] == 1
 
     def test_save_updates_state(self, session):
-        """Saving should update the database row."""
-        # Load initial state (creates row)
-        state = load_wheel_state("SOL", session=session)
+        """Saving should update the most recent trade record."""
+        # Create a trade
+        trade = create_single_trade(
+            asset="SOL",
+            date_open=datetime.date(2026, 5, 1),
+            option_type="Put",
+            strike=150.0,
+            expiry="13-May-2026",
+            spot_open=160.0,
+            premium=50.0,
+            qty=0.1,
+            days=7,
+            stage="short_put",
+            session=session,
+        )
+        session.commit()
 
         # Modify and save
-        state["stage"] = "short_put"
-        state["total_premium"] = 50.0
-        state["wins"] = 3
+        state = {"stage": "holding", "asset_held": 10.0, "cost_basis": 150.0, "broker": "test"}
         save_wheel_state("SOL", state, session=session)
+        session.commit()
 
         # Reload and verify
-        reloaded = load_wheel_state("SOL", session=session)
-        assert reloaded["stage"] == "short_put"
-        assert reloaded["total_premium"] == 50.0
-        assert reloaded["wins"] == 3
+        updated_trade = session.get(Single, trade.id)
+        assert updated_trade.stage == "holding"
+        assert updated_trade.asset_held == 10.0
+        assert updated_trade.cost_basis == 150.0
+        assert updated_trade.broker == "test"
 
 
 class TestCreateCloseSingleTrade:

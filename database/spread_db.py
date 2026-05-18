@@ -4,53 +4,63 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models import Spread, TradeState, get_session
-from models.trade_state import STRATEGY_SPREAD
+from models import Spread, get_session, STRATEGY_SPREAD
 
 
 def load_spread_state(asset: str, session: Optional[Session] = None) -> dict:
     """
     Load credit spread trading state for an asset from the database.
 
-    Returns a dict with keys: open, net_credit, wins, losses, trades.
-    If no state exists, creates and returns a fresh default state.
+    Queries the Spread table to reconstruct state from trade history.
+    Returns a dict with keys: open, net_credit, wins, losses, trades, broker.
+    If no trades exist, returns a fresh default state.
     """
     close_session = session is None
     if session is None:
         session = get_session()
 
     try:
-        row = session.query(TradeState).filter_by(strategy=STRATEGY_SPREAD, asset=asset).first()
+        trades = session.query(Spread).filter_by(asset=asset).order_by(Spread.date_open).all()
 
-        if row:
+        if not trades:
             return {
-                "open":       row.open_position,
-                "net_credit": row.total_premium,
-                "wins":       row.wins,
-                "losses":     row.losses,
-                "trades":     row.trades,
-                "broker":     row.broker,
+                "open":       None,
+                "net_credit": 0.0,
+                "wins":       0,
+                "losses":     0,
+                "trades":     0,
+                "broker":     None,
             }
 
-        state = TradeState(
-            strategy=STRATEGY_SPREAD,
-            asset=asset,
-            total_premium=0.0,
-            wins=0,
-            losses=0,
-            trades=0,
-            open_position=None,
-        )
-        session.add(state)
-        session.commit()
+        # Calculate aggregate stats from trade history
+        closed_trades = [t for t in trades if t.result != "Open"]
+        wins = sum(1 for t in closed_trades if "Win" in (t.result or ""))
+        losses = len(closed_trades) - wins
+        net_credit = sum(t.net_credit for t in trades if t.net_credit) or 0.0
+
+        # Get open position from the most recent open trade if any
+        open_position = None
+        for trade in reversed(trades):
+            if trade.result == "Open":
+                open_position = {
+                    "spread_type": trade.spread_type,
+                    "short_strike": trade.short_strike,
+                    "long_strike": trade.long_strike,
+                    "qty": trade.qty,
+                    "expiry": trade.expiry,
+                }
+                break
+
+        # Get broker from the most recent trade
+        latest = trades[-1]
 
         return {
-            "open":       None,
-            "net_credit": 0.0,
-            "wins":       0,
-            "losses":     0,
-            "trades":     0,
-            "broker":     None,
+            "open":       open_position,
+            "net_credit": net_credit,
+            "wins":       wins,
+            "losses":     losses,
+            "trades":     len(closed_trades),
+            "broker":     latest.broker,
         }
     finally:
         if close_session:
@@ -58,26 +68,21 @@ def load_spread_state(asset: str, session: Optional[Session] = None) -> dict:
 
 
 def save_spread_state(asset: str, state: dict, session: Optional[Session] = None) -> None:
-    """Persist credit spread trading state to the database."""
+    """
+    Persist credit spread trading state to the database.
+
+    Updates the most recent Spread record with the current broker.
+    """
     close_session = session is None
     if session is None:
         session = get_session()
 
     try:
-        row = session.query(TradeState).filter_by(strategy=STRATEGY_SPREAD, asset=asset).first()
+        row = session.query(Spread).filter_by(asset=asset).order_by(Spread.date_open.desc()).first()
 
-        if not row:
-            row = TradeState(strategy=STRATEGY_SPREAD, asset=asset)
-            session.add(row)
-
-        row.open_position = state.get("open")
-        row.total_premium = state.get("net_credit", 0.0)
-        row.wins          = state.get("wins", 0)
-        row.losses        = state.get("losses", 0)
-        row.trades        = state.get("trades", 0)
-        row.broker        = state.get("broker")
-
-        session.commit()
+        if row:
+            row.broker = state.get("broker")
+            session.commit()
     finally:
         if close_session:
             session.close()

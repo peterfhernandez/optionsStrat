@@ -30,31 +30,58 @@ class TestLoadSaveState:
         assert s["trades"]     == 0
 
     def test_save_and_reload(self):
-        state = {
-            "open":       {"spread_type": "BPS", "short_strike": 1800.0},
-            "net_credit": 12.5,
-            "wins":       2,
-            "losses":     1,
-            "trades":     3,
-            "broker":     "deribit_paper",
-        }
-        save_spread_state("ETH", state)
+        """Creating trades and saving state reflects in loaded state."""
+        # Create 3 closed trades
+        for i in range(2):
+            t = create_spread_trade(
+                asset="ETH", spread_type="BPS",
+                date_open=date(2026, 5, 15 + i),
+                short_strike=1800.0, long_strike=1700.0,
+                spot_open=2000.0, net_credit=6.25, max_loss=92.0,
+                qty=0.125, days=7, expiry="22-May-2026",
+            )
+            close_spread_trade(t.id, date(2026, 5, 20), 1750.0, 6.25, "Win")
+
+        t = create_spread_trade(
+            asset="ETH", spread_type="BPS",
+            date_open=date(2026, 5, 17),
+            short_strike=1800.0, long_strike=1700.0,
+            spot_open=2000.0, net_credit=6.25, max_loss=92.0,
+            qty=0.125, days=7, expiry="22-May-2026",
+        )
+        close_spread_trade(t.id, date(2026, 5, 20), 1750.0, -92.0, "Loss")
+
+        save_spread_state("ETH", {"broker": "deribit_paper"})
         loaded = load_spread_state("ETH")
-        assert loaded["net_credit"] == 12.5
+        assert loaded["net_credit"] == pytest.approx(18.75)
         assert loaded["wins"]       == 2
         assert loaded["losses"]     == 1
         assert loaded["trades"]     == 3
         assert loaded["broker"]     == "deribit_paper"
-        assert loaded["open"]["short_strike"] == 1800.0
 
     def test_save_clears_open_position(self):
-        state = {"open": {"spread_type": "BCS"}, "net_credit": 5.0,
-                 "wins": 0, "losses": 0, "trades": 0, "broker": None}
-        save_spread_state("BTC", state)
-        state["open"] = None
-        save_spread_state("BTC", state)
-        loaded = load_spread_state("BTC")
-        assert loaded["open"] is None
+        """Closing all trades clears the open position."""
+        # Create an open trade
+        t = create_spread_trade(
+            asset="BTC", spread_type="BCS",
+            date_open=date(2026, 5, 15),
+            short_strike=50000.0, long_strike=49000.0,
+            spot_open=50000.0, net_credit=5.0, max_loss=95.0,
+            qty=0.01, days=7, expiry="22-May-2026",
+        )
+
+        # First load - should see open position
+        save_spread_state("BTC", {"broker": None})
+        loaded1 = load_spread_state("BTC")
+        assert loaded1["open"] is not None
+
+        # Close the trade
+        close_spread_trade(t.id, date(2026, 5, 22), 49500.0, 5.0, "Win")
+        save_spread_state("BTC", {"broker": None})
+
+        # Reload - should see no open position
+        loaded2 = load_spread_state("BTC")
+        assert loaded2["open"] is None
 
 
 # ── create / close trade ──────────────────────────────────────────────────────

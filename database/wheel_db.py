@@ -4,8 +4,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models import Single, TradeState, TradeLedger, get_session
-from models.trade_state import STRATEGY_WHEEL, STAGE_NO_POSITION
+from models import Single, TradeLedger, get_session, STAGE_NO_POSITION
 from models.trade_ledger import STRATEGY_SINGLES
 
 
@@ -13,55 +12,57 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
     """
     Load wheel trading state for an asset from the database.
 
+    Queries the Single table to reconstruct state from trade history.
     Returns a dict with keys: stage, open, asset_held, cost_basis, total_premium, wins, losses, cycles.
-    If no state exists, returns a fresh default state.
+    If no trades exist, returns a fresh default state.
     """
     close_session = session is None
     if session is None:
         session = get_session()
 
     try:
-        row = session.query(TradeState).filter_by(strategy=STRATEGY_WHEEL, asset=asset).first()
+        trades = session.query(Single).filter_by(asset=asset).order_by(Single.date_open).all()
 
-        if row:
+        if not trades:
             return {
-                "stage": row.stage or STAGE_NO_POSITION,
-                "open": row.open_position,
-                "asset_held": row.asset_held,
-                "cost_basis": row.cost_basis,
-                "total_premium": row.total_premium,
-                "wins": row.wins,
-                "losses": row.losses,
-                "cycles": row.cycles,
-                "broker": row.broker,
+                "stage": STAGE_NO_POSITION,
+                "open": None,
+                "asset_held": 0.0,
+                "cost_basis": 0.0,
+                "total_premium": 0.0,
+                "wins": 0,
+                "losses": 0,
+                "cycles": 0,
+                "broker": None,
             }
 
-        # First time — create initial state
-        state = TradeState(
-            strategy=STRATEGY_WHEEL,
-            asset=asset,
-            stage=STAGE_NO_POSITION,
-            asset_held=0.0,
-            cost_basis=0.0,
-            total_premium=0.0,
-            wins=0,
-            losses=0,
-            cycles=0,
-            open_position=None,
-        )
-        session.add(state)
-        session.commit()
+        # Calculate aggregate stats from trade history
+        wins = sum(1 for t in trades if t.result == "Win")
+        losses = sum(1 for t in trades if t.result == "Loss")
+        cycles = wins + losses  # completed cycles
+        total_premium = sum(t.premium for t in trades if t.premium) or 0.0
+
+        # Get state from the most recent trade
+        latest = trades[-1]
+        open_position = None
+        if latest.result == "Open":
+            open_position = {
+                "strike": latest.strike,
+                "qty": latest.qty,
+                "expiry": latest.expiry,
+                "option_type": latest.option_type,
+            }
 
         return {
-            "stage": STAGE_NO_POSITION,
-            "open": None,
-            "asset_held": 0.0,
-            "cost_basis": 0.0,
-            "total_premium": 0.0,
-            "wins": 0,
-            "losses": 0,
-            "cycles": 0,
-            "broker": None,
+            "stage": latest.stage or STAGE_NO_POSITION,
+            "open": open_position,
+            "asset_held": latest.asset_held or 0.0,
+            "cost_basis": latest.cost_basis or 0.0,
+            "total_premium": total_premium,
+            "wins": wins,
+            "losses": losses,
+            "cycles": cycles,
+            "broker": latest.broker,
         }
     finally:
         if close_session:
@@ -72,30 +73,21 @@ def save_wheel_state(asset: str, state: dict, session: Optional[Session] = None)
     """
     Persist wheel trading state to the database.
 
-    Updates the TradeState row for this asset with the latest values.
+    Updates the most recent Single record with current stage, asset_held, cost_basis, and broker.
     """
     close_session = session is None
     if session is None:
         session = get_session()
 
     try:
-        row = session.query(TradeState).filter_by(strategy=STRATEGY_WHEEL, asset=asset).first()
+        row = session.query(Single).filter_by(asset=asset).order_by(Single.date_open.desc()).first()
 
-        if not row:
-            row = TradeState(strategy=STRATEGY_WHEEL, asset=asset)
-            session.add(row)
-
-        row.stage = state.get("stage", STAGE_NO_POSITION)
-        row.open_position = state.get("open")
-        row.asset_held = state.get("asset_held", 0.0)
-        row.cost_basis = state.get("cost_basis", 0.0)
-        row.total_premium = state.get("total_premium", 0.0)
-        row.wins = state.get("wins", 0)
-        row.losses = state.get("losses", 0)
-        row.cycles = state.get("cycles", 0)
-        row.broker = state.get("broker")
-
-        session.commit()
+        if row:
+            row.stage = state.get("stage", STAGE_NO_POSITION)
+            row.asset_held = state.get("asset_held", 0.0)
+            row.cost_basis = state.get("cost_basis", 0.0)
+            row.broker = state.get("broker")
+            session.commit()
     finally:
         if close_session:
             session.close()

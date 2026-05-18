@@ -48,10 +48,6 @@ from ui.display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 from access import BrokerBase
 from trading.executor import enter_trade
 
-from database import load_wheel_state
-from database.strangle_db import load_strangle_state
-from database.calendar_db import load_calendar_state
-from database.spread_db import load_spread_state
 from strategies.scanner import Candidate, _build_candidates
 from automation.monitor import run_monitor
 
@@ -103,47 +99,69 @@ def select_best_candidate(
 
 def _blocked_strategies(asset: str) -> set[str]:
     """
-    Inspect database state for ``asset`` and return the set of
-    strategy tags that cannot be opened right now.
+    Query strategy tables directly to determine which strategies cannot be
+    opened for ``asset`` right now.
 
     Rules
     -----
-    Wheel:
+    Wheel (Single table):
         stage == "no_position" → CSP allowed, CC blocked
         stage == "holding"     → CC  allowed, CSP blocked
         anything else          → both blocked
     Strangle:
-        an "open" entry blocks "Strangle"
+        an "Open" result blocks "Strangle"
     Calendar:
-        an "open" entry blocks "Cal-C" and "Cal-P"
+        an "Open" result blocks "Cal-C" and "Cal-P"
+    Spread:
+        an "Open" result blocks "BPS" and "BCS"
     """
+    from models import Single, Strangle, Calendar, Spread, get_session
+
     blocked: set[str] = set()
+    session = get_session()
 
-    # Wheel state from database
-    w = load_wheel_state(asset)
-    if w["stage"] == "no_position":
-        blocked.add("CC")
-    elif w["stage"] == "holding":
-        blocked.add("CSP")
-    else:
-        blocked.update({"CSP", "CC"})
+    try:
+        # Wheel: check latest Single trade stage
+        latest_single = session.query(Single).filter_by(asset=asset).order_by(
+            Single.date_open.desc()
+        ).first()
 
-    # Strangle state from database
-    s = load_strangle_state(asset)
-    if s.get("open"):
-        blocked.add("Strangle")
+        if latest_single:
+            stage = latest_single.stage or "no_position"
+            if stage == "no_position":
+                blocked.add("CC")
+            elif stage == "holding":
+                blocked.add("CSP")
+            else:
+                blocked.update({"CSP", "CC"})
+        else:
+            # Fresh state: no trades yet
+            blocked.add("CC")
 
-    # Calendar state from database
-    c = load_calendar_state(asset)
-    if c.get("open"):
-        blocked.update({"Cal-C", "Cal-P"})
+        # Strangle: check for open position
+        open_strangle = session.query(Strangle).filter_by(
+            asset=asset, result="Open"
+        ).first()
+        if open_strangle:
+            blocked.add("Strangle")
 
-    # Spread state from database
-    sp = load_spread_state(asset)
-    if sp.get("open"):
-        blocked.update({"BPS", "BCS"})
+        # Calendar: check for open position
+        open_calendar = session.query(Calendar).filter_by(
+            asset=asset, result="Open"
+        ).first()
+        if open_calendar:
+            blocked.update({"Cal-C", "Cal-P"})
 
-    return blocked
+        # Spread: check for open position
+        open_spread = session.query(Spread).filter_by(
+            asset=asset, result="Open"
+        ).first()
+        if open_spread:
+            blocked.update({"BPS", "BCS"})
+
+        return blocked
+    finally:
+        session.close()
 
 
 # ── Top-level entry point ────────────────────────────────────────────────────

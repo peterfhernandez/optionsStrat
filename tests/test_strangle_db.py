@@ -65,20 +65,42 @@ class TestLoadStrangleState:
             assert key in s
 
     def test_persisted_row_is_returned_on_second_call(self):
-        """After saving, load returns the saved values."""
-        save_strangle_state("SOL", {
-            "open": None, "total_premium": 75.0, "wins": 2, "losses": 1, "trades": 3,
-        })
+        """After creating trades, load aggregates their stats."""
+        # Create 3 closed trades for SOL
+        for i in range(2):
+            trade = _open_trade(asset="SOL", total_premium=25.0)
+            close_strangle_trade(
+                trade_id=trade.id,
+                date_close=trade.date_open,
+                spot_close=2000.0,
+                pnl=25.0,
+                result="Win",
+            )
+
+        trade = _open_trade(asset="SOL", total_premium=25.0)
+        close_strangle_trade(
+            trade_id=trade.id,
+            date_close=trade.date_open,
+            spot_close=2000.0,
+            pnl=0.0,
+            result="Loss",
+        )
+
         s = load_strangle_state("SOL")
         assert s["total_premium"] == pytest.approx(75.0)
         assert s["wins"]          == 2
+        assert s["losses"]        == 1
+        assert s["trades"]        == 3
 
     def test_separate_assets_are_independent(self):
-        save_strangle_state("ETH", {
-            "open": None, "total_premium": 100.0, "wins": 1, "losses": 0, "trades": 1,
-        })
+        # Create trade for ETH
+        trade = _open_trade(asset="ETH", total_premium=100.0)
+        trade.result = "Win"
+
+        # BTC should have no trades
         btc = load_strangle_state("BTC")
         assert btc["total_premium"] == 0.0  # BTC untouched
+        assert btc["wins"]          == 0
 
 
 # ── save_strangle_state ───────────────────────────────────────────────────────
@@ -86,32 +108,48 @@ class TestLoadStrangleState:
 class TestSaveStrangleState:
 
     def test_creates_new_row_on_first_save(self):
-        save_strangle_state("XRP", {
-            "open": None, "total_premium": 25.0, "wins": 1, "losses": 0, "trades": 1,
-        })
+        """save_strangle_state updates broker on existing record."""
+        trade = _open_trade(asset="XRP", total_premium=25.0)
+        close_strangle_trade(trade.id, trade.date_open, 2000.0, 25.0, "Win")
+        save_strangle_state("XRP", {"broker": "deribit_paper"})
+
         s = load_strangle_state("XRP")
         assert s["total_premium"] == pytest.approx(25.0)
+        assert s["broker"] == "deribit_paper"
 
     def test_update_overwrites_previous_values(self):
-        save_strangle_state("ETH", {
-            "open": None, "total_premium": 50.0, "wins": 1, "losses": 0, "trades": 1,
-        })
-        save_strangle_state("ETH", {
-            "open": None, "total_premium": 120.0, "wins": 2, "losses": 1, "trades": 3,
-        })
+        """Creating more trades updates the aggregated stats."""
+        # First trade
+        trade1 = _open_trade(asset="ETH", total_premium=50.0)
+        close_strangle_trade(trade1.id, trade1.date_open, 2000.0, 50.0, "Win")
+
+        # Second set of trades
+        trade2 = _open_trade(asset="ETH", total_premium=70.0)
+        close_strangle_trade(trade2.id, trade2.date_open, 2000.0, 70.0, "Win")
+
+        trade3 = _open_trade(asset="ETH", total_premium=50.0)
+        close_strangle_trade(trade3.id, trade3.date_open, 2000.0, 0.0, "Loss")
+
         s = load_strangle_state("ETH")
-        assert s["total_premium"] == pytest.approx(120.0)
+        assert s["total_premium"] == pytest.approx(170.0)
         assert s["wins"]          == 2
+        assert s["losses"]        == 1
         assert s["trades"]        == 3
 
     def test_open_position_dict_stored_and_retrieved(self):
-        op = {"put_strike": 1800.0, "call_strike": 2200.0, "trade_id": 99}
-        save_strangle_state("ETH", {
-            "open": op, "total_premium": 50.0, "wins": 0, "losses": 0, "trades": 1,
-        })
+        """Open trade position is reconstructed from recent open record."""
+        trade = _open_trade(
+            asset="ETH",
+            put_strike=1800.0,
+            call_strike=2200.0,
+            total_premium=50.0
+        )
+        # Leave it open
+
         s = load_strangle_state("ETH")
+        assert s["open"] is not None
         assert s["open"]["put_strike"]  == pytest.approx(1800.0)
-        assert s["open"]["trade_id"]    == 99
+        assert s["open"]["call_strike"] == pytest.approx(2200.0)
 
     def test_clear_open_position_to_none(self):
         save_strangle_state("ETH", {

@@ -4,54 +4,62 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models import Strangle, TradeState, get_session
-from models.trade_state import STRATEGY_STRANGLE
+from models import Strangle, get_session, STRATEGY_STRANGLE
 
 
 def load_strangle_state(asset: str, session: Optional[Session] = None) -> dict:
     """
     Load strangle trading state for an asset from the database.
 
-    Returns a dict with keys: open, total_premium, wins, losses, trades.
-    If no state exists, creates and returns a fresh default state.
+    Queries the Strangle table to reconstruct state from trade history.
+    Returns a dict with keys: open, total_premium, wins, losses, trades, broker.
+    If no trades exist, returns a fresh default state.
     """
     close_session = session is None
     if session is None:
         session = get_session()
 
     try:
-        row = session.query(TradeState).filter_by(strategy=STRATEGY_STRANGLE, asset=asset).first()
+        trades = session.query(Strangle).filter_by(asset=asset).order_by(Strangle.date_open).all()
 
-        if row:
+        if not trades:
             return {
-                "open":          row.open_position,
-                "total_premium": row.total_premium,
-                "wins":          row.wins,
-                "losses":        row.losses,
-                "trades":        row.trades,
-                "broker":        row.broker,
+                "open":          None,
+                "total_premium": 0.0,
+                "wins":          0,
+                "losses":        0,
+                "trades":        0,
+                "broker":        None,
             }
 
-        # First time — create initial state row
-        state = TradeState(
-            strategy=STRATEGY_STRANGLE,
-            asset=asset,
-            total_premium=0.0,
-            wins=0,
-            losses=0,
-            trades=0,
-            open_position=None,
-        )
-        session.add(state)
-        session.commit()
+        # Calculate aggregate stats from trade history
+        closed_trades = [t for t in trades if t.result != "Open"]
+        wins = sum(1 for t in closed_trades if "Win" in (t.result or ""))
+        losses = len(closed_trades) - wins
+        total_premium = sum(t.total_premium for t in trades if t.total_premium) or 0.0
+
+        # Get open position from the most recent open trade if any
+        open_position = None
+        for trade in reversed(trades):
+            if trade.result == "Open":
+                open_position = {
+                    "put_strike": trade.put_strike,
+                    "call_strike": trade.call_strike,
+                    "qty": trade.qty,
+                    "expiry": trade.expiry,
+                }
+                break
+
+        # Get broker from the most recent trade
+        latest = trades[-1]
 
         return {
-            "open":          None,
-            "total_premium": 0.0,
-            "wins":          0,
-            "losses":        0,
-            "trades":        0,
-            "broker":        None,
+            "open":          open_position,
+            "total_premium": total_premium,
+            "wins":          wins,
+            "losses":        losses,
+            "trades":        len(closed_trades),
+            "broker":        latest.broker,
         }
     finally:
         if close_session:
@@ -59,26 +67,21 @@ def load_strangle_state(asset: str, session: Optional[Session] = None) -> dict:
 
 
 def save_strangle_state(asset: str, state: dict, session: Optional[Session] = None) -> None:
-    """Persist strangle trading state to the database."""
+    """
+    Persist strangle trading state to the database.
+
+    Updates the most recent Strangle record with the current broker.
+    """
     close_session = session is None
     if session is None:
         session = get_session()
 
     try:
-        row = session.query(TradeState).filter_by(strategy=STRATEGY_STRANGLE, asset=asset).first()
+        row = session.query(Strangle).filter_by(asset=asset).order_by(Strangle.date_open.desc()).first()
 
-        if not row:
-            row = TradeState(strategy=STRATEGY_STRANGLE, asset=asset)
-            session.add(row)
-
-        row.open_position = state.get("open")
-        row.total_premium = state.get("total_premium", 0.0)
-        row.wins          = state.get("wins", 0)
-        row.losses        = state.get("losses", 0)
-        row.trades        = state.get("trades", 0)
-        row.broker        = state.get("broker")
-
-        session.commit()
+        if row:
+            row.broker = state.get("broker")
+            session.commit()
     finally:
         if close_session:
             session.close()

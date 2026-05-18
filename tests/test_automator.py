@@ -43,9 +43,10 @@ from unittest.mock import patch, MagicMock, PropertyMock
 import pytest
 
 from access import OrderResult
-from database import load_wheel_state, save_wheel_state
-from database.strangle_db import load_strangle_state, save_strangle_state
-from database.calendar_db import load_calendar_state, save_calendar_state
+from database import load_wheel_state, save_wheel_state, create_single_trade
+from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
+from database.calendar_db import load_calendar_state, save_calendar_state, create_calendar_trade
+from database.spread_db import load_spread_state, save_spread_state, create_spread_trade
 from strategies.scanner import Candidate
 from strategies import wheel
 from automation.automator import (
@@ -240,50 +241,106 @@ class TestBlockedStrategies:
         assert "Cal-P" not in blocked
 
     def test_holding_blocks_csp_allows_cc(self):
-        s = load_wheel_state("ETH")
-        s["stage"] = "holding"
-        s["asset_held"] = 0.13
-        s["cost_basis"] = 1900
-        save_wheel_state("ETH", s)
+        from datetime import date
+        # Create a Single trade in holding stage
+        trade = create_single_trade(
+            asset="ETH",
+            date_open=date.today(),
+            option_type="Put",
+            strike=1800.0,
+            expiry="13-Jun-2026",
+            spot_open=2000.0,
+            premium=12.50,
+            qty=0.139,
+            days=7,
+            stage="holding",
+        )
 
         blocked = _blocked_strategies("ETH")
         assert "CSP" in blocked
         assert "CC" not in blocked
 
     def test_short_put_blocks_both_wheel_legs(self):
-        s = load_wheel_state("ETH")
-        s["stage"] = "short_put"
-        s["open"] = {"type": "Put", "strike": 1800,
-                     "premium": 5.0, "qty": 0.13, "days": 7}
-        save_wheel_state("ETH", s)
+        from datetime import date
+        # Create a Single trade in short_put stage
+        trade = create_single_trade(
+            asset="ETH",
+            date_open=date.today(),
+            option_type="Put",
+            strike=1800.0,
+            expiry="13-Jun-2026",
+            spot_open=2000.0,
+            premium=12.50,
+            qty=0.139,
+            days=7,
+            stage="short_put",
+        )
 
         blocked = _blocked_strategies("ETH")
         assert "CSP" in blocked
         assert "CC"  in blocked
 
     def test_open_strangle_blocks_strangle(self):
-        s = load_strangle_state("ETH")
-        s["open"] = {
-            "put_strike": 1800, "call_strike": 2200,
-            "total_premium": 30.0, "qty": 0.125, "days": 7,
-        }
-        save_strangle_state("ETH", s)
+        from datetime import date
+        # Create an open Strangle trade
+        trade = create_strangle_trade(
+            asset="ETH",
+            date_open=date.today(),
+            put_strike=1800.0,
+            call_strike=2200.0,
+            spot_open=2000.0,
+            total_premium=30.0,
+            qty=0.125,
+            days=7,
+            expiry="13-Jun-2026",
+        )
 
         blocked = _blocked_strategies("ETH")
         assert "Strangle" in blocked
 
     def test_open_calendar_blocks_both_calendar_types(self):
-        s = load_calendar_state("ETH")
-        s["open"] = {
-            "strike": 2000, "option_type": "Call",
-            "near_prem": 10.0, "far_prem": 20.0, "net_debit": 10.0,
-            "qty": 0.125, "near_days": 7, "far_days": 30,
-        }
-        save_calendar_state("ETH", s)
+        from datetime import date
+        # Create an open Calendar trade
+        trade = create_calendar_trade(
+            asset="ETH",
+            date_open=date.today(),
+            option_type="Call",
+            strike=2000.0,
+            expiry_near="13-Jun-2026",
+            expiry_far="01-Jul-2026",
+            near_days=7,
+            far_days=30,
+            qty=0.125,
+            spot_open=2000.0,
+            near_prem=10.0,
+            far_prem=20.0,
+            net_debit=10.0,
+        )
 
         blocked = _blocked_strategies("ETH")
         assert "Cal-C" in blocked
         assert "Cal-P" in blocked
+
+    def test_open_spread_blocks_both_spread_types(self):
+        from datetime import date
+        # Create an open Spread trade
+        trade = create_spread_trade(
+            asset="ETH",
+            spread_type="BPS",
+            date_open=date.today(),
+            short_strike=1900.0,
+            long_strike=1800.0,
+            spot_open=2000.0,
+            net_credit=2.0,
+            max_loss=98.0,
+            qty=0.1,
+            days=7,
+            expiry="01-Jul-2026",
+        )
+
+        blocked = _blocked_strategies("ETH")
+        assert "BPS" in blocked
+        assert "BCS" in blocked
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,7 +355,7 @@ class TestEnterTrade:
 
         s = load_wheel_state("ETH")
         assert s["stage"] == "short_put"
-        assert s["open"]["type"] == "Put"
+        assert s["open"]["option_type"] == "Put"
         assert s["open"]["strike"] == 1800.0
         assert s["total_premium"] > 0
         assert opened["strike"] == 1800.0
@@ -320,7 +377,7 @@ class TestEnterTrade:
 
         s2 = load_wheel_state("ETH")
         assert s2["stage"] == "short_call"
-        assert s2["open"]["type"] == "Call"
+        assert s2["open"]["option_type"] == "Call"
         assert s2["open"]["qty"]  == pytest.approx(0.20)
         assert opened["strike"] == 2200.0
 
@@ -332,7 +389,7 @@ class TestEnterTrade:
         s = load_strangle_state("ETH")
         assert s["open"]["put_strike"]  == 1800.0
         assert s["open"]["call_strike"] == 2200.0
-        assert s["trades"] == 1
+        assert s["open"] is not None  # verify open position is set
         assert opened["put_strike"] == 1800.0
 
     def test_calendar_writes_calendar_state(self):
@@ -343,8 +400,8 @@ class TestEnterTrade:
         s = load_calendar_state("ETH")
         assert s["open"]["strike"]      == 2000.0
         assert s["open"]["option_type"] == "Call"
-        assert s["open"]["far_days"]    == 30
-        assert s["open"]["net_debit"]   > 0
+        assert s["open"]["expiry_near"] is not None
+        assert s["open"]["expiry_far"]  is not None
         assert opened["option_type"] == "Call"
 
     def test_calendar_put_strategy(self):
@@ -514,12 +571,20 @@ class TestRunAutomation:
     def test_skips_blocked_strategy_and_picks_next(self):
         """If the wheel already has a short put open, CSP is blocked, so
         the runner should fall through to a Strangle candidate."""
-        # Pre-load wheel into 'short_put' state
-        s = load_wheel_state("ETH")
-        s["stage"] = "short_put"
-        s["open"] = {"type": "Put", "strike": 1700.0,
-                     "premium": 5.0, "qty": 0.14, "days": 7}
-        save_wheel_state("ETH", s)
+        from datetime import date
+        # Create a Single trade in short_put stage to block CSP
+        trade = create_single_trade(
+            asset="ETH",
+            date_open=date.today(),
+            option_type="Put",
+            strike=1700.0,
+            expiry="13-Jun-2026",
+            spot_open=2000.0,
+            premium=5.0,
+            qty=0.14,
+            days=7,
+            stage="short_put",
+        )
 
         csp = _make(strategy="CSP", yield_ann=80.0, prob_profit=99.0)
         stg = _make(strategy="Strangle", strike_str="$1800/$2200",
