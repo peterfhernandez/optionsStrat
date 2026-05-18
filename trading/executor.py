@@ -130,6 +130,9 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
+    # Calculate the exact amount that will be sent to broker
+    broker_qty = _broker_amount(c.asset, c.spot)
+
     order = _place_option(
         broker, c.asset, expiry_dt, K, "put", "sell",
         unit_price, c.spot, label=f"CSP-{c.asset}", T=T, iv=c.iv,
@@ -145,7 +148,7 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
         "expiry":           expiry,
         "premium":          round(premium, 4),
         "spot_open":        c.spot,
-        "qty":              qty,
+        "qty":              broker_qty,  # Use broker-calculated amount
         "days":             c.days,
         "asset":            c.asset,
         "broker_order_id":  order.order_id,
@@ -162,7 +165,7 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
         expiry=expiry,
         spot_open=c.spot,
         premium=round(premium, 4),
-        qty=qty,
+        qty=broker_qty,  # Use broker-calculated amount
         days=c.days,
         stage="short_put",
         broker=broker.broker_name,
@@ -189,27 +192,29 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
-    s["stage"]  = "short_call"
-    s["broker"] = broker.broker_name
-    s["open"]   = {
-        "type":      "Call",
-        "strike":    K,
-        "expiry":    expiry,
-        "premium":   round(premium, 4),
-        "spot_open": c.spot,
-        "qty":       qty,
-        "days":      c.days,
-        "asset":     c.asset,
-    }
+    # Calculate the exact amount that will be sent to broker
+    broker_qty = s["asset_held"] or _broker_amount(c.asset, c.spot)
+
     order = _place_option(
         broker, c.asset, expiry_dt, K, "call", "sell",
         unit_price, c.spot, label=f"CC-{c.asset}", T=T, iv=c.iv,
     )
     K = _strike_from_instrument(order.instrument)
-    s["open"]["strike"] = K
 
-    s["open"]["broker_order_id"] = order.order_id
-    s["open"]["instrument"]      = order.instrument
+    s["stage"]  = "short_call"
+    s["broker"] = broker.broker_name
+    s["open"]   = {
+        "type":             "Call",
+        "strike":           K,
+        "expiry":           expiry,
+        "premium":          round(premium, 4),
+        "spot_open":        c.spot,
+        "qty":              broker_qty,  # Use broker-calculated amount
+        "days":             c.days,
+        "asset":            c.asset,
+        "broker_order_id":  order.order_id,
+        "instrument":       order.instrument,
+    }
     s["total_premium"] = s.get("total_premium", 0.0) + premium
     save_wheel_state(c.asset, s)
 
@@ -221,7 +226,7 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
         expiry=expiry,
         spot_open=c.spot,
         premium=round(premium, 4),
-        qty=qty,
+        qty=broker_qty,  # Use broker-calculated amount
         days=c.days,
         stage="short_call",
         broker=broker.broker_name,
@@ -248,6 +253,9 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
+    # Calculate the exact amount that will be sent to broker
+    broker_qty = _broker_amount(c.asset, c.spot)
+
     put_order  = _place_option(
         broker, c.asset, expiry_dt, Kp, "put",  "sell",
         put_price, c.spot, label=f"STR-P-{c.asset}", T=T, iv=c.iv,
@@ -266,7 +274,7 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
         call_strike=Kc,
         spot_open=c.spot,
         total_premium=round(tot, 4),
-        qty=qty,
+        qty=broker_qty,  # Use broker-calculated amount
         days=c.days,
         expiry=expiry,
         broker=broker.broker_name,
@@ -283,7 +291,7 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
         "put_strike":           Kp,
         "call_strike":          Kc,
         "total_premium":        round(tot, 4),
-        "qty":                  qty,
+        "qty":                  broker_qty,  # Store broker-calculated amount
         "expiry":               expiry,
         "spot_open":            c.spot,
         "days":                 c.days,
@@ -315,6 +323,9 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     expiry_near    = expiry_near_dt.strftime("%d-%b-%Y")
     expiry_far     = expiry_far_dt.strftime("%d-%b-%Y")
 
+    # Calculate the exact amount that will be sent to broker
+    broker_qty = _broker_amount(c.asset, c.spot)
+
     ot = option_type.lower()
     # Calendar: sell near leg, buy far leg.
     # Near leg resolves first; its actual strike is enforced on the far leg
@@ -344,7 +355,7 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
         expiry_far=expiry_far,
         near_days=c.days,
         far_days=far_days,
-        qty=qty,
+        qty=broker_qty,  # Use broker-calculated amount
         spot_open=c.spot,
         near_prem=round(near_prem, 4),
         far_prem=round(far_prem, 4),
@@ -365,7 +376,7 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
         "near_prem":            round(near_prem, 4),
         "far_prem":             round(far_prem,  4),
         "net_debit":            round(net_debit, 4),
-        "qty":                  qty,
+        "qty":                  broker_qty,  # Store broker-calculated amount
         "expiry_near":          expiry_near,
         "expiry_far":           expiry_far,
         "spot_open":            c.spot,
@@ -412,6 +423,9 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
+    # Calculate the exact amount that will be sent to broker
+    broker_qty = _broker_amount(c.asset, c.spot)
+
     short_order = _place_option(
         broker, c.asset, expiry_dt, short_k, otype, "sell",
         short_p, c.spot, label=f"SPR-S-{c.asset}", T=T, iv=c.iv,
@@ -432,7 +446,7 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
         spot_open=c.spot,
         net_credit=round(net_credit, 4),
         max_loss=round(max_loss, 4),
-        qty=qty,
+        qty=broker_qty,  # Use broker-calculated amount
         days=c.days,
         expiry=expiry,
         broker=broker.broker_name,
@@ -451,7 +465,7 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
         "long_strike":            long_k,
         "net_credit":             round(net_credit, 4),
         "max_loss":               round(max_loss, 4),
-        "qty":                    qty,
+        "qty":                    broker_qty,  # Store broker-calculated amount
         "expiry":                 expiry,
         "spot_open":              c.spot,
         "days":                   c.days,
