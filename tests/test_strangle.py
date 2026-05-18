@@ -30,8 +30,9 @@ from strategies.strangle import (
     _breakevens,
     check_stop_loss,
 )
-from database.strangle_db import load_strangle_state, save_strangle_state
+from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade, close_strangle_trade
 from config import STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER
+from datetime import date
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

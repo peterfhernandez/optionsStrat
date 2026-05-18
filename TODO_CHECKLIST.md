@@ -11,7 +11,7 @@
 5. ✅ Rewrite _blocked_strategies() in automation/automator.py to query strategy tables directly
 6. ✅ Update automation/monitor.py and trading/executor.py to remove TradeState references
 7. ✅ Remove TradeState tests from tests/test_models.py and update automator/monitor tests
-8. ☐ Drop trade_state table from database and verify no regressions
+8. ✅ Drop trade_state table from database and verify no regressions
 
 ## Phase 2: Integrate Trading Fees (6 tasks)
 

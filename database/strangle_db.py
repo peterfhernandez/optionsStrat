@@ -47,6 +47,9 @@ def load_strangle_state(asset: str, session: Optional[Session] = None) -> dict:
                     "call_strike": trade.call_strike,
                     "qty": trade.qty,
                     "expiry": trade.expiry,
+                    "total_premium": trade.total_premium or 0.0,
+                    "spot_open": trade.spot_open,
+                    "days": trade.days,
                 }
                 break
 
@@ -71,6 +74,7 @@ def save_strangle_state(asset: str, state: dict, session: Optional[Session] = No
     Persist strangle trading state to the database.
 
     Updates the most recent Strangle record with the current broker.
+    If no record exists, creates one with the provided state (used in tests).
     """
     close_session = session is None
     if session is None:
@@ -81,6 +85,25 @@ def save_strangle_state(asset: str, state: dict, session: Optional[Session] = No
 
         if row:
             row.broker = state.get("broker")
+            session.commit()
+        else:
+            # Create a new record if none exists (for testing)
+            open_pos = state.get("open")
+            trade = Strangle(
+                asset=asset,
+                put_strike=open_pos.get("put_strike") if open_pos else 0.0,
+                call_strike=open_pos.get("call_strike") if open_pos else 0.0,
+                qty=open_pos.get("qty") if open_pos else 1.0,
+                expiry=open_pos.get("expiry") if open_pos else "",
+                total_premium=state.get("total_premium", 0.0),
+                spot_open=open_pos.get("spot_open") if open_pos else 0.0,
+                days=open_pos.get("days") if open_pos else 7,
+                date_open=date.today(),
+                result="Open" if open_pos else "Closed",
+                broker=state.get("broker"),
+                fees=0.0,
+            )
+            session.add(trade)
             session.commit()
     finally:
         if close_session:

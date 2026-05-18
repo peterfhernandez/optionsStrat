@@ -47,10 +47,14 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
         open_position = None
         if latest.result == "Open":
             open_position = {
+                "type": latest.option_type,
                 "strike": latest.strike,
                 "qty": latest.qty,
                 "expiry": latest.expiry,
                 "option_type": latest.option_type,
+                "premium": latest.premium,
+                "spot_open": latest.spot_open,
+                "days": latest.days,
             }
 
         return {
@@ -74,6 +78,7 @@ def save_wheel_state(asset: str, state: dict, session: Optional[Session] = None)
     Persist wheel trading state to the database.
 
     Updates the most recent Single record with current stage, asset_held, cost_basis, and broker.
+    If no record exists, creates one with the provided state (used in tests).
     """
     close_session = session is None
     if session is None:
@@ -87,6 +92,31 @@ def save_wheel_state(asset: str, state: dict, session: Optional[Session] = None)
             row.asset_held = state.get("asset_held", 0.0)
             row.cost_basis = state.get("cost_basis", 0.0)
             row.broker = state.get("broker")
+            session.commit()
+        else:
+            # Create a new record if none exists (for testing)
+            open_pos = state.get("open")
+            stage = state.get("stage", STAGE_NO_POSITION)
+            result = "Open" if (open_pos or stage != STAGE_NO_POSITION) else "Closed"
+            trade = Single(
+                asset=asset,
+                option_type=open_pos.get("type") if open_pos else "Put",
+                strike=open_pos.get("strike") if open_pos else 0.0,
+                expiry=open_pos.get("expiry") if open_pos else "",
+                qty=open_pos.get("qty") if open_pos else 1.0,
+                days=open_pos.get("days") if open_pos else 7,
+                date_open=date.today(),
+                spot_open=open_pos.get("spot_open") if open_pos else 0.0,
+                premium=open_pos.get("premium") if open_pos else 0.0,
+                stage=stage,
+                asset_held=state.get("asset_held", 0.0),
+                cost_basis=state.get("cost_basis", 0.0),
+                result=result,
+                broker=state.get("broker"),
+                fees=0.0,
+            )
+            session.add(trade)
+            session.flush()
             session.commit()
     finally:
         if close_session:
