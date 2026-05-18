@@ -304,3 +304,15 @@ class TestGetCalendarStats:
         close_calendar_trade(t.id, date(2026, 5, 8), 1500.0, -10.0, "Loss (Auto Stop)")
         stats = get_calendar_stats()
         assert stats["losses"] == 1
+
+    def test_loss_stop_counted_as_loss(self):
+        t = _open_trade()
+        close_calendar_trade(t.id, date(2026, 5, 8), 1500.0, -10.0, "Loss (Stop)")
+        stats = get_calendar_stats()
+        assert stats["losses"] == 1
+
+    def test_loss_early_counted_as_loss(self):
+        t = _open_trade()
+        close_calendar_trade(t.id, date(2026, 5, 8), 1600.0, -5.0, "Loss (Early)")
+        stats = get_calendar_stats()
+        assert stats["losses"] == 1

@@ -163,7 +163,7 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
 
     # [1] Sell Put
     if choice == "1":
-        if s["stage"] != "no_position":
+        if s["open"]:
             warn("Close existing position first.")
             return
 
@@ -264,6 +264,9 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
 
     # [4] Sell Covered Call
     elif choice == "4":
+        if s["open"]:
+            warn("Close existing position first.")
+            return
         if s["stage"] != "holding":
             warn(f"Must be holding {asset} first.")
             return

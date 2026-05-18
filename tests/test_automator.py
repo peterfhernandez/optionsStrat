@@ -564,11 +564,13 @@ class TestRunAutomation:
     def test_monitor_is_called_before_candidate_selection(self):
         """run_monitor must be invoked before _build_candidates."""
         call_order = []
+        eth_config = {"active": True}
         with patch("automation.automator.run_monitor",
                    side_effect=lambda *a, **kw: call_order.append("monitor")) as mock_monitor, \
              patch("automation.automator._build_candidates",
                    side_effect=lambda *a, **kw: call_order.append("candidates") or []), \
-             patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("automation.automator.SUPPORTED_ASSETS", {"ETH": eth_config}), \
+             patch("automation.automator.TRADEABLE_ASSETS", {"ETH": eth_config}), \
              patch("market.market_data.get_spot_price", return_value=2000.0), \
              patch("market.market_data.get_deribit_iv",  return_value=0.80):
             run_automation(

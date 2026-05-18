@@ -33,8 +33,12 @@ from dataclasses import dataclass, field
 import math
 
 from database.scanner_db import save_scan_results
+from database.wheel_db import load_wheel_state
+from database.strangle_db import load_strangle_state
+from database.calendar_db import load_calendar_state
+from database.spread_db import load_spread_state
 from config  import (
-    SUPPORTED_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
+    SUPPORTED_ASSETS, TRADEABLE_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, SPREAD_WIDTH_PCT, DERIBIT_PAPER,
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
@@ -42,6 +46,24 @@ from ui.display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
 from market.market_data import get_spot_price, get_deribit_iv, _deribit_instrument, _fetch_order_book
 from access import BrokerBase, DeribitClient
 from trading.executor import enter_trade
+
+
+def _has_open_position(asset: str, strategy: str) -> bool:
+    """Check if there's an open position for the given asset and strategy."""
+    try:
+        if strategy in ("CSP", "CC"):
+            state = load_wheel_state(asset)
+        elif strategy == "Strangle":
+            state = load_strangle_state(asset)
+        elif strategy in ("Cal-C", "Cal-P"):
+            state = load_calendar_state(asset)
+        elif strategy in ("BPS", "BCS"):
+            state = load_spread_state(asset)
+        else:
+            return False
+        return bool(state.get("open"))
+    except Exception:
+        return False
 
 
 # ── Minimum yield threshold for "high probability" ranking ───────────────────
@@ -597,7 +619,7 @@ def run_scanner(
 
     all_candidates: list[Candidate] = []
 
-    for asset in SUPPORTED_ASSETS:
+    for asset in TRADEABLE_ASSETS:
         if asset == active_asset:
             spot = active_spot
             iv   = active_iv
@@ -695,15 +717,21 @@ def run_scanner(
             idx = int(raw) - 1
             if 0 <= idx < len(top):
                 pick = top[idx]
-                try:
-                    enter_trade(pick, broker=broker)
-                    ok(
-                        f"Entered {pick.strategy} on {pick.asset}  "
-                        f"strike {pick.strike}  prem ${pick.premium:.2f}  "
-                        f"via {broker.broker_name}"
+                if _has_open_position(pick.asset, pick.strategy):
+                    warn(
+                        f"Cannot enter {pick.strategy} on {pick.asset} — "
+                        f"position already open. Close it first."
                     )
-                except Exception as exc:
-                    warn(f"Trade entry failed: {exc}")
+                else:
+                    try:
+                        enter_trade(pick, broker=broker)
+                        ok(
+                            f"Entered {pick.strategy} on {pick.asset}  "
+                            f"strike {pick.strike}  prem ${pick.premium:.2f}  "
+                            f"via {broker.broker_name}"
+                        )
+                    except Exception as exc:
+                        warn(f"Trade entry failed: {exc}")
             else:
                 warn(f"Invalid choice — enter a number between 1 and {len(top)}.")
 

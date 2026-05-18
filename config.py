@@ -46,26 +46,32 @@ SUPPORTED_ASSETS = {
         "coingecko_id":   "ethereum",
         "deribit_ticker": "ETH",
         "strike_round":   100,
+        "active":         True,
     },
     "BTC": {
         "binance_symbol": "BTCUSDT",
         "coingecko_id":   "bitcoin",
         "deribit_ticker": "BTC",
         "strike_round":   1000,
+        "active":         True,
     },
     "SOL": {
         "binance_symbol": "SOLUSDT",
         "coingecko_id":   "solana",
         "deribit_ticker": "SOL_USDC",
         "strike_round":   1,
+        "active":         True,
     },
     "XRP": {
         "binance_symbol": "XRPUSDT",
         "coingecko_id":   "ripple",
         "deribit_ticker": "XRP_USDC",
         "strike_round":   0.05,
+        "active":         False,
     },
 }
+
+TRADEABLE_ASSETS = {k: v for k, v in SUPPORTED_ASSETS.items() if v.get("active", True)}
  
 DEFAULT_ASSET = "ETH"   # used by main.py if no asset is selected
 

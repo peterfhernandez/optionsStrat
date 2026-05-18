@@ -9,6 +9,9 @@ debug*.py
 crypto_options_trade_tracker.xlsx
 ~$*.xlsx
 
+# CSV options data files
+*_options.csv
+
 # sqlite db
 optionsStrat.db
 

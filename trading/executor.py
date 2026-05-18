@@ -543,10 +543,10 @@ def close_wheel_position(op: dict, broker: BrokerBase, spot: float) -> "OrderRes
     ----------
     op:     The open-position dict stored in wheel state.
     broker: Broker adapter (same one used to open the trade).
-    spot:   Current spot price (used to compute contract amount).
+    spot:   Current spot price (unused; amount is taken from open position).
     """
     asset      = op["asset"]
-    amount     = _broker_amount(asset, spot)
+    amount     = op.get("qty") or _broker_amount(asset, spot)
     instrument = op["instrument"]
     return broker.place_order(
         instrument, "buy", amount, "market",
@@ -563,7 +563,7 @@ def close_strangle_position(
     Returns (put_order, call_order).
     """
     asset      = op["asset"]
-    amount     = _broker_amount(asset, spot)
+    amount     = op.get("qty") or _broker_amount(asset, spot)
     put_instr  = op["put_instrument"]
     call_instr = op["call_instrument"]
     put_order  = broker.place_order(put_instr,  "buy", amount, "market", label=f"CLOSE-STR-P-{asset}")
@@ -581,7 +581,7 @@ def close_calendar_position(
     Returns (near_order, far_order).
     """
     asset      = op["asset"]
-    amount     = _broker_amount(asset, spot)
+    amount     = op.get("qty") or _broker_amount(asset, spot)
     near_instr = op["near_instrument"]
     far_instr  = op["far_instrument"]
     near_order = broker.place_order(near_instr, "buy",  amount, "market", label=f"CLOSE-CAL-NEAR-{asset}")
@@ -598,7 +598,7 @@ def close_spread_position(
     Returns (short_order, long_order).
     """
     asset      = op["asset"]
-    amount     = _broker_amount(asset, spot)
+    amount     = op.get("qty") or _broker_amount(asset, spot)
 
     # Use the exact instrument names recorded at open time — never recompute.
     short_instr = op["short_instrument"]

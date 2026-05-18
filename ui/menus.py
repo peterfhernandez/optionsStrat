@@ -14,7 +14,7 @@ from config import (
     DAILY_DAYS, WEEKLY_DAYS,
     CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
     CALENDAR_NEAR_OPTIONS, CALENDAR_FAR_OPTIONS,
-    DEFAULT_ASSET, SUPPORTED_ASSETS,
+    DEFAULT_ASSET, SUPPORTED_ASSETS, TRADEABLE_ASSETS,
     TRADING_MODE,
 )
 from market.market_data import get_spot_price, get_deribit_iv
@@ -195,6 +195,10 @@ def strategies_menu(
     Sub-menu grouping all strategy options.
     Returns to the main menu when the user selects Back.
     """
+    if asset not in TRADEABLE_ASSETS:
+        warn(f"\n{asset} trading is disabled. You can view portfolio history but cannot enter new positions.")
+        return
+
     while True:
         print(f"""
 {CY}{'─' * 54}{R}

@@ -41,7 +41,7 @@ from typing      import Iterable
 
 from config       import (
     BUDGET_USD, RISK_FREE_RATE, CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
-    SUPPORTED_ASSETS,
+    SUPPORTED_ASSETS, TRADEABLE_ASSETS,
 )
 from market.pricing      import bs_put, bs_call
 from ui.display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
@@ -204,7 +204,7 @@ def run_automation(
         inf("Calendar legs",    f"{cal_near_days or CALENDAR_NEAR_DAYS}d/{cal_far_days or CALENDAR_FAR_DAYS}d")
 
     all_candidates: list[Candidate] = []
-    for asset in SUPPORTED_ASSETS:
+    for asset in TRADEABLE_ASSETS:
         if asset == active_asset:
             spot = active_spot
             iv   = active_iv
@@ -224,7 +224,7 @@ def run_automation(
         )
 
     blocked = set()
-    for asset in SUPPORTED_ASSETS:
+    for asset in TRADEABLE_ASSETS:
         blocked.update(_blocked_strategies(asset))
 
     pick = select_best_candidate(

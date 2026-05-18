@@ -181,7 +181,7 @@ def get_calendar_stats(asset: Optional[str] = None, session: Optional[Session] =
 
     try:
         query = session.query(Calendar).filter(
-            Calendar.result.in_(["Win", "Loss", "Win (Auto TP)", "Loss (Auto Stop)"])
+            Calendar.result.in_(["Win", "Loss", "Win (Auto TP)", "Loss (Auto Stop)", "Loss (Stop)", "Loss (Early)"])
         )
         if asset:
             query = query.filter(Calendar.asset == asset)
