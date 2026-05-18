@@ -30,8 +30,9 @@ from strategies.strangle import (
     _breakevens,
     check_stop_loss,
 )
-from database.strangle_db import load_strangle_state, save_strangle_state
+from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade, close_strangle_trade
 from config import STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER
+from datetime import date
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -345,66 +346,78 @@ class TestLoadStrangleState:
 
 
 class TestSaveStrangleState:
-    """Tests for save_strangle_state — uses in-memory SQLite via conftest."""
+    """Tests for save_strangle_state — persists broker to trades."""
 
-    def test_saves_and_loads_roundtrip(self):
-        """State saved via save_strangle_state can be retrieved via load_strangle_state."""
-        state = {
-            "open":          None,
-            "total_premium": 150.0,
-            "wins":          3,
-            "losses":        1,
-            "trades":        4,
-        }
+    def test_saves_broker_to_existing_trade(self):
+        """Broker is saved to existing trade and retrieved correctly."""
+        trade = create_strangle_trade(
+            asset="ETH",
+            date_open=date(2026, 5, 18),
+            put_strike=1800.0,
+            call_strike=2200.0,
+            spot_open=2000.0,
+            total_premium=50.0,
+            qty=0.125,
+            days=7,
+            expiry="25-May-2026",
+            broker="test_broker",
+        )
+        state = {"open": None, "total_premium": 50.0, "wins": 0, "losses": 0, "trades": 0, "broker": "updated_broker"}
         save_strangle_state("ETH", state)
         loaded = load_strangle_state("ETH")
-        assert loaded["total_premium"] == pytest.approx(150.0)
-        assert loaded["wins"]          == 3
-        assert loaded["losses"]        == 1
-        assert loaded["trades"]        == 4
+        assert loaded["broker"] == "updated_broker"
 
-    def test_saves_open_position(self):
-        """Open position dict is persisted and retrieved correctly."""
-        op = {
-            "put_strike":    1800.0,
-            "call_strike":   2200.0,
-            "total_premium": 50.0,
-            "qty":           0.125,
-            "trade_id":      42,
-        }
-        state = {"open": op, "total_premium": 50.0, "wins": 0, "losses": 0, "trades": 1}
-        save_strangle_state("ETH", state)
+    def test_loads_open_position_from_trade(self):
+        """Open position dict is loaded correctly from existing open trade."""
+        trade = create_strangle_trade(
+            asset="ETH",
+            date_open=date(2026, 5, 18),
+            put_strike=1800.0,
+            call_strike=2200.0,
+            spot_open=2000.0,
+            total_premium=50.0,
+            qty=0.125,
+            days=7,
+            expiry="25-May-2026",
+            broker="test_broker",
+        )
         loaded = load_strangle_state("ETH")
         assert loaded["open"] is not None
         assert loaded["open"]["put_strike"]  == pytest.approx(1800.0)
-        assert loaded["open"]["trade_id"]    == 42
+        assert loaded["open"]["call_strike"] == pytest.approx(2200.0)
+        assert loaded["open"]["qty"]         == pytest.approx(0.125)
 
-    def test_overwrites_existing_state(self):
-        """Saving twice with different data replaces the previous values."""
-        save_strangle_state("ETH", {
-            "open": None, "total_premium": 50.0, "wins": 1, "losses": 0, "trades": 1,
-        })
-        save_strangle_state("ETH", {
-            "open": None, "total_premium": 120.0, "wins": 2, "losses": 1, "trades": 3,
-        })
+    def test_loads_closed_trades_as_stats(self):
+        """Closed trades are counted as wins/losses in loaded state."""
+        trade1 = create_strangle_trade(
+            asset="ETH",
+            date_open=date(2026, 5, 11),
+            put_strike=1700.0,
+            call_strike=2300.0,
+            spot_open=2000.0,
+            total_premium=40.0,
+            qty=0.125,
+            days=7,
+            expiry="18-May-2026",
+        )
+        close_strangle_trade(trade1.id, date(2026, 5, 18), 2000.0, 40.0, "Win")
+
+        trade2 = create_strangle_trade(
+            asset="ETH",
+            date_open=date(2026, 5, 18),
+            put_strike=1800.0,
+            call_strike=2200.0,
+            spot_open=2000.0,
+            total_premium=50.0,
+            qty=0.125,
+            days=7,
+            expiry="25-May-2026",
+        )
         loaded = load_strangle_state("ETH")
-        assert loaded["total_premium"] == pytest.approx(120.0)
-        assert loaded["wins"]          == 2
-        assert loaded["trades"]        == 3
-
-    def test_clear_open_position(self):
-        """Setting open=None after a position clears it in the database."""
-        save_strangle_state("ETH", {
-            "open": {"put_strike": 1800.0, "trade_id": 1},
-            "total_premium": 50.0, "wins": 0, "losses": 0, "trades": 1,
-        })
-        save_strangle_state("ETH", {
-            "open": None, "total_premium": 50.0, "wins": 1, "losses": 0, "trades": 1,
-        })
-        loaded = load_strangle_state("ETH")
-        assert loaded["open"] is None
-
-
+        assert loaded["wins"]  == 1
+        assert loaded["losses"] == 0
+        assert loaded["trades"] == 1
+        assert loaded["total_premium"] == pytest.approx(90.0)  # 40 + 50
 # ── Executor delegation ───────────────────────────────────────────────────────
 
 class TestStranglePaperMenuExecutor:
