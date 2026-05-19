@@ -4,8 +4,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models import Single, TradeLedger, get_session, STAGE_NO_POSITION
-from models.trade_ledger import STRATEGY_SINGLES
+from models import Single, get_session, STAGE_NO_POSITION
 
 
 def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:

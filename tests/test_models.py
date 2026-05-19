@@ -10,7 +10,6 @@ from models.base import Base
 from models.calendars import Calendar
 from models.singles import Single
 from models.strangles import Strangle
-from models.trade_ledger import TradeLedger
 from models import (
     STAGE_NO_POSITION,
     STAGE_SHORT_PUT,
@@ -238,6 +237,3 @@ class TestCalendar:
         fetched = session.get(Calendar, trade.id)
         assert fetched.result == "Win"
         assert fetched.pnl == pytest.approx(4.50)
-
-
-# ── TradeLedger ───────────────────────────────────────────────────────────────

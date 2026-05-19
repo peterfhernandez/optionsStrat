@@ -9,14 +9,8 @@ from models import (
     Single,
     Strangle,
     Calendar,
-    TradeLedger,
     get_session,
     init_db,
-)
-from models.trade_ledger import (
-    STRATEGY_SINGLES,
-    STRATEGY_STRANGLE,
-    STRATEGY_CALENDAR,
 )
 
 
@@ -273,64 +267,6 @@ def migrate_calendars(session: Session) -> int:
     return rows_added
 
 
-def populate_trade_ledger(session: Session) -> int:
-    """Populate trade_ledger from all three strategy tables."""
-    ledger_count = 0
-
-    # Singles → TradeLedger
-    singles = session.query(Single).all()
-    for single in singles:
-        row = TradeLedger(
-            underlying=single.asset,
-            strategy=STRATEGY_SINGLES,
-            trade_ref_id=single.id,
-            date_open=single.date_open,
-            date_close=single.date_close,
-            spot_open=single.spot_open,
-            spot_close=single.spot_close,
-            fees=single.fees or 0.0,
-            pnl=single.pnl,
-        )
-        session.add(row)
-        ledger_count += 1
-
-    # Strangles → TradeLedger
-    strangles = session.query(Strangle).all()
-    for strangle in strangles:
-        row = TradeLedger(
-            underlying=strangle.asset,
-            strategy=STRATEGY_STRANGLE,
-            trade_ref_id=strangle.id,
-            date_open=strangle.date_open,
-            date_close=strangle.date_close,
-            spot_open=strangle.spot_open,
-            spot_close=strangle.spot_close,
-            fees=strangle.fees or 0.0,
-            pnl=strangle.pnl,
-        )
-        session.add(row)
-        ledger_count += 1
-
-    # Calendars → TradeLedger
-    calendars = session.query(Calendar).all()
-    for calendar in calendars:
-        row = TradeLedger(
-            underlying=calendar.asset,
-            strategy=STRATEGY_CALENDAR,
-            trade_ref_id=calendar.id,
-            date_open=calendar.date_open,
-            date_close=calendar.date_close,
-            spot_open=calendar.spot_open,
-            spot_close=calendar.spot_close,
-            fees=calendar.fees or 0.0,
-            pnl=calendar.pnl,
-        )
-        session.add(row)
-        ledger_count += 1
-
-    session.commit()
-    print(f"✓ Populated {ledger_count} rows in trade_ledger")
-    return ledger_count
 
 
 def migrate_all() -> None:
@@ -342,10 +278,9 @@ def migrate_all() -> None:
         singles_count = migrate_singles(session)
         strangles_count = migrate_strangles(session)
         calendars_count = migrate_calendars(session)
-        ledger_count = populate_trade_ledger(session)
 
         total = singles_count + strangles_count + calendars_count
-        print(f"\n✓ Migration complete: {total} trades + {ledger_count} ledger rows")
+        print(f"\n✓ Migration complete: {total} trades migrated")
     finally:
         session.close()
 

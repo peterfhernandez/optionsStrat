@@ -99,12 +99,27 @@ All trade data is persisted in `optionsStrat.db` (SQLite). Call `models.init_db(
 | `Strangle` | `strangles` | Short strangle trades — replaces the Strangles Excel tab |
 | `Calendar` | `calendars` | Calendar spread trades — replaces the Calendars Excel tab |
 | `Spread` | `spreads` | Credit spread trades (Bull Put Spread, Bear Call Spread) |
-| `TradeState` | `trade_state` | Per-strategy, per-asset runtime state — replaces `*_state_*.json` files |
-| `TradeLedger` | `trade_ledger` | Unified trade log used for open-position and trade-history views |
-
-`TradeLedger.with_cumulative_pnl(session)` returns all closed trades with a running cumulative P&L computed via a SQLite window function.
 
 > `optionsStrat.db` and the old `*_state_*.json` files are excluded from git — they store local trading state only.
+
+---
+
+### Trading Fees
+
+Deribit charges trading fees on options that depend on the underlying spot price and option premium.
+
+**Deribit fee structure:**
+- Base: **0.04%** of underlying spot price
+- Cap: **12.5%** of option premium (whichever is lower)
+
+Example: for an ETH option with spot $2000 and premium $50:
+- Base fee = $2000 × 0.04% = $0.80
+- Cap = $50 × 12.5% = $6.25
+- **Actual fee = min($0.80, $6.25) = $0.80**
+
+Every trade (entry and exit) incurs these fees, which are tracked as `open_fees` and `close_fees` in the trade records and subtracted from P&L calculations.
+
+---
 
 ---
 

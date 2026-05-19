@@ -17,7 +17,7 @@ class Base(DeclarativeBase):
 
 def init_db() -> None:
     """Create all tables if they don't exist."""
-    from models import singles, strangles, calendars, trade_ledger, scan_results, spreads  # noqa: F401
+    from models import singles, strangles, calendars, scan_results, spreads  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
 

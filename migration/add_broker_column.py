@@ -1,8 +1,8 @@
 """
 migration/add_broker_column.py
 ==============================
-Add the `broker` column to the five tables that track trade activity:
-  singles, strangles, calendars, trade_ledger, trade_state
+Add the `broker` column to the tables that track trade activity:
+  singles, strangles, calendars
 
 Run once against an existing optionsStrat.db that was created before
 broker logging was introduced.  Safe to re-run — it skips tables that
@@ -21,8 +21,6 @@ _TABLES = [
     "singles",
     "strangles",
     "calendars",
-    "trade_ledger",
-    "trade_state",
 ]
 
 

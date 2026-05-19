@@ -13,7 +13,6 @@ The migration module reads trade data from the Excel workbook (`crypto_options_t
 | 📝 Paper Trades | `singles` | Wheel strategy trades |
 | 🔀 Strangles | `strangles` | Short strangle trades |
 | 📅 Calendars | `calendars` | Calendar spread trades |
-| _(all tables)_ | `trade_ledger` | Unified trade log with cumulative P&L |
 
 ## Running the Migration
 
@@ -27,14 +26,12 @@ This will:
 1. Read all three sheets from `crypto_options_trade_tracker.xlsx`
 2. Map column values to the appropriate database fields
 3. Insert rows into `singles`, `strangles`, and `calendars` tables
-4. Populate `trade_ledger` with references to each trade
-5. Print a summary of rows migrated
+4. Print a summary of rows migrated
 
 ### Programmatic usage
 
 ```python
 from migration import migrate_all, migrate_singles, migrate_strangles, migrate_calendars
-from migration.excel_to_db import populate_trade_ledger
 from models import get_session, init_db
 
 # Initialize the database (creates schema)
@@ -48,7 +45,6 @@ session = get_session()
 singles_count = migrate_singles(session)
 strangles_count = migrate_strangles(session)
 calendars_count = migrate_calendars(session)
-ledger_count = populate_trade_ledger(session)
 ```
 
 ## Column Mappings
@@ -151,7 +147,7 @@ near, far = _parse_near_far_days("7")
 ## Notes
 
 - The migration **does not delete or modify** the Excel workbook.
-- Rows are inserted in order as they appear in the sheets; the resulting `trade_ledger` uses window functions to compute cumulative P&L.
+- Rows are inserted in order as they appear in the sheets.
 - If the Excel sheet is missing or the file doesn't exist, the migration skips that sheet with a warning.
 - Asset symbols (ETH, BTC, SOL, XRP) are extracted from the Notes field via case-insensitive substring matching; if not found, the default is "ETH".
 - `qty` (quantity) is not stored in the Excel sheets, so it remains `NULL` in the database.
