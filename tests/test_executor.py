@@ -211,6 +211,18 @@ class TestEnterCSP:
         broker.place_order.assert_called_once()
         assert result["broker_order_id"] == "PUT-ORD-1"
 
+    def test_csp_calculates_and_stores_open_fees(self, mock_bs, mock_load, mock_create, mock_save):
+        """CSP entry should calculate open_fees and pass them to create_single_trade."""
+        broker = _mock_broker("PUT-ORD-FEE")
+        c = _candidate(strategy="CSP", strike="$2000")
+        enter_trade(c, broker=broker)
+
+        # Verify create_single_trade was called with open_fees
+        assert mock_create.call_count == 1
+        call_kwargs = mock_create.call_args.kwargs
+        assert "open_fees" in call_kwargs
+        assert call_kwargs["open_fees"] > 0.0  # Fee should be calculated and positive
+
     def test_broker_name_in_db_record(self, mock_bs, mock_load, mock_create, mock_save):
         broker = _mock_broker("PUT-ORD-BN", name="deribit_paper")
         c = _candidate(strategy="CSP", strike="$2000")
@@ -283,6 +295,18 @@ class TestEnterCC:
         broker.place_order.assert_called_once()
         assert result["broker_order_id"] == "CC-ORD-1"
 
+    def test_cc_calculates_and_stores_open_fees(self, mock_bs, mock_load, mock_create, mock_save):
+        """CC entry should calculate open_fees and pass them to create_single_trade."""
+        broker = _mock_broker("CC-ORD-FEE")
+        c = _candidate(strategy="CC", strike="$2200")
+        enter_trade(c, broker=broker)
+
+        # Verify create_single_trade was called with open_fees
+        assert mock_create.call_count == 1
+        call_kwargs = mock_create.call_args.kwargs
+        assert "open_fees" in call_kwargs
+        assert call_kwargs["open_fees"] > 0.0
+
     def test_wrong_stage_raises(self, mock_bs, mock_load, mock_create, mock_save):
         mock_load.side_effect = lambda *a, **kw: dict(WHEEL_STATE_IDLE)
         broker = _mock_broker("CC-ORD-X")
@@ -310,6 +334,18 @@ class TestEnterStrangle:
         assert broker.place_order.call_count == 2
         assert result["broker_put_order_id"]  == "STR-P-1"
         assert result["broker_call_order_id"] == "STR-C-1"
+
+    def test_strangle_calculates_and_stores_open_fees(self, mock_bp, mock_bc, mock_load, mock_create, mock_save):
+        """Strangle entry should calculate open_fees for both legs and pass to create_strangle_trade."""
+        broker = _mock_broker("STR-P-FEE", "STR-C-FEE")
+        c = _candidate(strategy="Strangle", put_strike=1800.0, call_strike=2200.0)
+        enter_trade(c, broker=broker)
+
+        # Verify create_strangle_trade was called with open_fees
+        assert mock_create.call_count == 1
+        call_kwargs = mock_create.call_args.kwargs
+        assert "open_fees" in call_kwargs
+        assert call_kwargs["open_fees"] > 0.0
 
     def test_trade_counter_incremented(self, mock_bp, mock_bc, mock_load, mock_create, mock_save):
         broker = _mock_broker("STR-P-2", "STR-C-2")

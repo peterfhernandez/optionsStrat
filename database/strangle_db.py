@@ -103,6 +103,8 @@ def save_strangle_state(asset: str, state: dict, session: Optional[Session] = No
                 result="Open",
                 broker=state.get("broker"),
                 fees=0.0,
+                open_fees=open_pos.get("open_fees", 0.0),
+                close_fees=open_pos.get("close_fees", 0.0),
             )
             session.add(trade)
             session.commit()
@@ -130,6 +132,8 @@ def save_strangle_state(asset: str, state: dict, session: Optional[Session] = No
                 result="Open" if open_pos else "Closed",
                 broker=state.get("broker"),
                 fees=0.0,
+                open_fees=open_pos.get("open_fees", 0.0) if open_pos else 0.0,
+                close_fees=open_pos.get("close_fees", 0.0) if open_pos else 0.0,
             )
             session.add(trade)
             session.commit()
