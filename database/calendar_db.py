@@ -162,6 +162,7 @@ def create_calendar_trade(
     broker: Optional[str] = None,
     near_instrument: Optional[str] = None,
     far_instrument: Optional[str] = None,
+    open_fees: float = 0.0,
     session: Optional[Session] = None,
 ) -> Calendar:
     """Create and insert a Calendar trade record. Returns the persisted Calendar."""
@@ -185,6 +186,7 @@ def create_calendar_trade(
             far_prem=far_prem,
             net_debit=net_debit,
             fees=0.0,
+            open_fees=open_fees,
             result="Open",
             notes=notes,
             broker=broker,

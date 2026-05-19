@@ -28,6 +28,7 @@ from config import (
     BUDGET_USD, RISK_FREE_RATE, CALENDAR_FAR_DAYS, SPREAD_WIDTH_PCT, DERIBIT_PAPER,
 )
 from database import load_wheel_state, save_wheel_state, create_single_trade
+from trading.fee_calculator import calculate_fee
 from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
 from database.calendar_db import load_calendar_state, save_calendar_state, create_calendar_trade
 from database.spread_db import load_spread_state, save_spread_state, create_spread_trade
@@ -127,6 +128,14 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
     qty        = BUDGET_USD / K
     unit_price = bs_put(c.spot, K, T, RISK_FREE_RATE, c.iv)
     premium    = unit_price * qty
+
+    # Calculate fee and verify budget covers premium
+    open_fee = calculate_fee(c.spot, premium, c.asset)
+    if premium > BUDGET_USD:
+        raise ValueError(
+            f"Premium ${premium:.2f} exceeds budget ${BUDGET_USD:.2f} for {c.asset} CSP"
+        )
+
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
@@ -169,6 +178,7 @@ def _enter_csp(c, T: float, broker: BrokerBase) -> dict:
         days=c.days,
         stage="short_put",
         broker=broker.broker_name,
+        open_fees=round(open_fee, 4),
         notes=(
             f"AUTO {c.asset} CSP, {c.days}d, "
             f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
@@ -189,6 +199,14 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
     qty        = s["asset_held"] or (BUDGET_USD / c.spot)
     unit_price = bs_call(c.spot, K, T, RISK_FREE_RATE, c.iv)
     premium    = unit_price * qty
+
+    # Calculate fee and verify budget covers premium
+    open_fee = calculate_fee(c.spot, premium, c.asset)
+    if premium > BUDGET_USD:
+        raise ValueError(
+            f"Premium ${premium:.2f} exceeds budget ${BUDGET_USD:.2f} for {c.asset} CC"
+        )
+
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
@@ -230,6 +248,7 @@ def _enter_cc(c, T: float, broker: BrokerBase) -> dict:
         days=c.days,
         stage="short_call",
         broker=broker.broker_name,
+        open_fees=round(open_fee, 4),
         notes=(
             f"AUTO {c.asset} CC, {c.days}d, "
             f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
@@ -250,6 +269,16 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
     pp         = put_price  * qty
     cp         = call_price * qty
     tot        = pp + cp
+
+    # Calculate fees for both legs and verify budget covers total premium
+    put_fee = calculate_fee(c.spot, pp, c.asset)
+    call_fee = calculate_fee(c.spot, cp, c.asset)
+    total_fee = put_fee + call_fee
+    if tot > BUDGET_USD:
+        raise ValueError(
+            f"Total premium ${tot:.2f} exceeds budget ${BUDGET_USD:.2f} for {c.asset} Strangle"
+        )
+
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
@@ -278,6 +307,7 @@ def _enter_strangle(c, T: float, broker: BrokerBase) -> dict:
         days=c.days,
         expiry=expiry,
         broker=broker.broker_name,
+        open_fees=round(total_fee, 4),
         notes=(
             f"AUTO {c.asset} strangle, {c.days}d, "
             f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "
@@ -346,6 +376,11 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     far_prem  = far_price  * qty
     net_debit = far_prem - near_prem
 
+    # Calculate fees for both legs
+    near_fee = calculate_fee(c.spot, near_prem, c.asset)
+    far_fee = calculate_fee(c.spot, far_prem, c.asset)
+    total_fee = near_fee + far_fee
+
     trade = create_calendar_trade(
         asset=c.asset,
         date_open=date.today(),
@@ -363,6 +398,7 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
         broker=broker.broker_name,
         near_instrument=near_order.instrument,
         far_instrument=far_order.instrument,
+        open_fees=round(total_fee, 4),
         notes=(
             f"AUTO {c.asset} {option_type} calendar, "
             f"{c.days}d/{far_days}d, "
@@ -422,6 +458,12 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
     qty        = BUDGET_USD / c.spot
     net_credit = (short_p - long_p) * qty
     max_loss   = abs(short_k - long_k) * qty - net_credit
+
+    # Calculate fees for both legs
+    short_fee = calculate_fee(c.spot, short_p * qty, c.asset)
+    long_fee = calculate_fee(c.spot, long_p * qty, c.asset)
+    total_fee = short_fee + long_fee
+
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
@@ -452,6 +494,7 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
         days=c.days,
         expiry=expiry,
         broker=broker.broker_name,
+        open_fees=round(total_fee, 4),
         notes=(
             f"AUTO {c.asset} {spread_type}, {c.days}d, "
             f"P(prof)={c.prob_profit:.0f}% yld={c.yield_ann:.0f}%/yr "

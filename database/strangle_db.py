@@ -148,6 +148,7 @@ def create_strangle_trade(
     expiry: str,
     notes: Optional[str] = None,
     broker: Optional[str] = None,
+    open_fees: float = 0.0,
     session: Optional[Session] = None,
 ) -> Strangle:
     """Create and insert a Strangle trade record. Returns the persisted Strangle."""
@@ -167,6 +168,7 @@ def create_strangle_trade(
             spot_open=spot_open,
             total_premium=total_premium,
             fees=0.0,
+            open_fees=open_fees,
             result="Open",
             notes=notes,
             broker=broker,

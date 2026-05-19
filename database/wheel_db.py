@@ -170,6 +170,7 @@ def create_single_trade(
     stage: str = "short_put",
     notes: Optional[str] = None,
     broker: Optional[str] = None,
+    open_fees: float = 0.0,
     session: Optional[Session] = None,
 ) -> Single:
     """Create and insert a Single (Wheel) trade record."""
@@ -190,6 +191,7 @@ def create_single_trade(
             stage=stage,
             date_open=date_open,
             fees=0.0,
+            open_fees=open_fees,
             result="Open",
             notes=notes,
             broker=broker,

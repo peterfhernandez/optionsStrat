@@ -18,10 +18,10 @@
 
 1. ✅ Create trading/fee_calculator.py with fee calculation logic
 2. ✅ Update models to add open_fee and close_fee as defined in WORK_PLAN.md section 2.3
-3. ☐ Update all entry functions in trading/executor.py to calculate and apply fees
-4. ☐ Update P&L calculations in trading/portfolio.py to subtract fees
-5. ✅ Create tests/test_fee_calculator.py with comprehensive fee calculation tests
-6. ☐ Update all close functions in trading/executor.py to calculate and apply fees
+3. ✅ Update all entry functions in trading/executor.py to calculate and apply open_fees
+4. ☐ Update all close functions in trading/executor.py to calculate and apply close_fees
+5. ☐ Update P&L calculations in trading/portfolio.py to subtract open and close fees
+6. ✅ Create tests/test_fee_calculator.py with comprehensive fee calculation tests
 7. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on entry functions
 8. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on close functions
 

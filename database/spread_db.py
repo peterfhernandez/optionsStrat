@@ -102,6 +102,7 @@ def create_spread_trade(
     expiry: str,
     notes: Optional[str] = None,
     broker: Optional[str] = None,
+    open_fees: float = 0.0,
     session: Optional[Session] = None,
 ) -> Spread:
     """Create and insert a Spread trade record. Returns the persisted Spread."""
@@ -123,6 +124,7 @@ def create_spread_trade(
             net_credit=net_credit,
             max_loss=max_loss,
             fees=0.0,
+            open_fees=open_fees,
             result="Open",
             notes=notes,
             broker=broker,
