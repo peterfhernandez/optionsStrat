@@ -31,6 +31,8 @@ class Calendar(Base):
     result = Column(String(10))               # Win | Loss | Open
     notes = Column(Text)
     broker = Column(String(30), nullable=True)  # e.g. deribit_paper | deribit_live
+    near_instrument = Column(String(30), nullable=True)  # broker instrument name for near leg
+    far_instrument = Column(String(30), nullable=True)   # broker instrument name for far leg
 
     __table_args__ = (
         Index("ix_calendars_asset", "asset"),

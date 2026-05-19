@@ -304,7 +304,7 @@ def show_summary() -> None:
 
     try:
         # Get all singles (wheel trades) by asset
-        singles = session.query(Single).filter(Single.result.in_(["Win", "Loss"])).all()
+        singles = session.query(Single).filter(Single.result.isnot(None), Single.result != "Open").all()
 
         if not singles:
             sub("No completed trades yet")

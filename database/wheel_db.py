@@ -37,8 +37,8 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
             }
 
         # Calculate aggregate stats from trade history
-        wins = sum(1 for t in trades if t.result == "Win")
-        losses = sum(1 for t in trades if t.result == "Loss")
+        wins = sum(1 for t in trades if "Win" in (t.result or ""))
+        losses = sum(1 for t in trades if "Loss" in (t.result or ""))
         cycles = wins + losses  # completed cycles
         total_premium = sum(t.premium for t in trades if t.premium) or 0.0
 
@@ -47,6 +47,7 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
         open_position = None
         if latest.result == "Open":
             open_position = {
+                "asset": latest.asset,
                 "type": latest.option_type,
                 "strike": latest.strike,
                 "qty": latest.qty,
@@ -55,6 +56,7 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
                 "premium": latest.premium,
                 "spot_open": latest.spot_open,
                 "days": latest.days,
+                "instrument": latest.instrument,
             }
 
         return {
@@ -78,6 +80,7 @@ def save_wheel_state(asset: str, state: dict, session: Optional[Session] = None)
     Persist wheel trading state to the database.
 
     Updates the most recent Single record with current stage, asset_held, cost_basis, and broker.
+    If an open position is provided, creates a new record (used for opening positions).
     If no record exists, creates one with the provided state (used in tests).
     """
     close_session = session is None
@@ -86,18 +89,49 @@ def save_wheel_state(asset: str, state: dict, session: Optional[Session] = None)
 
     try:
         row = session.query(Single).filter_by(asset=asset).order_by(Single.date_open.desc()).first()
+        open_pos = state.get("open")
+        stage = state.get("stage", STAGE_NO_POSITION)
 
-        if row:
-            row.stage = state.get("stage", STAGE_NO_POSITION)
+        if row and open_pos:
+            # If we have a new open position and an existing record, create a new trade record
+            trade = Single(
+                asset=asset,
+                option_type=open_pos.get("type", "Put"),
+                strike=open_pos.get("strike", 0.0),
+                expiry=open_pos.get("expiry", ""),
+                qty=open_pos.get("qty", 1.0),
+                days=open_pos.get("days", 7),
+                date_open=date.today(),
+                spot_open=open_pos.get("spot_open", 0.0),
+                premium=open_pos.get("premium", 0.0),
+                stage=stage,
+                asset_held=state.get("asset_held", 0.0),
+                cost_basis=state.get("cost_basis", 0.0),
+                result="Open",
+                broker=state.get("broker"),
+                instrument=open_pos.get("instrument"),
+                fees=0.0,
+            )
+            session.add(trade)
+            session.commit()
+        elif row and not open_pos and row.result == "Open":
+            # Mark existing open position as closed
+            row.result = "Closed"
+            row.stage = stage
+            row.asset_held = state.get("asset_held", 0.0)
+            row.cost_basis = state.get("cost_basis", 0.0)
+            row.broker = state.get("broker")
+            session.commit()
+        elif row:
+            # Update existing record if no new open position
+            row.stage = stage
             row.asset_held = state.get("asset_held", 0.0)
             row.cost_basis = state.get("cost_basis", 0.0)
             row.broker = state.get("broker")
             session.commit()
         else:
             # Create a new record if none exists (for testing)
-            open_pos = state.get("open")
-            stage = state.get("stage", STAGE_NO_POSITION)
-            result = "Open" if (open_pos or stage != STAGE_NO_POSITION) else "Closed"
+            result = "Open" if open_pos else "Closed"
             trade = Single(
                 asset=asset,
                 option_type=open_pos.get("type") if open_pos else "Put",
@@ -213,7 +247,7 @@ def get_wheel_stats(asset: Optional[str] = None, session: Optional[Session] = No
         session = get_session()
 
     try:
-        query = session.query(Single).filter(Single.result.in_(["Win", "Loss"]))
+        query = session.query(Single).filter(Single.result.isnot(None), Single.result != "Open")
         if asset:
             query = query.filter(Single.asset == asset)
 
@@ -228,8 +262,8 @@ def get_wheel_stats(asset: Optional[str] = None, session: Optional[Session] = No
                 "avg_premium": 0.0,
             }
 
-        wins = sum(1 for t in trades if t.result == "Win")
-        losses = sum(1 for t in trades if t.result == "Loss")
+        wins = sum(1 for t in trades if "Win" in (t.result or ""))
+        losses = sum(1 for t in trades if "Loss" in (t.result or ""))
         prems = [t.premium for t in trades if t.premium]
         total_prem = sum(prems) if prems else 0.0
 

@@ -104,5 +104,8 @@ def use_in_memory_db(monkeypatch):
     monkeypatch.setattr("database.spread_db.get_session", mock_get_session)
     monkeypatch.setattr("models.base.get_session", mock_get_session, raising=False)
     monkeypatch.setattr("automation.monitor.get_session", mock_get_session, raising=False)
+    monkeypatch.setattr("strategies.wheel.get_session", mock_get_session, raising=False)
+    monkeypatch.setattr("strategies.calendar.get_session", mock_get_session, raising=False)
+    monkeypatch.setattr("strategies.strangle.get_session", mock_get_session, raising=False)
 
     yield

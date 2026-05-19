@@ -43,6 +43,7 @@ def load_calendar_state(asset: str, session: Optional[Session] = None) -> dict:
         for trade in reversed(trades):
             if trade.result == "Open":
                 open_position = {
+                    "asset": trade.asset,
                     "option_type": trade.option_type,
                     "strike": trade.strike,
                     "expiry_near": trade.expiry_near,
@@ -52,6 +53,8 @@ def load_calendar_state(asset: str, session: Optional[Session] = None) -> dict:
                     "spot_open": trade.spot_open,
                     "near_days": trade.near_days,
                     "far_days": trade.far_days,
+                    "near_instrument": trade.near_instrument,
+                    "far_instrument": trade.far_instrument,
                 }
                 break
 
@@ -75,7 +78,8 @@ def save_calendar_state(asset: str, state: dict, session: Optional[Session] = No
     """
     Persist calendar trading state to the database.
 
-    Updates the most recent Calendar record with the current broker.
+    Updates the most recent Calendar record with the current broker and result.
+    If an open position is provided, creates a new record (used for opening positions).
     If no record exists, creates one with the provided state (used in tests).
     """
     close_session = session is None
@@ -84,13 +88,39 @@ def save_calendar_state(asset: str, state: dict, session: Optional[Session] = No
 
     try:
         row = session.query(Calendar).filter_by(asset=asset).order_by(Calendar.date_open.desc()).first()
+        open_pos = state.get("open")
 
-        if row:
+        if row and open_pos:
+            # If we have a new open position and an existing record, create a new trade record
+            trade = Calendar(
+                asset=asset,
+                option_type=open_pos.get("option_type", "Call"),
+                strike=open_pos.get("strike", 0.0),
+                expiry_near=open_pos.get("expiry_near", ""),
+                expiry_far=open_pos.get("expiry_far", ""),
+                near_days=open_pos.get("near_days", 7),
+                far_days=open_pos.get("far_days", 30),
+                qty=open_pos.get("qty", 1.0),
+                date_open=date.today(),
+                spot_open=open_pos.get("spot_open", 0.0),
+                net_debit=open_pos.get("net_debit", 0.0),
+                result="Open",
+                broker=state.get("broker"),
+                fees=0.0,
+            )
+            session.add(trade)
+            session.commit()
+        elif row and not open_pos and row.result == "Open":
+            # Mark existing open position as closed (no result specified, default to Closed)
+            row.result = "Closed"
+            row.broker = state.get("broker")
+            session.commit()
+        elif row:
+            # Update only broker if no new open position and row is not open
             row.broker = state.get("broker")
             session.commit()
         else:
             # Create a new record if none exists (for testing)
-            open_pos = state.get("open")
             trade = Calendar(
                 asset=asset,
                 option_type=open_pos.get("option_type") if open_pos else "Call",
@@ -130,6 +160,8 @@ def create_calendar_trade(
     net_debit: float,
     notes: Optional[str] = None,
     broker: Optional[str] = None,
+    near_instrument: Optional[str] = None,
+    far_instrument: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> Calendar:
     """Create and insert a Calendar trade record. Returns the persisted Calendar."""
@@ -156,6 +188,8 @@ def create_calendar_trade(
             result="Open",
             notes=notes,
             broker=broker,
+            near_instrument=near_instrument,
+            far_instrument=far_instrument,
         )
         session.add(trade)
         session.commit()

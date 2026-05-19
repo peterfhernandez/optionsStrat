@@ -361,6 +361,8 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
         far_prem=round(far_prem, 4),
         net_debit=round(net_debit, 4),
         broker=broker.broker_name,
+        near_instrument=near_order.instrument,
+        far_instrument=far_order.instrument,
         notes=(
             f"AUTO {c.asset} {option_type} calendar, "
             f"{c.days}d/{far_days}d, "

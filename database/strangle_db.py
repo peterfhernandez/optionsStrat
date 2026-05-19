@@ -43,6 +43,7 @@ def load_strangle_state(asset: str, session: Optional[Session] = None) -> dict:
         for trade in reversed(trades):
             if trade.result == "Open":
                 open_position = {
+                    "asset": trade.asset,
                     "put_strike": trade.put_strike,
                     "call_strike": trade.call_strike,
                     "qty": trade.qty,
@@ -73,7 +74,8 @@ def save_strangle_state(asset: str, state: dict, session: Optional[Session] = No
     """
     Persist strangle trading state to the database.
 
-    Updates the most recent Strangle record with the current broker.
+    Updates the most recent Strangle record with the current broker and result.
+    If an open position is provided, creates a new record (used for opening positions).
     If no record exists, creates one with the provided state (used in tests).
     """
     close_session = session is None
@@ -82,13 +84,37 @@ def save_strangle_state(asset: str, state: dict, session: Optional[Session] = No
 
     try:
         row = session.query(Strangle).filter_by(asset=asset).order_by(Strangle.date_open.desc()).first()
+        open_pos = state.get("open")
 
-        if row:
+        if row and open_pos:
+            # If we have a new open position and an existing record, create a new trade record
+            trade = Strangle(
+                asset=asset,
+                put_strike=open_pos.get("put_strike", 0.0),
+                call_strike=open_pos.get("call_strike", 0.0),
+                qty=open_pos.get("qty", 1.0),
+                expiry=open_pos.get("expiry", ""),
+                total_premium=open_pos.get("total_premium", 0.0),
+                spot_open=open_pos.get("spot_open", 0.0),
+                days=open_pos.get("days", 7),
+                date_open=date.today(),
+                result="Open",
+                broker=state.get("broker"),
+                fees=0.0,
+            )
+            session.add(trade)
+            session.commit()
+        elif row and not open_pos and row.result == "Open":
+            # Mark existing open position as closed (no result specified, default to Closed)
+            row.result = "Closed"
+            row.broker = state.get("broker")
+            session.commit()
+        elif row:
+            # Update only broker if no new open position and row is not open
             row.broker = state.get("broker")
             session.commit()
         else:
             # Create a new record if none exists (for testing)
-            open_pos = state.get("open")
             trade = Strangle(
                 asset=asset,
                 put_strike=open_pos.get("put_strike") if open_pos else 0.0,
