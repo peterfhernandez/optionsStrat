@@ -31,6 +31,7 @@ from database import (
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from models import get_session, Single
 from trading.executor import enter_trade
+from trading.fee_calculator import calculate_fee
 from ui.display import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 
 
@@ -72,10 +73,14 @@ def show_strikes(
         K   = round_strike(spot * (1 - otm), spot)
         qty = BUDGET_USD / K
         tot = bs_put(spot, K, T, r, iv) * qty
-        yld = (tot / BUDGET_USD) * (365 / days) * 100
+        # Account for open and estimated close fees
+        open_fee = calculate_fee(spot, tot / qty, asset) * qty
+        close_fee_est = calculate_fee(spot, 0.01, asset) * qty
+        effective_tot = tot - open_fee - close_fee_est
+        yld = (effective_tot / BUDGET_USD) * (365 / days) * 100 if effective_tot > 0 else 0.0
         pp  = prob_otm_put(spot, K, T, r, iv) * 100
         c   = GR if otm == 0.15 else WH
-        print(f"  {c}{otm*100:.0f}%{'':6}${K:>10,.0f}  ${tot:>7.2f}  {yld:>6.1f}%/yr  {pp:.0f}%{R}")
+        print(f"  {c}{otm*100:.0f}%{'':6}${K:>10,.0f}  ${effective_tot:>7.2f}  {yld:>6.1f}%/yr  {pp:.0f}%{R}")
 
     # ── Covered Calls ─────────────────────────────────────────────────────────
     sub(f"Covered Call Strikes ({days}-day)")
@@ -86,10 +91,14 @@ def show_strikes(
     for otm in OTM_LEVELS:
         K   = round_strike(spot * (1 + otm), spot)
         tot = bs_call(spot, K, T, r, iv) * qty
-        yld = (tot / BUDGET_USD) * (365 / days) * 100
+        # Account for open and estimated close fees
+        open_fee = calculate_fee(spot, tot / qty, asset) * qty
+        close_fee_est = calculate_fee(spot, 0.01, asset) * qty
+        effective_tot = tot - open_fee - close_fee_est
+        yld = (effective_tot / BUDGET_USD) * (365 / days) * 100 if effective_tot > 0 else 0.0
         pp  = prob_otm_call(spot, K, T, r, iv) * 100
         c   = GR if otm == 0.15 else WH
-        print(f"  {c}{otm*100:.0f}%{'':6}${K:>10,.0f}  ${tot:>7.2f}  {yld:>6.1f}%/yr  {pp:.0f}%{R}")
+        print(f"  {c}{otm*100:.0f}%{'':6}${K:>10,.0f}  ${effective_tot:>7.2f}  {yld:>6.1f}%/yr  {pp:.0f}%{R}")
 
     print(f"\n  {GY}IV: {iv*100:.0f}%  |  Budget: ${BUDGET_USD:.0f}  |  Black-Scholes estimate{R}")
 

@@ -42,6 +42,7 @@ from database.spread_db import (
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from trading.executor import enter_trade
+from trading.fee_calculator import calculate_fee
 from ui.display import (
     hdr, sub, inf, ok, warn,
     GR, RD, CY, YL, GY, WH, R,
@@ -200,25 +201,36 @@ def show_spread_analysis(
                 short_p = bs_put(spot, short_k, T, r, iv) * qty
                 long_p  = bs_put(spot, long_k,  T, r, iv) * qty
                 net_cr  = short_p - long_p
-                max_ls  = (short_k - long_k) * qty - net_cr
-                be      = short_k - net_cr / qty
-                pop     = prob_otm_put(spot, short_k, T, r, iv) * 100
             else:
                 short_k = round_strike(spot * (1 + otm), 1)
                 long_k  = round_strike(spot * (1 + otm + SPREAD_WIDTH_PCT), 1)
                 short_p = bs_call(spot, short_k, T, r, iv) * qty
                 long_p  = bs_call(spot, long_k,  T, r, iv) * qty
                 net_cr  = short_p - long_p
-                max_ls  = (long_k - short_k) * qty - net_cr
-                be      = short_k + net_cr / qty
+
+            # Account for fees on both legs (short and long)
+            fee_short = calculate_fee(spot, short_p / qty, asset) * qty
+            fee_long = calculate_fee(spot, long_p / qty, asset) * qty
+            close_fee_est_short = calculate_fee(spot, 0.01, asset) * qty
+            close_fee_est_long = calculate_fee(spot, 0.01, asset) * qty
+            # Adjusted net credit: sell short (pay fee), buy long (pay fee and close fee)
+            adjusted_net_cr = short_p - fee_short - close_fee_est_short - long_p - fee_long - close_fee_est_long
+
+            if spread_type == "BPS":
+                max_ls  = (short_k - long_k) * qty - adjusted_net_cr
+                be      = short_k - adjusted_net_cr / qty
+                pop     = prob_otm_put(spot, short_k, T, r, iv) * 100
+            else:
+                max_ls  = (long_k - short_k) * qty - adjusted_net_cr
+                be      = short_k + adjusted_net_cr / qty
                 pop     = prob_otm_call(spot, short_k, T, r, iv) * 100
 
-            yld = (net_cr / (max_ls + net_cr)) * (365 / days) * 100 if max_ls + net_cr > 0 else 0.0
+            yld = (adjusted_net_cr / (max_ls + adjusted_net_cr)) * (365 / days) * 100 if max_ls + adjusted_net_cr > 0 else 0.0
             pc  = GR if pop >= 70 else YL if pop >= 55 else WH
 
             print(
                 f"  {otm*100:.0f}%{'':4}{WH}${short_k:>9,.2f}  ${long_k:>9,.2f}  "
-                f"{GR}${net_cr:>8.2f}{WH}     ${max_ls:>7.2f}    "
+                f"{GR}${adjusted_net_cr:>8.2f}{WH}     ${max_ls:>7.2f}    "
                 f"${be:>9,.2f}    {yld:>6.1f}%/yr  "
                 f"{pc}{pop:>5.1f}%{R}"
             )

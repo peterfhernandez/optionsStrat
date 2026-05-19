@@ -57,6 +57,8 @@ def load_wheel_state(asset: str, session: Optional[Session] = None) -> dict:
                 "spot_open": latest.spot_open,
                 "days": latest.days,
                 "instrument": latest.instrument,
+                "open_fees": latest.open_fees or 0.0,
+                "close_fees": latest.close_fees or 0.0,
             }
 
         return {

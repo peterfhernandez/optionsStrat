@@ -61,6 +61,8 @@ def _market_data(asset: str, days: int) -> tuple[float | None, float | None]:
 def _wheel_position_pnl(position: dict, spot: float, iv: float) -> tuple[float, float]:
     K = float(position.get("strike", 0))
     p0 = float(position.get("premium", 0.0))
+    open_fee = float(position.get("open_fees", 0.0))
+    close_fee = float(position.get("close_fees", 0.0))
     qty = float(position.get("qty") or (BUDGET_USD / K if K else 0.0))
     days = int(position.get("days", 7))
     T = max(days / 365.0, 1 / 365.0)
@@ -72,13 +74,16 @@ def _wheel_position_pnl(position: dict, spot: float, iv: float) -> tuple[float, 
         current_value = bs_call(spot, K, T, RISK_FREE_RATE, iv) * qty
         description = "Short Call"
 
-    return p0 - current_value, current_value, description
+    pnl = (p0 - open_fee) - current_value - close_fee
+    return pnl, current_value, description
 
 
 def _strangle_position_pnl(position: dict, spot: float, iv: float) -> tuple[float, float]:
     Kp = float(position.get("put_strike", 0))
     Kc = float(position.get("call_strike", 0))
     p0 = float(position.get("total_premium", 0.0))
+    open_fee = float(position.get("open_fees", 0.0))
+    close_fee = float(position.get("close_fees", 0.0))
     qty = float(position.get("qty") or (BUDGET_USD / position.get("spot_open", 1) if position.get("spot_open") else 0.0))
     days = int(position.get("days", 7))
     T = max(days / 365.0, 1 / 365.0)
@@ -87,13 +92,16 @@ def _strangle_position_pnl(position: dict, spot: float, iv: float) -> tuple[floa
         bs_put(spot, Kp, T, RISK_FREE_RATE, iv) * qty
         + bs_call(spot, Kc, T, RISK_FREE_RATE, iv) * qty
     )
-    return p0 - current_value, current_value
+    pnl = (p0 - open_fee) - current_value - close_fee
+    return pnl, current_value
 
 
 def _calendar_position_pnl(position: dict, spot: float, iv: float) -> tuple[float, float, str]:
     K = float(position.get("strike", 0))
     opt_type = str(position.get("option_type", "Put"))
     net_debit = float(position.get("net_debit", 0.0))
+    open_fee = float(position.get("open_fees", 0.0))
+    close_fee = float(position.get("close_fees", 0.0))
     qty = float(position.get("qty") or (BUDGET_USD / position.get("spot_open", 1) if position.get("spot_open") else 0.0))
     near_left = _days_remaining(position.get("expiry_near", ""), position.get("near_days", 0))
     far_left = _days_remaining(position.get("expiry_far", ""), position.get("far_days", 0))
@@ -109,13 +117,16 @@ def _calendar_position_pnl(position: dict, spot: float, iv: float) -> tuple[floa
 
     spread_value = far_value - near_value
     description = f"{opt_type} Calendar"
-    return net_debit - spread_value, spread_value, description
+    pnl = (net_debit - open_fee) - spread_value - close_fee
+    return pnl, spread_value, description
 
 
 def _spread_position_pnl(position: dict, spot: float, iv: float) -> tuple[float, float]:
     short_strike = float(position.get("short_strike", 0))
     long_strike = float(position.get("long_strike", 0))
     net_credit = float(position.get("net_credit", 0.0))
+    open_fee = float(position.get("open_fees", 0.0))
+    close_fee = float(position.get("close_fees", 0.0))
     qty = float(position.get("qty") or 1.0)
     days = int(position.get("days", 7))
     T = max(days / 365.0, 1 / 365.0)
@@ -129,7 +140,8 @@ def _spread_position_pnl(position: dict, spot: float, iv: float) -> tuple[float,
         long_val = bs_put(spot, long_strike, T, RISK_FREE_RATE, iv)
 
     current_value = (short_val - long_val) * qty
-    return net_credit - current_value, current_value
+    pnl = (net_credit - open_fee) - current_value - close_fee
+    return pnl, current_value
 
 
 def _position_summary(asset: str, strategy: str, state: dict) -> dict | None:
@@ -201,13 +213,19 @@ def _position_summary(asset: str, strategy: str, state: dict) -> dict | None:
     else:
         premium = float(open_position.get("net_debit", 0.0))
 
+    open_fees = float(open_position.get("open_fees", 0.0))
+    close_fees = float(open_position.get("close_fees", 0.0))
+    effective_premium = premium - open_fees
+
     return {
         "asset": asset,
         "strategy": strategy,
         "position": description,
         "strike": strike_value,
         "days_left": days_left,
-        "premium": premium,
+        "premium": effective_premium,
+        "open_fees": open_fees,
+        "close_fees": close_fees,
         "current_value": float(current_value) if current_value is not None else None,
         "unrealised_pnl": float(pnl) if pnl is not None else None,
         "notes": str(open_position.get("asset", "")),
@@ -230,6 +248,8 @@ def _spread_row_to_position_dict(row: Any) -> dict:
         "notes":        row.notes or "",
         "broker":       row.broker,
         "id":           row.id,
+        "open_fees":    row.open_fees or 0.0,
+        "close_fees":   row.close_fees or 0.0,
     }
 
 

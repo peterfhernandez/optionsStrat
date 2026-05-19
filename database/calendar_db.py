@@ -55,6 +55,8 @@ def load_calendar_state(asset: str, session: Optional[Session] = None) -> dict:
                     "far_days": trade.far_days,
                     "near_instrument": trade.near_instrument,
                     "far_instrument": trade.far_instrument,
+                    "open_fees": trade.open_fees or 0.0,
+                    "close_fees": trade.close_fees or 0.0,
                 }
                 break
 

@@ -40,6 +40,7 @@ from database.calendar_db import (
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from trading.executor import enter_trade
+from trading.fee_calculator import calculate_fee
 from ui.display import (
     hdr, sub, inf, ok, warn,
     draw_calendar_zone,
@@ -283,7 +284,13 @@ def show_calendar_analysis(
                 far_prem  = bs_put(spot, K, T_far,  r, iv) * qty
                 max_far   = bs_put(K,    K, T_rem,  r, iv) * qty
 
-            net_debit  = far_prem - near_prem
+            # Account for fees on both legs (near and far)
+            open_fee_near = calculate_fee(spot, near_prem / qty, asset) * qty
+            open_fee_far = calculate_fee(spot, far_prem / qty, asset) * qty
+            close_fee_est_near = calculate_fee(spot, 0.01, asset) * qty
+            close_fee_est_far = calculate_fee(spot, 0.01, asset) * qty
+            # For calendar: we receive near_prem (pay fee on it), pay far_prem (pay fee on it)
+            net_debit  = (far_prem + open_fee_far + close_fee_est_far) - (near_prem - open_fee_near - close_fee_est_near)
             max_profit = max_far - net_debit
 
             be_lo, be_hi = _find_breakevens(spot, K, days, far_days, r, iv, qty, net_debit, option_type)

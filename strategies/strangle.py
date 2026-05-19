@@ -37,6 +37,7 @@ from database.strangle_db import (
 )
 from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from trading.executor import enter_trade
+from trading.fee_calculator import calculate_fee
 from ui.display       import (
     hdr, sub, inf, ok, warn,
     draw_profit_zone, print_stop_loss_status,
@@ -173,9 +174,16 @@ def show_strangle_analysis(
         pp  = bs_put (spot, Kp, T, r, iv) * qty
         cp  = bs_call(spot, Kc, T, r, iv) * qty
         tot = pp + cp
-        yld = (tot / BUDGET_USD) * (365 / days) * 100
 
-        prem_per_unit = tot / qty
+        # Account for open and estimated close fees for both legs
+        open_fee_pp = calculate_fee(spot, pp / qty, asset) * qty
+        open_fee_cp = calculate_fee(spot, cp / qty, asset) * qty
+        close_fee_est_pp = calculate_fee(spot, 0.01, asset) * qty
+        close_fee_est_cp = calculate_fee(spot, 0.01, asset) * qty
+        effective_tot = tot - open_fee_pp - open_fee_cp - close_fee_est_pp - close_fee_est_cp
+        yld = (effective_tot / BUDGET_USD) * (365 / days) * 100 if effective_tot > 0 else 0.0
+
+        prem_per_unit = effective_tot / qty if qty else 0
         be_lo = Kp - prem_per_unit
         be_hi = Kc + prem_per_unit
 
@@ -187,11 +195,11 @@ def show_strangle_analysis(
         print(
             f"  {c}${Kp:>7,.0f} / ${Kc:>7,.0f}  "
             f"${pp:>7.2f}  ${cp:>7.2f}  "
-            f"${tot:>8.2f}  {yld:>7.1f}%/yr  "
+            f"${effective_tot:>8.2f}  {yld:>7.1f}%/yr  "
             f"${be_lo:>8,.0f}  ${be_hi:>8,.0f}  {pop:.0f}%{R}"
         )
         if otm == 0.15:
-            best_row = (Kp, Kc, pp, cp, tot, qty)
+            best_row = (Kp, Kc, pp, cp, effective_tot, qty)
 
     print(f"\n  {GY}* Premiums estimated via Black-Scholes | qty ≈ ${BUDGET_USD:.0f}/spot{R}")
     warn("Short strangles have unlimited loss potential on the call side — size carefully.")

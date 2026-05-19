@@ -46,6 +46,7 @@ from ui.display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
 from market.market_data import get_spot_price, get_deribit_iv, _deribit_instrument, _fetch_order_book
 from access import BrokerBase, DeribitClient
 from trading.executor import enter_trade
+from trading.fee_calculator import calculate_fee
 
 
 def _has_open_position(asset: str, strategy: str) -> bool:
@@ -267,7 +268,11 @@ def _build_candidates(
         # ── Cash-Secured Put ──────────────────────────────────────────────────
         qty_p = BUDGET_USD / Kp
         pp    = bs_put(spot, Kp, T, r, put_iv) * qty_p
-        yld_p = (pp / BUDGET_USD) * (365 / days) * 100
+        # Account for open and estimated close fees
+        open_fee_p = calculate_fee(spot, pp / qty_p, asset) * qty_p
+        close_fee_est_p = calculate_fee(spot, 0.01, asset) * qty_p  # Estimate close fee at ~1 cent per contract
+        effective_pp = pp - open_fee_p - close_fee_est_p
+        yld_p = (effective_pp / BUDGET_USD) * (365 / days) * 100 if effective_pp > 0 else 0.0
         pop_p = prob_otm_put(spot, Kp, T, r, put_iv) * 100
         oi_p  = put_book["open_interest"] if put_book else None
         vol_p = put_book["volume_usd"]    if put_book else None
@@ -279,7 +284,7 @@ def _build_candidates(
             spot        = spot,
             iv          = put_iv,
             strike      = _format_strike(Kp, strike_round),
-            premium     = round(pp, 2),
+            premium     = round(effective_pp, 2),
             yield_ann   = round(yld_p, 1),
             prob_profit = round(pop_p, 1),
             days        = days,
@@ -292,7 +297,11 @@ def _build_candidates(
         # ── Covered Call ──────────────────────────────────────────────────────
         qty_c = BUDGET_USD / spot
         cp    = bs_call(spot, Kc, T, r, call_iv) * qty_c
-        yld_c = (cp / BUDGET_USD) * (365 / days) * 100
+        # Account for open and estimated close fees
+        open_fee_c = calculate_fee(spot, cp / qty_c, asset) * qty_c
+        close_fee_est_c = calculate_fee(spot, 0.01, asset) * qty_c  # Estimate close fee
+        effective_cp = cp - open_fee_c - close_fee_est_c
+        yld_c = (effective_cp / BUDGET_USD) * (365 / days) * 100 if effective_cp > 0 else 0.0
         pop_c = prob_otm_call(spot, Kc, T, r, call_iv) * 100
  
         oi_c  = call_book["open_interest"] if call_book else None
@@ -305,7 +314,7 @@ def _build_candidates(
             spot        = spot,
             iv          = call_iv,
             strike      = _format_strike(Kc, strike_round),
-            premium     = round(cp, 2),
+            premium     = round(effective_cp, 2),
             yield_ann   = round(yld_c, 1),
             prob_profit = round(pop_c, 1),
             days        = days,
@@ -320,8 +329,14 @@ def _build_candidates(
         sp            = bs_put (spot, Kp, T, r, iv) * qty3
         sc            = bs_call(spot, Kc, T, r, iv) * qty3
         tot           = sp + sc
-        yld3          = (tot / BUDGET_USD) * (365 / days) * 100
-        prem_per_unit = tot / qty3 if qty3 else 0
+        # Account for open and estimated close fees for both legs
+        open_fee_sp = calculate_fee(spot, sp / qty3, asset) * qty3
+        open_fee_sc = calculate_fee(spot, sc / qty3, asset) * qty3
+        close_fee_est_sp = calculate_fee(spot, 0.01, asset) * qty3
+        close_fee_est_sc = calculate_fee(spot, 0.01, asset) * qty3
+        effective_tot = tot - open_fee_sp - open_fee_sc - close_fee_est_sp - close_fee_est_sc
+        yld3          = (effective_tot / BUDGET_USD) * (365 / days) * 100 if effective_tot > 0 else 0.0
+        prem_per_unit = effective_tot / qty3 if qty3 else 0
         be_lo         = Kp - prem_per_unit
         be_hi         = Kc + prem_per_unit
         p_lo          = prob_otm_put (spot, Kp, T, r, iv)
@@ -338,7 +353,7 @@ def _build_candidates(
             spot        = spot,
             iv          = iv,
             strike      = f"{_format_strike(Kp, strike_round)}/{_format_strike(Kc, strike_round)}",
-            premium     = round(tot, 2),
+            premium     = round(effective_tot, 2),
             yield_ann   = round(yld3, 1),
             prob_profit = round(pop3, 1),
             days        = days,
@@ -366,13 +381,22 @@ def _build_candidates(
             near_prem = bs_near(spot, K_atm, cal_near / 365.0, r, iv) * qty_c
             far_prem  = bs_far (spot, K_atm, T_far, r, iv) * qty_c
             net_debit = far_prem - near_prem
+
+            # Account for fees on both legs (estimating close fees)
+            open_fee_near = calculate_fee(spot, near_prem / qty_c, asset) * qty_c
+            open_fee_far = calculate_fee(spot, far_prem / qty_c, asset) * qty_c
+            close_fee_est_near = calculate_fee(spot, 0.01, asset) * qty_c
+            close_fee_est_far = calculate_fee(spot, 0.01, asset) * qty_c
+            # For calendar: we receive near_prem (pay fee on it), pay far_prem (pay fee on it)
+            net_debit_with_fees = (far_prem + open_fee_far + close_fee_est_far) - (near_prem - open_fee_near - close_fee_est_near)
+
             # Max profit: spot pins the strike at near expiry
             bs_fn     = bs_call if cal_type == "Cal-C" else bs_put
             max_far   = bs_fn(K_atm, K_atm, T_rem, r, iv) * qty_c
-            max_profit = max_far - net_debit
+            max_profit = max_far - net_debit_with_fees
 
             # Yield = max_profit / net_debit * annualised (based on near days)
-            yld_cal = (max_profit / net_debit * (365 / cal_near) * 100) if net_debit > 0 else 0.0
+            yld_cal = (max_profit / net_debit_with_fees * (365 / cal_near) * 100) if net_debit_with_fees > 0 else 0.0
 
             # Rough P(profit): probability spot stays within ±max_profit/net_debit band
             # Use numeric breakeven scan (fast pure-math function)
@@ -407,7 +431,7 @@ def _build_candidates(
                 spot        = spot,
                 iv          = iv,
                 strike      = f"{_format_strike(K_atm, strike_round)} ATM",
-                premium     = round(net_debit, 2),   # net debit = max loss
+                premium     = round(net_debit_with_fees, 2),   # net debit = max loss (including fees)
                 yield_ann   = round(yld_cal, 1),
                 prob_profit = round(p_cal, 1),
                 days        = cal_near,
@@ -437,9 +461,18 @@ def _build_candidates(
             short_p   = bs_short(spot, short_k, T, r, iv)
             long_p    = bs_long (spot, long_k,  T, r, iv)
             net_cr    = (short_p - long_p) * qty_sp
-            max_ls    = abs(short_k - long_k) * qty_sp - net_cr
-            cap_req   = max_ls + net_cr   # capital at risk = max_loss
-            yld_sp    = (net_cr / cap_req * (365 / days) * 100) if cap_req > 0 else 0.0
+
+            # Account for fees on both legs (short and long)
+            fee_short = calculate_fee(spot, short_p, asset)
+            fee_long = calculate_fee(spot, long_p, asset)
+            close_fee_est_short = calculate_fee(spot, 0.01, asset)
+            close_fee_est_long = calculate_fee(spot, 0.01, asset)
+            # Adjusted net credit: sell short (pay fee), buy long (pay fee and close fee)
+            adjusted_net_cr = (short_p - fee_short - close_fee_est_short - long_p - fee_long - close_fee_est_long) * qty_sp
+
+            max_ls    = abs(short_k - long_k) * qty_sp - adjusted_net_cr
+            cap_req   = max_ls + adjusted_net_cr   # capital at risk = max_loss
+            yld_sp    = (adjusted_net_cr / cap_req * (365 / days) * 100) if cap_req > 0 else 0.0
 
             if stype == "BPS":
                 pop_sp = prob_otm_put(spot, short_k, T, r, iv) * 100
@@ -463,7 +496,7 @@ def _build_candidates(
                     f"{_format_strike(short_k, strike_round)}"
                     f"/{_format_strike(long_k, strike_round)}"
                 ),
-                premium       = round(net_cr, 2),
+                premium       = round(adjusted_net_cr, 2),
                 yield_ann     = round(yld_sp, 1),
                 prob_profit   = round(pop_sp, 1),
                 days          = days,

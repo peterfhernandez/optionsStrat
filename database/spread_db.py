@@ -48,6 +48,8 @@ def load_spread_state(asset: str, session: Optional[Session] = None) -> dict:
                     "long_strike": trade.long_strike,
                     "qty": trade.qty,
                     "expiry": trade.expiry,
+                    "open_fees": trade.open_fees or 0.0,
+                    "close_fees": trade.close_fees or 0.0,
                 }
                 break
 

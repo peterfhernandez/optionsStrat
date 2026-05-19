@@ -20,11 +20,14 @@
 2. ✅ Update models to add open_fee and close_fee as defined in WORK_PLAN.md section 2.3
 3. ✅ Update all entry functions in trading/executor.py to calculate and apply open_fees
 4. ✅ Update all close functions in trading/executor.py to calculate and apply close_fees
-5. ☐ Update P&L calculations in trading/portfolio.py to subtract open and close fees
-6. ✅ Create tests/test_fee_calculator.py with comprehensive fee calculation tests
-7. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on entry functions
-8. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on close functions
-9. ☐ Update README.md to ensure Deribit fees information and structure is includedd
+5. ✅ Update P&L calculations in trading/portfolio.py to subtract open and close fees
+6. ✅ Update Strategies and automator.py to include open and close fees in yield calculations
+7. ✅ Create tests/test_fee_calculator.py with comprehensive fee calculation tests
+8. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on entry functions
+9. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on close functions
+10. ☐ Update Strategies and automator tests to include open and close fees in yield calculations
+11. ☐ Ensure trade_ledger table is fully deprecated
+12. ☐ Update README.md to ensure Deribit fees information and structure is included and trade_ledger references are removed
 
 ## Phase 3: Setup Live Deribit Trading (7 tasks)
 

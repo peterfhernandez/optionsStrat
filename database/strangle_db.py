@@ -51,6 +51,8 @@ def load_strangle_state(asset: str, session: Optional[Session] = None) -> dict:
                     "total_premium": trade.total_premium or 0.0,
                     "spot_open": trade.spot_open,
                     "days": trade.days,
+                    "open_fees": trade.open_fees or 0.0,
+                    "close_fees": trade.close_fees or 0.0,
                 }
                 break
 
