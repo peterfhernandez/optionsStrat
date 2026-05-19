@@ -189,9 +189,10 @@ def close_strangle_trade(
     pnl: float,
     result: str,
     notes: Optional[str] = None,
+    close_fees: float = 0.0,
     session: Optional[Session] = None,
 ) -> Strangle:
-    """Close a Strangle trade by updating its close price, P&L, and result."""
+    """Close a Strangle trade by updating its close price, P&L, result, and close fees."""
     close_session = session is None
     if session is None:
         session = get_session()
@@ -205,6 +206,7 @@ def close_strangle_trade(
         trade.spot_close = spot_close
         trade.pnl        = pnl
         trade.result     = result
+        trade.close_fees = close_fees
         if notes:
             trade.notes = notes
 

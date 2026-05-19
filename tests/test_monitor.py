@@ -386,6 +386,29 @@ class TestCheckStrangle:
         assert result is True
         assert saved_states[-1]["losses"] == 1
 
+    def test_close_fees_passed_to_database(self, strangle_state):
+        """Verify that close_fees are calculated and passed to close_strangle_trade."""
+        p0      = strangle_state["open"]["total_premium"]
+        qty     = strangle_state["open"]["qty"]
+        per_unit = (p0 * STOP_LOSS_MULTIPLIER) / qty / 2 + 1
+        strangle_state["open"]["trade_id"] = 42
+        close_mock = MagicMock()
+        spot = 2000.0
+        patches = [
+            patch("automation.monitor.load_strangle_state",  return_value=strangle_state),
+            patch("automation.monitor.save_strangle_state",  MagicMock()),
+            patch("automation.monitor.bs_put",               return_value=per_unit),
+            patch("automation.monitor.bs_call",              return_value=per_unit),
+            patch("automation.monitor.close_strangle_trade", close_mock),
+            patch("automation.monitor.close_strangle_position", MagicMock()),
+        ]
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            _check_strangle("ETH", spot, 0.80, True)
+        # Verify close_fees kwarg was passed (should be > 0)
+        call_kwargs = close_mock.call_args[1]
+        assert "close_fees" in call_kwargs
+        assert call_kwargs["close_fees"] > 0
+
 
 # ── _check_wheel ──────────────────────────────────────────────────────────────
 

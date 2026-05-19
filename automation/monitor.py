@@ -48,6 +48,7 @@ from trading.executor import (
     close_wheel_position, close_strangle_position,
     close_calendar_position, close_spread_position,
 )
+from trading.fee_calculator import calculate_fee
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -191,6 +192,10 @@ def _check_strangle(
 
     trade_id = op.get("trade_id")
     if trade_id:
+        # Calculate close fees for both legs
+        close_put_fee = calculate_fee(spot, cur_pp, asset)
+        close_call_fee = calculate_fee(spot, cur_cp, asset)
+        total_close_fee = close_put_fee + close_call_fee
         close_strangle_trade(
             trade_id,
             date_close=date.today(),
@@ -198,6 +203,7 @@ def _check_strangle(
             pnl=round(pnl, 4),
             result=result,
             notes=note,
+            close_fees=round(total_close_fee, 4),
         )
 
     if pnl >= 0:
@@ -303,6 +309,8 @@ def _check_wheel(
         session.close()
 
     if open_trade:
+        # Calculate close fee based on current price to close
+        close_fee = calculate_fee(spot, cur, asset)
         close_single_trade(
             trade_id=open_trade.id,
             date_close=date.today(),
@@ -310,6 +318,7 @@ def _check_wheel(
             pnl=round(pnl, 4),
             result=result,
             notes=note,
+            close_fees=round(close_fee, 4),
         )
 
     if pnl >= 0:
@@ -417,6 +426,10 @@ def _check_calendar(
 
     trade_id = op.get("trade_id")
     if trade_id:
+        # Calculate close fees for both legs (buying back near, selling far)
+        close_near_fee = calculate_fee(spot, near_val, asset)
+        close_far_fee = calculate_fee(spot, far_val, asset)
+        total_close_fee = close_near_fee + close_far_fee
         close_calendar_trade(
             trade_id=trade_id,
             date_close=date.today(),
@@ -424,6 +437,7 @@ def _check_calendar(
             pnl=round(pnl, 4),
             result=result,
             notes=note,
+            close_fees=round(total_close_fee, 4),
         )
 
     if pnl >= 0:
@@ -526,6 +540,10 @@ def _check_spread(
 
     trade_id = op.get("trade_id")
     if trade_id:
+        # Calculate close fees for both legs (short and long)
+        close_short_fee = calculate_fee(spot, short_val, asset)
+        close_long_fee = calculate_fee(spot, long_val, asset)
+        total_close_fee = close_short_fee + close_long_fee
         close_spread_trade(
             trade_id,
             date_close=date.today(),
@@ -533,6 +551,7 @@ def _check_spread(
             pnl=round(pnl, 4),
             result=result,
             notes=note,
+            close_fees=round(total_close_fee, 4),
         )
 
     if pnl >= 0:

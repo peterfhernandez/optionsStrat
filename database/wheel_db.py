@@ -211,9 +211,10 @@ def close_single_trade(
     pnl: float,
     result: str,
     notes: Optional[str] = None,
+    close_fees: float = 0.0,
     session: Optional[Session] = None,
 ) -> Single:
-    """Close a Single trade (update with close price and P&L)."""
+    """Close a Single trade (update with close price, P&L, and close fees)."""
     close_session = session is None
     if session is None:
         session = get_session()
@@ -227,6 +228,7 @@ def close_single_trade(
         trade.spot_close = spot_close
         trade.pnl = pnl
         trade.result = result
+        trade.close_fees = close_fees
         if notes:
             trade.notes = notes
 
