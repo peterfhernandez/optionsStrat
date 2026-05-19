@@ -17,10 +17,13 @@
 ## Phase 2: Integrate Trading Fees (6 tasks)
 
 1. ✅ Create trading/fee_calculator.py with fee calculation logic
-2. ☐ Update all entry functions in trading/executor.py to calculate and apply fees
-3. ☐ Update P&L calculations in trading/portfolio.py to subtract fees
-4. ✅ Create tests/test_fee_calculator.py with comprehensive fee calculation tests
-5. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic
+2. ✅ Update models to add open_fee and close_fee as defined in WORK_PLAN.md section 2.3
+3. ☐ Update all entry functions in trading/executor.py to calculate and apply fees
+4. ☐ Update P&L calculations in trading/portfolio.py to subtract fees
+5. ✅ Create tests/test_fee_calculator.py with comprehensive fee calculation tests
+6. ☐ Update all close functions in trading/executor.py to calculate and apply fees
+7. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on entry functions
+8. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on close functions
 
 ## Phase 3: Setup Live Deribit Trading (7 tasks)
 

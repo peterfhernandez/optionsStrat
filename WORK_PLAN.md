@@ -252,21 +252,25 @@ def _enter_csp(c, days, broker):
 
 For each strategy's `_calculate_pnl()`:
 
-**Old:** `pnl = received_premium - current_value`  
-**New:** `pnl = (received_premium - fee) - current_value`
+**Track:** `open_fee` calculated using helper functions and stored in appropriate db strategy tables in a new column called open_fee
+**Track:** `close_fee` calculated using helper functions and stored in appropriate db strategy tables in a new column called close_fee
+**Old pnl:** `pnl = received_premium - current_value`  
+**New pnl:** `pnl = (received_premium - open_fee) - current_value - close_fee`
 
 ```python
 def collect_open_positions():
     for single in db.query(Single).filter(Single.date_close.is_(None)):
         premium = single.premium
-        fee = single.fees
+        open_fee = single.open_fees
+        close_fee = single.close_fees if single.close_fees is not null else 0 # probably wrong syntax
         current_value = bs_put(spot, single.strike, T, RISK_FREE_RATE, iv)
-        unrealised_pnl = (premium - fee) - current_value  # NEW: subtract fee
+        unrealised_pnl = (premium - open_fee) - current_value - close_fee # NEW: subtract fees example this is probably the wrong syntax
         yield {
             "asset": single.asset,
             "strategy": "Wheel",
             "premium": premium - fee,  # Effective premium shown to user
-            "fees": fee,  # Display fees separately
+            "open_fees": open_fee,  # Display open fees separately
+            "close_fees": close_fee,# Display close fees separately
             "unrealised_pnl": unrealised_pnl,
         }
 ```
@@ -275,12 +279,12 @@ def collect_open_positions():
 
 **File:** `models/trade_ledger.py`
 
-- Ensure `fees` column exists (already defined)
+- Ensure `open_fees` and `close_fees` columns exist and deprecate the fees column if it already exits
 
 **File:** `database/trade_ledger.py` (if it exists) or update all `create_*_trade()` functions
 
 - Ensure fees are recorded to TradeLedger on entry AND exit
-- P&L calculations use: `pnl = (entry_premium - entry_fees) - (exit_price - exit_fees)`
+- P&L calculations use: `pnl = (entry_premium - entry_fees) - (exit_price + exit_fees)`
 
 ### 2.5 Update Tests
 

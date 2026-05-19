@@ -25,6 +25,8 @@ class Single(Base):
     asset_held = Column(Float, default=0.0)   # qty held after assignment
     cost_basis = Column(Float)                # strike price at assignment
     fees = Column(Float, default=0.0)
+    open_fees = Column(Float, default=0.0)   # fee charged at entry
+    close_fees = Column(Float, default=0.0)  # fee charged at exit
     pnl = Column(Float)
 
     result = Column(String(10))               # Win | Loss | Open

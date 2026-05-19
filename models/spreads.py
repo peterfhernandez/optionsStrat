@@ -24,6 +24,8 @@ class Spread(Base):
     net_credit = Column(Float)   # premium received (max profit)
     max_loss = Column(Float)     # strike width * qty - net_credit
     fees = Column(Float, default=0.0)
+    open_fees = Column(Float, default=0.0)   # fee charged at entry
+    close_fees = Column(Float, default=0.0)  # fee charged at exit
     pnl = Column(Float)
 
     result = Column(String(15))  # Win | Loss | Open | Win (Auto TP) | Loss (Auto Stop)

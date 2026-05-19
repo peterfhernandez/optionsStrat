@@ -22,6 +22,8 @@ class Strangle(Base):
 
     total_premium = Column(Float)             # combined premium from both legs
     fees = Column(Float, default=0.0)
+    open_fees = Column(Float, default=0.0)   # fee charged at entry
+    close_fees = Column(Float, default=0.0)  # fee charged at exit
     pnl = Column(Float)
 
     result = Column(String(10))               # Win | Loss | Open

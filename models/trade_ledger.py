@@ -35,6 +35,8 @@ class TradeLedger(Base):
     spot_close = Column(Float)                        # NULL while open
 
     fees = Column(Float, default=0.0)
+    open_fees = Column(Float, default=0.0)            # fee charged at entry
+    close_fees = Column(Float, default=0.0)           # fee charged at exit
     pnl = Column(Float)                               # NULL while open
     broker = Column(String(30), nullable=True)        # e.g. deribit_paper | deribit_live
 
@@ -106,6 +108,8 @@ class TradeLedger(Base):
                     "spot_open": row.spot_open,
                     "spot_close": row.spot_close,
                     "fees": row.fees,
+                    "open_fees": row.open_fees,
+                    "close_fees": row.close_fees,
                     "pnl": row.pnl,
                     "cumulative_pnl": cum_pnl,
                 }
