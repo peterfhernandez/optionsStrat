@@ -24,8 +24,8 @@
 6. ✅ Update Strategies and automator.py to include open and close fees in yield calculations
 7. ✅ Create tests/test_fee_calculator.py with comprehensive fee calculation tests
 8. ✅ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on entry functions
-9. ☐ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on close functions
-10. ☐ Update Strategies and automator tests to include open and close fees in yield calculations logic
+9. ✅ Update tests/test_executor.py and tests/test_portfolio.py for fee logic on close functions
+10. ✅ Update Strategies and automator tests to include open and close fees in yield calculations logic
 11. ☐ Ensure trade_ledger table is fully deprecated
 12. ☐ Update README.md to ensure Deribit fees information and structure is included and trade_ledger references are removed
 

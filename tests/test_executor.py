@@ -452,3 +452,94 @@ class TestEnterTradeDispatch:
                 enter_trade(c, broker=broker)
             except (KeyError, TypeError):
                 pass  # state dict errors are fine — we only care the budget check passed
+
+
+# ── Close functions ──────────────────────────────────────────────────────────
+
+class TestCloseWheel:
+    @patch("trading.executor.calculate_fee", return_value=2.5)
+    def test_close_wheel_position_returns_order(self, mock_fee):
+        """close_wheel_position should place a buy market order."""
+        broker = _mock_broker("CLOSE-1")
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "type": "Put",
+            "strike": 1800.0,
+            "instrument": "ETH-30MAY25-1800-P",
+        }
+        result = _import().close_wheel_position(op, broker, spot=2000.0)
+        assert result.order_id == "CLOSE-1"
+        broker.place_order.assert_called_once()
+        call_args = broker.place_order.call_args
+        assert call_args.args[1] == "buy"  # direction
+        assert call_args.args[3] == "market"  # order_type
+
+
+class TestCloseStrangle:
+    @patch("trading.executor.calculate_fee", return_value=1.0)
+    def test_close_strangle_position_returns_orders(self, mock_fee):
+        """close_strangle_position should place two buy market orders."""
+        broker = _mock_broker("CLOSE-P-1", "CLOSE-C-1")
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "put_strike": 1500.0,
+            "call_strike": 2500.0,
+            "put_instrument": "ETH-30MAY25-1500-P",
+            "call_instrument": "ETH-30MAY25-2500-C",
+        }
+        put_order, call_order = _import().close_strangle_position(op, broker, spot=2000.0)
+        assert put_order.order_id == "CLOSE-P-1"
+        assert call_order.order_id == "CLOSE-C-1"
+        assert broker.place_order.call_count == 2
+
+
+class TestCloseCalendar:
+    @patch("trading.executor.calculate_fee", return_value=1.5)
+    def test_close_calendar_position_returns_orders(self, mock_fee):
+        """close_calendar_position should place buy (near) and sell (far) orders."""
+        broker = _mock_broker("CLOSE-NEAR-1", "CLOSE-FAR-1")
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "strike": 2000.0,
+            "option_type": "Put",
+            "near_instrument": "ETH-30MAY25-2000-P",
+            "far_instrument": "ETH-27JUN25-2000-P",
+        }
+        near_order, far_order = _import().close_calendar_position(op, broker, spot=2000.0)
+        assert near_order.order_id == "CLOSE-NEAR-1"
+        assert far_order.order_id == "CLOSE-FAR-1"
+        # Verify directions: near is buy (close short), far is sell (close long)
+        call_list = broker.place_order.call_args_list
+        assert call_list[0].args[1] == "buy"   # near: buy back our short
+        assert call_list[1].args[1] == "sell"  # far: sell back our long
+
+
+class TestCloseSpread:
+    @patch("trading.executor.calculate_fee", return_value=1.0)
+    def test_close_spread_position_returns_orders(self, mock_fee):
+        """close_spread_position should place buy (short leg) and sell (long leg) orders."""
+        broker = _mock_broker("CLOSE-SHORT-1", "CLOSE-LONG-1")
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "short_strike": 1800.0,
+            "long_strike": 1700.0,
+            "short_instrument": "ETH-30MAY25-1800-P",
+            "long_instrument": "ETH-30MAY25-1700-P",
+        }
+        short_order, long_order = _import().close_spread_position(op, broker, spot=2000.0)
+        assert short_order.order_id == "CLOSE-SHORT-1"
+        assert long_order.order_id == "CLOSE-LONG-1"
+        # Verify directions: short is buy (close our short), long is sell (close our long)
+        call_list = broker.place_order.call_args_list
+        assert call_list[0].args[1] == "buy"   # short: buy back our short
+        assert call_list[1].args[1] == "sell"  # long: sell back our long
+
+
+def _import():
+    """Helper to re-import executor module (to avoid patching issues)."""
+    from trading import executor
+    return executor

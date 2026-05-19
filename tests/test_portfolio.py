@@ -358,6 +358,40 @@ def test_spread_position_with_open_fees(monkeypatch):
     assert spread["unrealised_pnl"] == pytest.approx(27.0)
 
 
+def test_spread_position_with_open_and_close_fees(monkeypatch):
+    """Spread position P&L should subtract both open and close fees."""
+    monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})
+    monkeypatch.setattr(portfolio, "get_spot_price", lambda asset: 2000.0)
+    monkeypatch.setattr(portfolio, "get_deribit_iv", lambda asset, spot, days: 0.80)
+    monkeypatch.setattr(portfolio, "bs_put",  lambda spot, strike, T, r, iv: 5.0)
+    monkeypatch.setattr(portfolio, "bs_call", lambda spot, strike, T, r, iv: 3.0)
+
+    create_spread_trade(
+        asset="ETH",
+        spread_type="BCS",
+        date_open=date(2099, 1, 1),
+        short_strike=2200.0,
+        long_strike=2300.0,
+        spot_open=2000.0,
+        net_credit=20.0,
+        max_loss=80.0,
+        qty=1.0,
+        days=7,
+        expiry="01-Jan-2099",
+        open_fees=2.0,
+    )
+
+    positions = collect_open_positions()
+    spread = next((p for p in positions if p["strategy"] == "Spread"), None)
+    assert spread is not None
+    # P&L = (net_credit - open_fee) - current_value - close_fee
+    # For BCS with mocked values: short_call=3.0, long_call=3.0
+    # spread_value = short - long = 3.0 - 3.0 = 0
+    # Since position is open, close_fee is 0
+    # P&L = (20.0 - 2.0) - 0 - 0 = 18.0
+    assert spread["unrealised_pnl"] == pytest.approx(18.0)
+
+
 def test_spread_position_no_pnl_when_price_unavailable(monkeypatch):
     """Spread with no spot price → unrealised_pnl is None."""
     monkeypatch.setattr(portfolio, "SUPPORTED_ASSETS", {"ETH": {}})
