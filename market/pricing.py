@@ -140,3 +140,62 @@ def round_strike(price: float, spot: float) -> float:
     inc = strike_increment(spot)
     rounded = round(price / inc) * inc
     return max(rounded, inc)  # ensure strike is never zero
+
+
+# ── Liquidity adjustments ─────────────────────────────────────────────────────
+
+def adjust_far_leg_price(
+    mid_price: float,
+    days_to_expiry: int,
+    is_buy: bool = True,
+) -> float:
+    """
+    Adjust option price for a far-leg purchase in a calendar spread.
+
+    Far-dated options have wider bid/ask spreads and lower liquidity.
+    When buying (is_buy=True), we move away from mid toward the ask.
+    When selling (is_buy=False), we move away from mid toward the bid.
+
+    Parameters
+    ----------
+    mid_price : float
+        Black-Scholes mid price
+    days_to_expiry : int
+        Days until option expiry
+    is_buy : bool
+        True if we're buying (pay the ask), False if selling (take the bid)
+
+    Returns
+    -------
+    float
+        Adjusted price accounting for bid/ask spread and liquidity
+    """
+    # Base bid/ask spread as % of mid price
+    # Near-dated (< 14 days): ~0.5% spread
+    # Medium (14-30 days): ~1% spread
+    # Far-dated (> 30 days): ~2% spread
+    if days_to_expiry <= 7:
+        spread_pct = 0.005
+    elif days_to_expiry <= 14:
+        spread_pct = 0.010
+    elif days_to_expiry <= 30:
+        spread_pct = 0.015
+    else:
+        spread_pct = 0.025
+
+    # Additional liquidity premium for very far dates (penalty for poor liquidity)
+    # Increases with time to expiry
+    liquidity_penalty = 0.0
+    if days_to_expiry > 30:
+        # Scale penalty: +0.5% per 30 days beyond 30d
+        excess_days = days_to_expiry - 30
+        liquidity_penalty = (excess_days / 30.0) * 0.005
+
+    total_adjustment_pct = spread_pct + liquidity_penalty
+
+    if is_buy:
+        # Buying: move toward ask (pay more)
+        return mid_price * (1 + total_adjustment_pct)
+    else:
+        # Selling: move toward bid (receive less)
+        return mid_price * (1 - total_adjustment_pct)

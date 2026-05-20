@@ -32,7 +32,7 @@ from trading.fee_calculator import calculate_fee
 from database.strangle_db import load_strangle_state, save_strangle_state, create_strangle_trade
 from database.calendar_db import load_calendar_state, save_calendar_state, create_calendar_trade
 from database.spread_db import load_spread_state, save_spread_state, create_spread_trade
-from market.pricing import bs_put, bs_call, round_strike
+from market.pricing import bs_put, bs_call, round_strike, adjust_far_leg_price
 from access import BrokerBase, OrderResult, make_instrument, DeribitClient
 
 # Assets whose Deribit contracts are inverse (amount = USD notional).
@@ -368,12 +368,14 @@ def _enter_calendar(c, T: float, broker: BrokerBase) -> dict:
     K          = _strike_from_instrument(near_order.instrument)
     near_price = bs_fn(c.spot, K, T,     RISK_FREE_RATE, c.iv)
     far_price  = bs_fn(c.spot, K, T_far, RISK_FREE_RATE, c.iv)
+    # Adjust far leg price upward to account for wider bid/ask spread and lower liquidity
+    far_price_adjusted = adjust_far_leg_price(far_price, far_days, is_buy=True)
     far_order  = _place_option(
         broker, c.asset, expiry_far_dt, K, ot, "buy",
-        far_price, c.spot, label=f"CAL-FAR-{c.asset}", T=T_far, iv=c.iv,
+        far_price_adjusted, c.spot, label=f"CAL-FAR-{c.asset}", T=T_far, iv=c.iv,
     )
     near_prem = near_price * qty
-    far_prem  = far_price  * qty
+    far_prem  = far_price_adjusted * qty
     net_debit = far_prem - near_prem
 
     # Calculate fees for both legs

@@ -277,6 +277,7 @@ def collect_open_positions():
 
 ### 2.4 Update Trade Ledger & Reporting
 
+THIS IS NOT REQUIRED AS TRADE_LEDGER HAS BEEN DEPRECATED
 **File:** `models/trade_ledger.py`
 
 - Ensure `open_fees` and `close_fees` columns exist and deprecate the fees column if it already exits

@@ -4,7 +4,7 @@
 ☐ Task not started
 ⊙ Task in progress
 
-## Phase 1: Remove TradeState Model (8 tasks)
+## Phase 1: Remove TradeState Model (7 tasks)
 
 1. ✅ Delete models/trade_state.py and remove imports from models/__init__.py and database/__init__.py
 2. ✅ Add stage column to models/singles.py and update load_wheel_state in database/wheel_db.py
@@ -14,7 +14,7 @@
 6. ✅ Remove TradeState tests from tests/test_models.py and update automator/monitor tests
 7. ✅ Drop trade_state table from database and verify no regressions
 
-## Phase 2: Integrate Trading Fees (6 tasks)
+## Phase 2: Integrate Trading Fees (12 tasks)
 
 1. ✅ Create trading/fee_calculator.py with fee calculation logic
 2. ✅ Update models to add open_fee and close_fee as defined in WORK_PLAN.md section 2.3
@@ -31,11 +31,10 @@
 
 ## Phase 3: Setup Live Deribit Trading (7 tasks)
 
-1. ☐ Phase 3: Setup Live Deribit Trading
-2. ☐ Create/update .env and .env.example with paper/live credentials and DERIBIT_PAPER flag
-3. ☐ Update config.py to load credentials from .env based on DERIBIT_PAPER flag
-4. ☐ Update access/deribit.py to use config credentials and endpoints
-5. ☐ Update main.py to display current trading mode (PAPER vs LIVE) at startup
-6. ☐ Update tests/test_access_deribit.py for paper/live mode scenarios
-7. ☐ Add live trading setup section to README.md
-8. ☐ Run full test suite and verify no regressions
+1. ☐ Create/update .env and .env.example with paper/live credentials and DERIBIT_PAPER flag
+2. ☐ Update config.py to load credentials from .env based on DERIBIT_PAPER flag
+3. ☐ Update access/deribit.py to use config credentials and endpoints
+4. ☐ Update main.py to display current trading mode (PAPER vs LIVE) at startup
+5. ☐ Update tests/test_access_deribit.py for paper/live mode scenarios
+6. ☐ Add live trading setup section to README.md
+7. ☐ Run full test suite and verify no regressions

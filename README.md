@@ -210,6 +210,30 @@ Buy  call at strike B (e.g. 15% OTM above spot, higher)
 
 ---
 
+### 3. Calendar Spread
+Buy a longer-dated option and sell a shorter-dated option at the same strike. Profit from time decay and volatility term structure.
+
+```
+Sell Put (7 days)    +  Buy Put (30 days)  [Put Calendar]
+  or
+Sell Call (7 days)   +  Buy Call (30 days) [Call Calendar]
+→ Collect net debit from the spread (maximum loss)
+→ Profit if time decay on the near leg is faster than the far leg
+→ Best case: spot pins the strike at near-leg expiry, near expires worthless, far retains time value
+```
+
+**Far-leg pricing adjustment:** To improve order fill rates on far-leg purchases, the tool automatically adjusts Black-Scholes prices to account for:
+- **Wider bid/ask spreads** on far-dated options (~0.5–2.5% depending on DTE)
+- **Lower liquidity** on longer-dated contracts — additional 0.5–1% penalty for very far expirations (>30 days)
+
+This means the net debit shown reflects a more realistic market price, improving the likelihood of getting the order filled rather than having the far leg sit unfilled as shown in the screenshot.
+
+**Monitor thresholds:**
+- **Stop-loss at 50% of debit paid** — max loss acceptable
+- **Take-profit at 150% of debit** — exit to lock in gains
+
+---
+
 ### 2. Short Strangle
 Sell an OTM put AND an OTM call simultaneously. Profit when the asset stays within a range.
 
@@ -398,4 +422,4 @@ This tool is for **personal paper trading and education only**.
 
 ---
 
-*Last updated: May 2026 — added Credit Spread strategy (BPS / BCS)*
+*Last updated: May 2026 — improved far-leg pricing in calendar spreads to account for liquidity and bid/ask spreads*

@@ -17,7 +17,7 @@ import math
 import pytest
 from market.pricing import (
     ncdf, _d1, _d2, bs_put, bs_call, prob_otm_put, prob_otm_call,
-    strike_increment, round_strike,
+    strike_increment, round_strike, adjust_far_leg_price,
 )
 
 
@@ -429,3 +429,88 @@ class TestRoundStrike:
             inc = strike_increment(spot)
             result = round_strike(spot, spot)
             assert abs(result % inc) < 1e-9 or abs(result % inc - inc) < 1e-9
+
+
+# ── adjust_far_leg_price ──────────────────────────────────────────────────────
+
+class TestAdjustFarLegPrice:
+    """Test liquidity adjustment for far-leg calendar spreads."""
+
+    def test_near_dated_minimal_adjustment(self):
+        """Near-dated options (≤7d) get minimal adjustment (~0.5%)."""
+        mid_price = 100.0
+        adjusted = adjust_far_leg_price(mid_price, days_to_expiry=7, is_buy=True)
+        # ~0.5% spread = 100 * 1.005 = 100.5
+        assert 100.4 < adjusted < 100.6
+
+    def test_medium_dated_moderate_adjustment(self):
+        """Medium-dated options (14-30d) get moderate adjustment (~1-1.5%)."""
+        mid_price = 100.0
+        adjusted_14d = adjust_far_leg_price(mid_price, days_to_expiry=14, is_buy=True)
+        adjusted_30d = adjust_far_leg_price(mid_price, days_to_expiry=30, is_buy=True)
+        # 14d: ~1% spread
+        assert 100.9 < adjusted_14d < 101.1
+        # 30d: ~1.5% spread
+        assert 101.4 < adjusted_30d < 101.6
+
+    def test_far_dated_larger_adjustment(self):
+        """Far-dated options (>30d) get larger adjustment due to liquidity penalty."""
+        mid_price = 100.0
+        adjusted_60d = adjust_far_leg_price(mid_price, days_to_expiry=60, is_buy=True)
+        # 60d: 2.5% base + 0.5% penalty = 3%
+        assert 102.9 < adjusted_60d <= 103.1
+
+    def test_buy_increases_price(self):
+        """When is_buy=True, adjusted price should be higher (pay the ask)."""
+        mid_price = 100.0
+        adjusted = adjust_far_leg_price(mid_price, days_to_expiry=30, is_buy=True)
+        assert adjusted > mid_price
+
+    def test_sell_decreases_price(self):
+        """When is_buy=False, adjusted price should be lower (receive the bid)."""
+        mid_price = 100.0
+        adjusted = adjust_far_leg_price(mid_price, days_to_expiry=30, is_buy=False)
+        assert adjusted < mid_price
+
+    def test_symmetry_buy_sell(self):
+        """Buy and sell adjustments should be symmetric around mid."""
+        mid_price = 100.0
+        buy_adj = adjust_far_leg_price(mid_price, days_to_expiry=30, is_buy=True)
+        sell_adj = adjust_far_leg_price(mid_price, days_to_expiry=30, is_buy=False)
+        # (buy_adj + sell_adj) / 2 should equal mid_price
+        avg = (buy_adj + sell_adj) / 2
+        assert abs(avg - mid_price) < 0.1
+
+    def test_monotonic_adjustment_with_dte(self):
+        """Adjustment should increase monotonically with days to expiry."""
+        mid_price = 100.0
+        adjustments = [
+            adjust_far_leg_price(mid_price, days_to_expiry=d, is_buy=True)
+            for d in [7, 14, 30, 60, 90]
+        ]
+        # Each adjustment should be >= previous (allowing small tolerance for discretization)
+        for i in range(len(adjustments) - 1):
+            assert adjustments[i] <= adjustments[i + 1] + 0.1
+
+    def test_small_option_price(self):
+        """Adjustment should work with very small option prices."""
+        mid_price = 0.10
+        adjusted = adjust_far_leg_price(mid_price, days_to_expiry=30, is_buy=True)
+        assert adjusted > mid_price
+        assert adjusted > 0.1
+
+    def test_large_option_price(self):
+        """Adjustment should work with large option prices."""
+        mid_price = 10000.0
+        adjusted = adjust_far_leg_price(mid_price, days_to_expiry=30, is_buy=True)
+        assert adjusted > mid_price
+        # Should be roughly 1.5% higher
+        assert 10140 < adjusted < 10160
+
+    def test_zero_or_negative_days_not_realistic(self):
+        """Handle edge case of zero or negative DTE (shouldn't happen in practice)."""
+        mid_price = 100.0
+        # Should still return a value
+        adjusted = adjust_far_leg_price(mid_price, days_to_expiry=0, is_buy=True)
+        assert isinstance(adjusted, float)
+        assert adjusted >= 0

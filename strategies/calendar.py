@@ -38,7 +38,7 @@ from database.calendar_db import (
     save_calendar_state,
     close_calendar_trade,
 )
-from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
+from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike, adjust_far_leg_price
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
 from ui.display import (
@@ -277,11 +277,13 @@ def show_calendar_analysis(
 
             if option_type == "Call":
                 near_prem = bs_call(spot, K, T_near, r, iv) * qty
-                far_prem  = bs_call(spot, K, T_far,  r, iv) * qty
+                far_prem_mid = bs_call(spot, K, T_far,  r, iv) * qty
+                far_prem = adjust_far_leg_price(far_prem_mid / qty, far_days, is_buy=True) * qty
                 max_far   = bs_call(K,    K, T_rem,  r, iv) * qty   # spot = K at near expiry
             else:
                 near_prem = bs_put(spot, K, T_near, r, iv) * qty
-                far_prem  = bs_put(spot, K, T_far,  r, iv) * qty
+                far_prem_mid = bs_put(spot, K, T_far,  r, iv) * qty
+                far_prem = adjust_far_leg_price(far_prem_mid / qty, far_days, is_buy=True) * qty
                 max_far   = bs_put(K,    K, T_rem,  r, iv) * qty
 
             # Account for fees on both legs (near and far)
@@ -484,10 +486,12 @@ def calendar_paper_menu(
 
         if option_type == "Call":
             near_prem_sug = bs_call(spot, K_sug, T_near, r, iv) * qty
-            far_prem_sug  = bs_call(spot, K_sug, T_far,  r, iv) * qty
+            far_prem_mid = bs_call(spot, K_sug, T_far,  r, iv) * qty
+            far_prem_sug = adjust_far_leg_price(far_prem_mid / qty, far_days, is_buy=True) * qty
         else:
             near_prem_sug = bs_put(spot, K_sug, T_near, r, iv) * qty
-            far_prem_sug  = bs_put(spot, K_sug, T_far,  r, iv) * qty
+            far_prem_mid = bs_put(spot, K_sug, T_far,  r, iv) * qty
+            far_prem_sug = adjust_far_leg_price(far_prem_mid / qty, far_days, is_buy=True) * qty
 
         nd_sug = far_prem_sug - near_prem_sug
         inf(f"  Suggested strike (ATM)", f"${K_sug:,.0f}")
@@ -499,10 +503,12 @@ def calendar_paper_menu(
 
         if option_type == "Call":
             near_prem = bs_call(spot, K, T_near, r, iv) * qty
-            far_prem  = bs_call(spot, K, T_far,  r, iv) * qty
+            far_prem_mid = bs_call(spot, K, T_far,  r, iv) * qty
+            far_prem = adjust_far_leg_price(far_prem_mid / qty, far_days, is_buy=True) * qty
         else:
             near_prem = bs_put(spot, K, T_near, r, iv) * qty
-            far_prem  = bs_put(spot, K, T_far,  r, iv) * qty
+            far_prem_mid = bs_put(spot, K, T_far,  r, iv) * qty
+            far_prem = adjust_far_leg_price(far_prem_mid / qty, far_days, is_buy=True) * qty
 
         net_debit = far_prem - near_prem
 
