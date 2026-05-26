@@ -250,8 +250,16 @@ def _build_candidates(
 
     Returns a flat list of Candidate objects.
     """
-    cal_near = cal_near_days if cal_near_days is not None else CALENDAR_NEAR_DAYS
-    cal_far  = cal_far_days  if cal_far_days  is not None else CALENDAR_FAR_DAYS
+    # Determine which calendar pairs to use
+    # Use all configured pairs if no custom horizons provided, or if the provided values
+    # match the defaults (meaning the user hasn't explicitly overridden them)
+    if (
+        (cal_near_days is None and cal_far_days is None)
+        or (cal_near_days == CALENDAR_NEAR_DAYS and cal_far_days == CALENDAR_FAR_DAYS)
+    ):
+        calendar_pairs = CALENDAR_SPREADS
+    else:
+        calendar_pairs = [(cal_near_days, cal_far_days)]
 
     T   = days / 365.0
     r   = RISK_FREE_RATE
@@ -384,13 +392,6 @@ def _build_candidates(
             progress_callback(asset, "Strangle", f"{otm*100:.0f}%", cand_str.strike)
 
     # ── Calendar Spreads (ATM only — multiple near/far pairs per asset) ──────
-    # Generate calendar spreads for each configured pair (e.g., 1d/7d, 1d/30d, 7d/30d)
-    calendar_pairs = [
-        (cal_near, cal_far)
-    ]
-    if cal_near_days is None and cal_far_days is None:
-        # Use all configured pairs from CALENDAR_SPREADS if no custom horizons provided
-        calendar_pairs = CALENDAR_SPREADS
 
     for cal_near, cal_far in calendar_pairs:
         if cal_near < cal_far:

@@ -113,7 +113,7 @@ SPREAD_WIDTH_PCT   = 0.05   # additional OTM offset for the long (protection) le
 # Pressing the toggle steps through these in order; when the current
 # value isn't in the list the toggle resets to the first one.
 CALENDAR_NEAR_OPTIONS = [1, 3, 7, 14]              # short-leg horizon choices
-CALENDAR_FAR_OPTIONS  = [14, 30, 60, 90]           # long-leg horizon choices
+CALENDAR_FAR_OPTIONS  = [7, 14, 30, 60, 90]        # long-leg horizon choices
 
 # ── Files ─────────────────────────────────────────────────────────────────────
 '''
