@@ -479,3 +479,43 @@ class TestFindInstrument:
             client.find_instrument("ETH", date(2026, 5, 22), 2300.0, "call")
         expired_param = mock_req.call_args[0][1]["expired"]
         assert expired_param == "false", f"expected 'false', got {expired_param!r}"
+
+
+# ── instrument_exists ────────────────────────────────────────────────────────
+
+class TestInstrumentExists:
+    def test_instrument_exists_returns_true(self):
+        client = _make_client()
+        with patch.object(client, "_request", return_value={"instrument_name": "ETH-30MAY26-2000-P"}):
+            assert client.instrument_exists("ETH-30MAY26-2000-P") is True
+
+    def test_instrument_not_exists_returns_false(self):
+        client = _make_client()
+        with patch.object(client, "_request", side_effect=Exception("instrument not found")):
+            assert client.instrument_exists("FAKE-30MAY26-2000-P") is False
+
+
+# ── asset_has_options ────────────────────────────────────────────────────────
+
+class TestAssetHasOptions:
+    def test_asset_with_options_returns_true(self):
+        client = _make_client()
+        instruments = [_inst("ETH-22MAY26-2300-C"), _inst("ETH-22MAY26-2400-C")]
+        with patch.object(client, "_request", return_value=instruments):
+            assert client.asset_has_options("ETH") is True
+
+    def test_asset_without_options_returns_false(self):
+        client = _make_client()
+        with patch.object(client, "_request", return_value=[]):
+            assert client.asset_has_options("ETH") is False
+
+    def test_network_failure_returns_false(self):
+        client = _make_client()
+        with patch.object(client, "_request", side_effect=Exception("network error")):
+            assert client.asset_has_options("ETH") is False
+
+    def test_sol_uses_usdc_currency(self):
+        client = _make_client()
+        with patch.object(client, "_request", return_value=[_inst("SOL_USDC-22MAY26-150-C")]) as mock_req:
+            client.asset_has_options("SOL")
+        assert mock_req.call_args[0][1]["currency"] == "USDC"

@@ -21,7 +21,7 @@ show_summary()
 from datetime import date
 from types import SimpleNamespace
 
-from config import BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS
+from config import BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS, DERIBIT_PAPER
 from database import (
     load_wheel_state,
     save_wheel_state,
@@ -32,6 +32,7 @@ from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_s
 from models import get_session, Single
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
+from access import DeribitClient
 from ui.display import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 
 
@@ -197,6 +198,12 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
             yield_ann=0,
             liquidity_tag="manual",
         )
+
+        broker = DeribitClient(paper=DERIBIT_PAPER)
+        if not broker.asset_has_options(asset):
+            warn(f"No {asset} options available on Deribit. Try BTC or ETH instead.")
+            return
+
         enter_trade(c)
         ok(f"Sell Put @ ${K:,.0f}  |  Premium: ${premium:.2f}")
 
@@ -300,6 +307,12 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
             yield_ann=0,
             liquidity_tag="manual",
         )
+
+        broker = DeribitClient(paper=DERIBIT_PAPER)
+        if not broker.asset_has_options(asset):
+            warn(f"No {asset} options available on Deribit. Try BTC or ETH instead.")
+            return
+
         enter_trade(c)
         ok(f"Sell Call @ ${K:,.0f}  |  Premium: ${premium:.2f}")
 

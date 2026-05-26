@@ -405,6 +405,8 @@ Kraken (AUD → buy ETH/USDT) → transfer to Deribit → trade options
 
 **Deribit testnet:** `test.deribit.com` — practice with fake funds, real market prices. No KYC required.
 
+**Asset availability:** ETH and BTC have full options support on testnet. SOL and XRP options availability is limited on testnet — if you see "No SOL/XRP options available on Deribit" error, try BTC or ETH instead, or switch `DERIBIT_PAPER = False` in `config.py` to use live Deribit (requires verified account).
+
 ---
 
 ## Pricing Note

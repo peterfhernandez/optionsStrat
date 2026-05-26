@@ -31,9 +31,10 @@ check_spread_status(spot, iv, days, op)
 """
 
 from datetime import date
+from types import SimpleNamespace
 
 from config import (
-    BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS, SPREAD_WIDTH_PCT,
+    BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS, SPREAD_WIDTH_PCT, DERIBIT_PAPER,
 )
 from database.spread_db import (
     load_spread_state,
@@ -43,6 +44,7 @@ from database.spread_db import (
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
+from access import DeribitClient
 from ui.display import (
     hdr, sub, inf, ok, warn,
     GR, RD, CY, YL, GY, WH, R,

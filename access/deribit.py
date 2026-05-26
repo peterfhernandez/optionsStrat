@@ -469,6 +469,35 @@ class DeribitClient(BrokerBase):
             )
         return result
 
+    def instrument_exists(self, instrument: str) -> bool:
+        """
+        Check if an instrument is available on the exchange.
+        Returns True if the instrument exists, False otherwise.
+        """
+        try:
+            self._request("public/get_instrument", {"instrument_name": instrument})
+            return True
+        except Exception:
+            return False
+
+    def asset_has_options(self, asset: str) -> bool:
+        """
+        Check if an asset has any options available on the exchange.
+        Returns True if at least one option is available, False otherwise.
+        """
+        from config import SUPPORTED_ASSETS
+        ticker = SUPPORTED_ASSETS.get(asset.upper(), {}).get("deribit_ticker", asset.upper())
+        currency = "USDC" if ticker.endswith("_USDC") else ticker
+
+        try:
+            instruments = self._request(
+                "public/get_instruments",
+                {"currency": currency, "kind": "option", "expired": "false"},
+            )
+            return bool(instruments and len(instruments) > 0)
+        except Exception:
+            return False
+
     def get_position(self, instrument: str) -> dict:
         """
         Return current position for the given instrument.

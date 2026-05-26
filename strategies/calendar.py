@@ -31,13 +31,14 @@ from types import SimpleNamespace
 
 from config import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
-    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, CALENDAR_STOP_PCT,
+    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, CALENDAR_STOP_PCT, DERIBIT_PAPER,
 )
 from database.calendar_db import (
     load_calendar_state,
     save_calendar_state,
     close_calendar_trade,
 )
+from access import DeribitClient
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike, adjust_far_leg_price
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
@@ -524,6 +525,13 @@ def calendar_paper_menu(
             prob_profit=0,
             yield_ann=0,
         )
+
+        # Validate that the asset has options available on the broker
+        broker = DeribitClient(paper=DERIBIT_PAPER)
+        if not broker.asset_has_options(asset):
+            warn(f"No {asset} options available on Deribit. Try BTC or ETH instead.")
+            return
+
         enter_trade(c)
         s  = load_calendar_state(asset)
         op = s["open"]

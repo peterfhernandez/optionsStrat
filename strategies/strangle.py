@@ -28,7 +28,7 @@ from types import SimpleNamespace
 
 from config        import (
     BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
-    STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER,
+    STOP_LOSS_MULTIPLIER, STOP_WARN_MULTIPLIER, DERIBIT_PAPER,
 )
 from database.strangle_db import (
     load_strangle_state,
@@ -38,6 +38,7 @@ from database.strangle_db import (
 from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
+from access import DeribitClient
 from ui.display       import (
     hdr, sub, inf, ok, warn,
     draw_profit_zone, print_stop_loss_status,
@@ -321,6 +322,12 @@ def strangle_paper_menu(
             yield_ann=0,
             liquidity_tag="manual",
         )
+
+        broker = DeribitClient(paper=DERIBIT_PAPER)
+        if not broker.asset_has_options(asset):
+            warn(f"No {asset} options available on Deribit. Try BTC or ETH instead.")
+            return
+
         enter_trade(c)
         s = load_strangle_state(asset)
 
