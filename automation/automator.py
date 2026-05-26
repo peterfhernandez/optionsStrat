@@ -41,7 +41,7 @@ from typing      import Iterable
 
 from config       import (
     BUDGET_USD, RISK_FREE_RATE, CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS,
-    SUPPORTED_ASSETS, TRADEABLE_ASSETS,
+    CALENDAR_SPREADS, SUPPORTED_ASSETS, TRADEABLE_ASSETS,
 )
 from market.pricing      import bs_put, bs_call
 from ui.display      import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
@@ -219,7 +219,8 @@ def run_automation(
         inf("Liquidity filter", "/".join(allowed_liquidity))
         inf("Active asset",     active_asset)
         inf("Days to expiry",   f"{days}d")
-        inf("Calendar legs",    f"{cal_near_days or CALENDAR_NEAR_DAYS}d/{cal_far_days or CALENDAR_FAR_DAYS}d")
+        cal_spreads_str = " ".join([f"{n}d/{f}d" for n, f in CALENDAR_SPREADS])
+        inf("Calendar spreads", cal_spreads_str)
 
     all_candidates: list[Candidate] = []
     for asset in TRADEABLE_ASSETS:

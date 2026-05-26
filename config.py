@@ -94,8 +94,13 @@ STOP_WARN_MULTIPLIER = 1.5  # warn when value reaches 1.5x premium received
 
 # ── Calendar Spread ───────────────────────────────────────────────────────────
 
-CALENDAR_NEAR_DAYS = 7    # near (short) leg expiry for calendar spreads (days)
-CALENDAR_FAR_DAYS  = 30   # far  (long)  leg expiry for calendar spreads (days)
+CALENDAR_SPREADS = [
+    (1, 7),    # 1d/7d
+    (1, 30),   # 1d/30d
+    (7, 30),   # 7d/30d
+]
+CALENDAR_NEAR_DAYS = 7    # default near (short) leg expiry for calendar spreads (days)
+CALENDAR_FAR_DAYS  = 30   # default far  (long)  leg expiry for calendar spreads (days)
 CALENDAR_STOP_PCT  = 0.50 # stop if spread value drops to 50% of net debit paid
 
 # ── Credit Spread ─────────────────────────────────────────────────────────────

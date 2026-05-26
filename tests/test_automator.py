@@ -57,6 +57,7 @@ from automation.automator import (
     DEFAULT_MIN_PROB,
     DEFAULT_ALLOWED_LIQUIDITY,
 )
+from config import CALENDAR_SPREADS
 from trading.executor import enter_trade
 
 
@@ -554,7 +555,7 @@ class TestRunAutomation:
     def test_calendar_with_med_liquidity_is_eligible(self):
         """Calendar candidates now carry liquidity tags and can be picked."""
         cand = _make(
-            strategy="Cal-C", strike_str="$2000 ATM",
+            strategy="Cal-C", strike_str="$2000 ATM 7d/30d",
             yield_ann=40.0, prob_profit=95.0, liq="Med", far_days=30,
         )
         with patch("automation.automator._build_candidates", return_value=[cand]), \
@@ -567,6 +568,30 @@ class TestRunAutomation:
             )
         assert result["status"]            == "entered"
         assert result["candidate"].strategy == "Cal-C"
+
+    def test_automator_selects_best_calendar_among_multiple_spreads(self):
+        """Automator picks the highest probability calendar from multiple spread types."""
+        cals = [
+            _make(strategy="Cal-C", strike_str="$2000 ATM 1d/7d",
+                  yield_ann=25.0, prob_profit=80.0, liq="High", far_days=7),
+            _make(strategy="Cal-C", strike_str="$2000 ATM 1d/30d",
+                  yield_ann=40.0, prob_profit=92.0, liq="High", far_days=30),
+            _make(strategy="Cal-C", strike_str="$2000 ATM 7d/30d",
+                  yield_ann=38.0, prob_profit=85.0, liq="High", far_days=30),
+        ]
+        with patch("automation.automator._build_candidates", return_value=cals), \
+             patch("automation.automator.SUPPORTED_ASSETS", {"ETH": {}}), \
+             patch("market.market_data.get_spot_price",  return_value=2000.0), \
+             patch("market.market_data.get_deribit_iv",  return_value=0.80):
+            result = run_automation(
+                active_spot=2000.0, active_iv=0.80, active_asset="ETH",
+                days=7, silent=True,
+            )
+        # Should pick the 1d/30d calendar with 92% probability
+        assert result["status"]            == "entered"
+        assert result["candidate"].strategy == "Cal-C"
+        assert result["candidate"].prob_profit == 92.0
+        assert "1d/30d" in result["candidate"].strike
 
     def test_skips_blocked_strategy_and_picks_next(self):
         """If the wheel already has a short put open, CSP is blocked, so

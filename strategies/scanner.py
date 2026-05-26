@@ -39,7 +39,7 @@ from database.calendar_db import load_calendar_state
 from database.spread_db import load_spread_state
 from config  import (
     SUPPORTED_ASSETS, TRADEABLE_ASSETS, BUDGET_USD, RISK_FREE_RATE, OTM_LEVELS,
-    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, SPREAD_WIDTH_PCT, DERIBIT_PAPER,
+    CALENDAR_NEAR_DAYS, CALENDAR_FAR_DAYS, CALENDAR_SPREADS, SPREAD_WIDTH_PCT, DERIBIT_PAPER,
 )
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call
 from ui.display import hdr, sub, inf, warn, ok, GR, RD, CY, YL, GY, WH, B, R
@@ -367,81 +367,90 @@ def _build_candidates(
             liquidity_tag = liq_str["liquidity_tag"],
         ))
 
-    # ── Calendar Spreads (ATM only — added once per asset, not per OTM level) ─
-    if cal_near < cal_far:
-        T_far  = cal_far / 365.0
-        T_rem  = max(cal_far - cal_near, 1) / 365.0
-        qty_c  = BUDGET_USD / spot
-        K_atm  = _round_strike(spot, strike_round)
+    # ── Calendar Spreads (ATM only — multiple near/far pairs per asset) ──────
+    # Generate calendar spreads for each configured pair (e.g., 1d/7d, 1d/30d, 7d/30d)
+    calendar_pairs = [
+        (cal_near, cal_far)
+    ]
+    if cal_near_days is None and cal_far_days is None:
+        # Use all configured pairs from CALENDAR_SPREADS if no custom horizons provided
+        calendar_pairs = CALENDAR_SPREADS
 
-        for cal_type, bs_near, bs_far, side in (
-            ("Cal-C", bs_call, bs_call, "call"),
-            ("Cal-P", bs_put,  bs_put,  "put"),
-        ):
-            near_prem = bs_near(spot, K_atm, cal_near / 365.0, r, iv) * qty_c
-            far_prem  = bs_far (spot, K_atm, T_far, r, iv) * qty_c
-            net_debit = far_prem - near_prem
+    for cal_near, cal_far in calendar_pairs:
+        if cal_near < cal_far:
+            T_far  = cal_far / 365.0
+            T_rem  = max(cal_far - cal_near, 1) / 365.0
+            qty_c  = BUDGET_USD / spot
+            K_atm  = _round_strike(spot, strike_round)
 
-            # Account for fees on both legs (estimating close fees)
-            open_fee_near = calculate_fee(spot, near_prem / qty_c, asset) * qty_c
-            open_fee_far = calculate_fee(spot, far_prem / qty_c, asset) * qty_c
-            close_fee_est_near = calculate_fee(spot, 0.01, asset) * qty_c
-            close_fee_est_far = calculate_fee(spot, 0.01, asset) * qty_c
-            # For calendar: we receive near_prem (pay fee on it), pay far_prem (pay fee on it)
-            net_debit_with_fees = (far_prem + open_fee_far + close_fee_est_far) - (near_prem - open_fee_near - close_fee_est_near)
+            for cal_type, bs_near, bs_far, side in (
+                ("Cal-C", bs_call, bs_call, "call"),
+                ("Cal-P", bs_put,  bs_put,  "put"),
+            ):
+                near_prem = bs_near(spot, K_atm, cal_near / 365.0, r, iv) * qty_c
+                far_prem  = bs_far (spot, K_atm, T_far, r, iv) * qty_c
+                net_debit = far_prem - near_prem
 
-            # Max profit: spot pins the strike at near expiry
-            bs_fn     = bs_call if cal_type == "Cal-C" else bs_put
-            max_far   = bs_fn(K_atm, K_atm, T_rem, r, iv) * qty_c
-            max_profit = max_far - net_debit_with_fees
+                # Account for fees on both legs (estimating close fees)
+                open_fee_near = calculate_fee(spot, near_prem / qty_c, asset) * qty_c
+                open_fee_far = calculate_fee(spot, far_prem / qty_c, asset) * qty_c
+                close_fee_est_near = calculate_fee(spot, 0.01, asset) * qty_c
+                close_fee_est_far = calculate_fee(spot, 0.01, asset) * qty_c
+                # For calendar: we receive near_prem (pay fee on it), pay far_prem (pay fee on it)
+                net_debit_with_fees = (far_prem + open_fee_far + close_fee_est_far) - (near_prem - open_fee_near - close_fee_est_near)
 
-            # Yield = max_profit / net_debit * annualised (based on near days)
-            yld_cal = (max_profit / net_debit_with_fees * (365 / cal_near) * 100) if net_debit_with_fees > 0 else 0.0
+                # Max profit: spot pins the strike at near expiry
+                bs_fn     = bs_call if cal_type == "Cal-C" else bs_put
+                max_far   = bs_fn(K_atm, K_atm, T_rem, r, iv) * qty_c
+                max_profit = max_far - net_debit_with_fees
 
-            # Rough P(profit): probability spot stays within ±max_profit/net_debit band
-            # Use numeric breakeven scan (fast pure-math function)
-            from strategies.calendar import _find_breakevens as _cal_be
-            be_lo_c, be_hi_c = _cal_be(
-                spot, K_atm, cal_near, cal_far, r, iv, qty_c, net_debit,
-                "Call" if cal_type == "Cal-C" else "Put",
-            )
-            if be_lo_c > 0 and be_hi_c > 0:
-                p_cal = max(0.0, (
-                    prob_otm_put (spot, be_lo_c, cal_near / 365.0, r, iv) +
-                    prob_otm_call(spot, be_hi_c, cal_near / 365.0, r, iv) - 1
-                ) * 100)
-            else:
-                p_cal = 0.0
+                # Yield = max_profit / net_debit * annualised (based on near days)
+                yld_cal = (max_profit / net_debit_with_fees * (365 / cal_near) * 100) if net_debit_with_fees > 0 else 0.0
 
-            # Worst-of-legs liquidity — fetch ATM near + far order books
-            # for the appropriate option side.  A calendar is only as
-            # fillable as the worse of its two legs.
-            near_book = _fetch_liquidity(
-                ticker, spot, cal_near, strike_round, 0.0, side,
-            )
-            far_book  = _fetch_liquidity(
-                ticker, spot, cal_far, strike_round, 0.0, side,
-            )
-            liq_cal = _combine_liquidity_legs(near_book, far_book)
+                # Rough P(profit): probability spot stays within ±max_profit/net_debit band
+                # Use numeric breakeven scan (fast pure-math function)
+                from strategies.calendar import _find_breakevens as _cal_be
+                be_lo_c, be_hi_c = _cal_be(
+                    spot, K_atm, cal_near, cal_far, r, iv, qty_c, net_debit,
+                    "Call" if cal_type == "Cal-C" else "Put",
+                )
+                if be_lo_c > 0 and be_hi_c > 0:
+                    p_cal = max(0.0, (
+                        prob_otm_put (spot, be_lo_c, cal_near / 365.0, r, iv) +
+                        prob_otm_call(spot, be_hi_c, cal_near / 365.0, r, iv) - 1
+                    ) * 100)
+                else:
+                    p_cal = 0.0
 
-            candidates.append(Candidate(
-                asset       = asset,
-                strategy    = cal_type,
-                otm_pct     = 0.00,
-                spot        = spot,
-                iv          = iv,
-                strike      = f"{_format_strike(K_atm, strike_round)} ATM",
-                premium     = round(net_debit_with_fees, 2),   # net debit = max loss (including fees)
-                yield_ann   = round(yld_cal, 1),
-                prob_profit = round(p_cal, 1),
-                days        = cal_near,
-                far_days    = cal_far,
-                max_profit  = round(max_profit, 2),
-                open_interest = liq_cal["open_interest"],
-                volume_usd    = liq_cal["volume_usd"],
-                iv_spread     = liq_cal["iv_spread"],
-                liquidity_tag = liq_cal["liquidity_tag"],
-            ))
+                # Worst-of-legs liquidity — fetch ATM near + far order books
+                # for the appropriate option side.  A calendar is only as
+                # fillable as the worse of its two legs.
+                near_book = _fetch_liquidity(
+                    ticker, spot, cal_near, strike_round, 0.0, side,
+                )
+                far_book  = _fetch_liquidity(
+                    ticker, spot, cal_far, strike_round, 0.0, side,
+                )
+                liq_cal = _combine_liquidity_legs(near_book, far_book)
+
+                candidates.append(Candidate(
+                    asset       = asset,
+                    strategy    = cal_type,
+                    otm_pct     = 0.00,
+                    spot        = spot,
+                    iv          = iv,
+                    strike      = f"{_format_strike(K_atm, strike_round)} ATM {cal_near}d/{cal_far}d",
+                    premium     = round(net_debit_with_fees, 2),   # net debit = max loss (including fees)
+                    yield_ann   = round(yld_cal, 1),
+                    prob_profit = round(p_cal, 1),
+                    days        = cal_near,
+                    far_days    = cal_far,
+                    max_profit  = round(max_profit, 2),
+                    open_interest = liq_cal["open_interest"],
+                    volume_usd    = liq_cal["volume_usd"],
+                    iv_spread     = liq_cal["iv_spread"],
+                    liquidity_tag = liq_cal["liquidity_tag"],
+                ))
 
     # ── Credit Spreads (BPS + BCS per OTM level) ─────────────────────────────
     for otm in OTM_LEVELS:

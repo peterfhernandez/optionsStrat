@@ -54,7 +54,7 @@ from strategies.scanner import (
     MIN_YIELD_PCT,
     _OI_HIGH, _OI_MED, _VOL_HIGH, _SPREAD_LOW,
 )
-from config import OTM_LEVELS, BUDGET_USD
+from config import OTM_LEVELS, BUDGET_USD, CALENDAR_SPREADS
 
 
 # ── Shared broker helpers ─────────────────────────────────────────────────────
@@ -404,10 +404,11 @@ class TestBuildCandidates:
         return lambda *a, **kw: liquid_book
 
     def test_produces_correct_count(self):
-        """3 OTM levels × 5 strategies (CSP,CC,Strangle,BPS,BCS) + 2 ATM calendars = 17 per asset."""
+        """3 OTM levels × 5 strategies (CSP,CC,Strangle,BPS,BCS) + 3 calendar pairs × 2 types (Cal-C, Cal-P) = 21 per asset."""
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
-        assert len(results) == len(OTM_LEVELS) * 5 + 2
+        expected = len(OTM_LEVELS) * 5 + len(CALENDAR_SPREADS) * 2
+        assert len(results) == expected
 
     def test_all_strategies_present(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
@@ -432,7 +433,8 @@ class TestBuildCandidates:
         """Low-priced assets like XRP should still produce valid non-zero strikes."""
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("XRP", 1.40, 0.47, 7)
-        assert len(results) == len(OTM_LEVELS) * 5 + 2
+        expected = len(OTM_LEVELS) * 5 + len(CALENDAR_SPREADS) * 2
+        assert len(results) == expected
         assert all(c.asset == "XRP" for c in results)
         assert all("$0" not in c.strike for c in results if c.strategy in {"CSP", "CC", "Strangle"})
 
@@ -491,23 +493,24 @@ class TestBuildCandidates:
             assert s.iv_spread     == liquid_book["iv_spread"]
 
     def test_calendar_has_liquidity(self, liquid_book):
-        """Calendar candidates now carry liquidity (fetched from near + far ATM books)."""
+        """Calendar candidates now carry liquidity (fetched from near + far ATM books). Multiple calendar pairs are generated."""
         with patch("strategies.scanner._fetch_liquidity", self._with_liquidity(liquid_book)):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
         cals = [c for c in results if c.strategy.startswith("Cal")]
-        assert len(cals) >= 2  # Cal-C and Cal-P
+        assert len(cals) == len(CALENDAR_SPREADS) * 2  # Each spread pair has Cal-C and Cal-P
         for c in cals:
             assert c.liquidity_tag == "High"
             assert c.open_interest == liquid_book["open_interest"]
 
     def test_calendar_candidates_use_custom_horizons(self):
-        """Custom calendar near/far horizons should be passed through to candidates."""
+        """Custom calendar near/far horizons override CALENDAR_SPREADS and create only one pair."""
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates(
                 "ETH", 2000.0, 0.80, 7,
                 cal_near_days=3, cal_far_days=30,
             )
         cals = [c for c in results if c.strategy.startswith("Cal")]
+        # When custom horizons are provided, only 1 pair is generated (Cal-C and Cal-P)
         assert len(cals) == 2
         assert all(c.days == 3 for c in cals)
         assert all(c.far_days == 30 for c in cals)
@@ -538,7 +541,7 @@ class TestBuildCandidates:
     def test_calendar_downgrades_when_far_leg_thin(self):
         """Calendars should drop to Low when the far leg is illiquid."""
         def stub(ticker, spot, days, strike_round, otm, side):
-            if days >= 30:    # far leg
+            if days == 30:    # far leg of 1d/30d and 7d/30d
                 return {"mark_iv": 0.80, "open_interest": 80.0,
                         "volume_usd": 1000.0, "iv_spread": 0.20}
             return {"mark_iv": 0.80, "open_interest": 5000.0,
@@ -548,16 +551,26 @@ class TestBuildCandidates:
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
 
         cals = [c for c in results if c.strategy.startswith("Cal")]
-        assert len(cals) >= 2
-        for c in cals:
+        assert len(cals) == len(CALENDAR_SPREADS) * 2  # Multiple pairs, each with Cal-C and Cal-P
+
+        # Calendars with 30-day far leg (1d/30d, 7d/30d) should have low liquidity
+        cals_with_30d_far = [c for c in cals if c.far_days == 30]
+        assert len(cals_with_30d_far) == 4  # 2 pairs × 2 types (Cal-C, Cal-P)
+        for c in cals_with_30d_far:
             assert c.liquidity_tag == "Low"
             assert c.open_interest == 80.0   # far leg's OI (worst)
             assert c.iv_spread     == 0.20
 
+        # Calendar with 7-day far leg (1d/7d) should have high liquidity
+        cals_with_7d_far = [c for c in cals if c.far_days == 7]
+        assert len(cals_with_7d_far) == 2  # 1 pair × 2 types (Cal-C, Cal-P)
+        for c in cals_with_7d_far:
+            assert c.liquidity_tag == "High"
+
     def test_calendar_blank_when_far_leg_unavailable(self):
-        """If the far leg's book is unavailable, calendar tag should be blank."""
+        """If the far leg's book is unavailable (None), calendar tag should be blank."""
         def stub(ticker, spot, days, strike_round, otm, side):
-            if days >= 30:
+            if days == 30:  # only 30-day far legs are unavailable
                 return None
             return {"mark_iv": 0.80, "open_interest": 5000.0,
                     "volume_usd": 200000.0, "iv_spread": 0.01}
@@ -566,9 +579,43 @@ class TestBuildCandidates:
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
 
         cals = [c for c in results if c.strategy.startswith("Cal")]
-        for c in cals:
+
+        # Calendars with 30-day far leg (unavailable) should have blank liquidity
+        cals_with_30d_far = [c for c in cals if c.far_days == 30]
+        assert len(cals_with_30d_far) == 4  # 2 pairs × 2 types (Cal-C, Cal-P)
+        for c in cals_with_30d_far:
             assert c.liquidity_tag == ""
             assert c.open_interest is None
+
+        # Calendar with 7-day far leg should have liquidity data
+        cals_with_7d_far = [c for c in cals if c.far_days == 7]
+        assert len(cals_with_7d_far) == 2  # 1 pair × 2 types (Cal-C, Cal-P)
+        for c in cals_with_7d_far:
+            assert c.liquidity_tag == "High"
+            assert c.open_interest is not None
+
+    def test_multiple_calendar_spreads_generated(self):
+        """Multiple calendar spreads (1d/7d, 1d/30d, 7d/30d) are generated."""
+        with patch("strategies.scanner._fetch_liquidity", return_value={
+            "mark_iv": 0.80, "open_interest": 5000.0, "volume_usd": 200000.0, "iv_spread": 0.01
+        }):
+            results = _build_candidates("ETH", 2000.0, 0.80, 7)
+
+        cals = [c for c in results if c.strategy.startswith("Cal")]
+        # Should have 3 pairs × 2 types (Cal-C, Cal-P) = 6 candidates
+        assert len(cals) == 6
+
+        # Verify the expected day combinations are present
+        day_pairs = {(c.days, c.far_days) for c in cals}
+        expected_pairs = {(1, 7), (1, 30), (7, 30)}
+        assert day_pairs == expected_pairs
+
+        # Each pair should have both Cal-C and Cal-P
+        for near, far in expected_pairs:
+            pair_cals = [c for c in cals if c.days == near and c.far_days == far]
+            assert len(pair_cals) == 2
+            strategies = {c.strategy for c in pair_cals}
+            assert strategies == {"Cal-C", "Cal-P"}
 
     def test_strangle_uses_worst_leg_oi(self):
         """
@@ -615,7 +662,14 @@ class TestBuildCandidates:
     def test_days_field_matches_input(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
-        assert all(c.days == 7 for c in results)
+        # Non-calendar strategies use the input days (7)
+        non_cal = [c for c in results if not c.strategy.startswith("Cal")]
+        assert all(c.days == 7 for c in non_cal)
+        # Calendar strategies use their configured near_days from CALENDAR_SPREADS
+        cals = [c for c in results if c.strategy.startswith("Cal")]
+        calendar_days = {c.days for c in cals}
+        expected_near_days = {near for near, far in CALENDAR_SPREADS}
+        assert calendar_days == expected_near_days
 
     def test_spot_field_matches_input(self):
         with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):

@@ -130,12 +130,12 @@ Every trade (entry and exit) incurs these fees, which are tracked as `open_fees`
 - **Strike & premium analysis** — shows 10%, 15%, 20% OTM options with estimated premiums, annualised yield and probability of profit
 - **Wheel paper trading simulator** — tracks the full Put → Assign → Call cycle
 - **Short Strangle paper trading** — sell both sides, with a live profit zone chart
-- **Calendar Spread paper trading** — ATM call or put calendar with spread-value monitor
+- **Calendar Spread paper trading** — multiple near/far leg combinations (1d/7d, 1d/30d, 7d/30d) with ATM call or put calendar and spread-value monitor
 - **Credit Spread paper trading** — Bull Put Spread (BPS) and Bear Call Spread (BCS) with max-loss bar
 - **Portfolio view** — list open positions with live unrealised P&L
 - **Stop-loss monitor** — warns at 1.5x and triggers at 2.0x premium (adjustable), take-profit at 5% remaining value (>2 days from expiry)
 - **Daily or weekly expiry** — switchable in the menu
-- **Separate calendar near/far expiry control** — choose calendar legs independently
+- **Multiple calendar spread types** — scanner generates 1d/7d, 1d/30d, and 7d/30d pairs for each asset and option type
 - **SQLite database** — all trades persisted to `optionsStrat.db` via SQLAlchemy ORM (strangle and wheel strategies use SQLite; legacy Excel workbook retained for wheel-specific UI columns).
 
 ### Excel Workbook Sheets (Wheel & Calendar only)
@@ -213,10 +213,17 @@ Buy  call at strike B (e.g. 15% OTM above spot, higher)
 ### 3. Calendar Spread
 Buy a longer-dated option and sell a shorter-dated option at the same strike. Profit from time decay and volatility term structure.
 
+The scanner generates multiple calendar spread combinations to maximize flexibility:
 ```
-Sell Put (7 days)    +  Buy Put (30 days)  [Put Calendar]
+Near/Far pairs (configurable):
+  • 1d/7d   — quick decay trade (high theta, short duration)
+  • 1d/30d  — long-term vega exposure (catch volatility expansion)
+  • 7d/30d  — balanced trade (default, moderate risk/reward)
+
+For each pair, both call and put calendars are generated:
+Sell Put (N days)    +  Buy Put (F days)  [Put Calendar]
   or
-Sell Call (7 days)   +  Buy Call (30 days) [Call Calendar]
+Sell Call (N days)   +  Buy Call (F days) [Call Calendar]
 → Collect net debit from the spread (maximum loss)
 → Profit if time decay on the near leg is faster than the far leg
 → Best case: spot pins the strike at near-leg expiry, near expires worthless, far retains time value
