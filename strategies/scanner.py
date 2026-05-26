@@ -228,6 +228,7 @@ def _build_candidates(
     *,
     cal_near_days: int | None = None,
     cal_far_days:  int | None = None,
+    progress_callback = None,
 ) -> list[Candidate]:
     """
     Build all (strategy, OTM level) candidates for one asset.
@@ -237,9 +238,15 @@ def _build_candidates(
 
     The wheel/strangle propositions use the global ``days`` near-expiry.
     Calendar propositions use their own dedicated near + far horizons,
-    independent of ``days`` — defaults come from
-    ``config.CALENDAR_NEAR_DAYS`` (7) and ``config.CALENDAR_FAR_DAYS`` (30)
+    independent of ``days`` — defaults come from ``config.CALENDAR_SPREADS``
     and can be overridden per call.
+
+    Parameters
+    ----------
+    progress_callback : callable or None
+        Optional callback invoked as each candidate is created.
+        Signature: progress_callback(asset, strategy, specifics, strike_str)
+        Example: progress_callback("ETH", "CSP", "10%", "$1800")
 
     Returns a flat list of Candidate objects.
     """
@@ -256,11 +263,11 @@ def _build_candidates(
     for otm in OTM_LEVELS:
         Kp = _round_strike(spot * (1 - otm), strike_round)
         Kc = _round_strike(spot * (1 + otm), strike_round)
- 
+
         # Fetch liquidity for put and call strikes
         put_book  = _fetch_liquidity(ticker, spot, days, strike_round, otm, "put")
         call_book = _fetch_liquidity(ticker, spot, days, strike_round, otm, "call")
- 
+
         # Use live IV from Deribit if available, otherwise use passed-in iv
         put_iv  = put_book["mark_iv"]  if put_book  else iv
         call_iv = call_book["mark_iv"] if call_book else iv
@@ -277,7 +284,7 @@ def _build_candidates(
         oi_p  = put_book["open_interest"] if put_book else None
         vol_p = put_book["volume_usd"]    if put_book else None
         spd_p = put_book["iv_spread"]     if put_book else None
-        candidates.append(Candidate(
+        cand_csp = Candidate(
             asset       = asset,
             strategy    = "CSP",
             otm_pct     = otm,
@@ -292,7 +299,10 @@ def _build_candidates(
             volume_usd  = vol_p,
             iv_spread   = spd_p,
             liquidity_tag = _liquidity_tag(oi_p, vol_p, spd_p),
-        ))
+        )
+        candidates.append(cand_csp)
+        if progress_callback:
+            progress_callback(asset, "CSP", f"{otm*100:.0f}%", cand_csp.strike)
 
         # ── Covered Call ──────────────────────────────────────────────────────
         qty_c = BUDGET_USD / spot
@@ -303,11 +313,11 @@ def _build_candidates(
         effective_cp = cp - open_fee_c - close_fee_est_c
         yld_c = (effective_cp / BUDGET_USD) * (365 / days) * 100 if effective_cp > 0 else 0.0
         pop_c = prob_otm_call(spot, Kc, T, r, call_iv) * 100
- 
+
         oi_c  = call_book["open_interest"] if call_book else None
         vol_c = call_book["volume_usd"]    if call_book else None
         spd_c = call_book["iv_spread"]     if call_book else None
-        candidates.append(Candidate(
+        cand_cc = Candidate(
             asset       = asset,
             strategy    = "CC",
             otm_pct     = otm,
@@ -322,7 +332,10 @@ def _build_candidates(
             volume_usd  = vol_c,
             iv_spread   = spd_c,
             liquidity_tag = _liquidity_tag(oi_c, vol_c, spd_c),
-        ))
+        )
+        candidates.append(cand_cc)
+        if progress_callback:
+            progress_callback(asset, "CC", f"{otm*100:.0f}%", cand_cc.strike)
 
         # ── Short Strangle ────────────────────────────────────────────────────
         qty3          = BUDGET_USD / spot
@@ -346,7 +359,7 @@ def _build_candidates(
         # Worst-of-legs liquidity — strangle is only as fillable as its
         # weakest leg (reuse the put/call books fetched above).
         liq_str = _combine_liquidity_legs(put_book, call_book)
-        candidates.append(Candidate(
+        cand_str = Candidate(
             asset       = asset,
             strategy    = "Strangle",
             otm_pct     = otm,
@@ -365,7 +378,10 @@ def _build_candidates(
             volume_usd    = liq_str["volume_usd"],
             iv_spread     = liq_str["iv_spread"],
             liquidity_tag = liq_str["liquidity_tag"],
-        ))
+        )
+        candidates.append(cand_str)
+        if progress_callback:
+            progress_callback(asset, "Strangle", f"{otm*100:.0f}%", cand_str.strike)
 
     # ── Calendar Spreads (ATM only — multiple near/far pairs per asset) ──────
     # Generate calendar spreads for each configured pair (e.g., 1d/7d, 1d/30d, 7d/30d)
@@ -433,7 +449,7 @@ def _build_candidates(
                 )
                 liq_cal = _combine_liquidity_legs(near_book, far_book)
 
-                candidates.append(Candidate(
+                cand_cal = Candidate(
                     asset       = asset,
                     strategy    = cal_type,
                     otm_pct     = 0.00,
@@ -450,7 +466,10 @@ def _build_candidates(
                     volume_usd    = liq_cal["volume_usd"],
                     iv_spread     = liq_cal["iv_spread"],
                     liquidity_tag = liq_cal["liquidity_tag"],
-                ))
+                )
+                candidates.append(cand_cal)
+                if progress_callback:
+                    progress_callback(asset, cal_type, f"{cal_near}d/{cal_far}d ATM", cand_cal.strike)
 
     # ── Credit Spreads (BPS + BCS per OTM level) ─────────────────────────────
     for otm in OTM_LEVELS:
@@ -495,7 +514,7 @@ def _build_candidates(
             )
             liq_sp = _combine_liquidity_legs(short_book, long_book)
 
-            candidates.append(Candidate(
+            cand_sp = Candidate(
                 asset         = asset,
                 strategy      = stype,
                 otm_pct       = otm,
@@ -515,7 +534,10 @@ def _build_candidates(
                 volume_usd    = liq_sp["volume_usd"],
                 iv_spread     = liq_sp["iv_spread"],
                 liquidity_tag = liq_sp["liquidity_tag"],
-            ))
+            )
+            candidates.append(cand_sp)
+            if progress_callback:
+                progress_callback(asset, stype, f"{otm*100:.0f}%", cand_sp.strike)
 
     return candidates
 
@@ -621,7 +643,11 @@ def set_min_yield(value: float) -> None:
     """Update the minimum yield filter for the current session."""
     global MIN_YIELD_PCT
     MIN_YIELD_PCT = value
-    
+
+def _report_progress(asset: str, strategy: str, specifics: str, strike: str) -> None:
+    """Display progress for a candidate being evaluated."""
+    print(f"    {CY}{asset:3s}  {strategy:10s}  {specifics:12s}  {strike}{R}")
+
 def run_scanner(
     active_spot:  float,
     active_iv:    float,
@@ -675,17 +701,20 @@ def run_scanner(
                 warn(f"Could not fetch {asset} IV — using fallback")
                 iv = active_iv
 
+        expected_count = len(OTM_LEVELS)*5 + len(CALENDAR_SPREADS)*2
         ok(
             f"{asset}: spot=${spot:,.2f}  IV={iv*100:.0f}%  "
-            f"— scanning {len(OTM_LEVELS)*5 + 2} candidates..."
+            f"— evaluating {expected_count} candidates"
         )
         all_candidates.extend(
             _build_candidates(
                 asset, spot, iv, days,
                 cal_near_days=cal_near_days,
                 cal_far_days=cal_far_days,
+                progress_callback=_report_progress,
             )
         )
+        print()
 
     if not all_candidates:
         warn("No candidates generated — check your connection.")
