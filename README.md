@@ -21,11 +21,11 @@ Built to practice the **Wheel Strategy**, **Short Strangle**, **Calendar Spreads
 |---|---|
 | `access/` | Broker access layer — abstract interface + Deribit adapter (paper & live) |
 | `models/` | SQLAlchemy ORM models — trade tables and state (see below) |
-| `automation/` | Strategy automation (`automator.py`) |
+| `automation/` | Strategy automation (`automator.py`, `monitor.py`) |
 | `trading/` | Order execution and portfolio management |
 | `market/` | Market data fetching (`market_data.py`, `pricing.py`) |
 | `ui/` | User interface (`display.py`, `menus.py`) |
-| `strategies/` | Trading strategy implementations (wheel, strangle, calendar, spread, monitor, scanner) |
+| `strategies/` | Trading strategy implementations (wheel, strangle, calendar, spread, scanner, calendar_analysis) |
 | `tests/` | Comprehensive test suite |
 
 ### Broker access layer (`access/`)
@@ -238,6 +238,19 @@ This means the net debit shown reflects a more realistic market price, improving
 **Monitor thresholds:**
 - **Stop-loss at 50% of debit paid** — max loss acceptable
 - **Take-profit at 150% of debit** — exit to lock in gains
+
+**Near-leg expiry handling:**
+When the near leg expires, the monitor detects whether it expired OTM (worthless) or ITM:
+- **OTM expiry (worthless):** The near leg is marked as a win (free premium kept). Instead of closing the far leg, the monitor fetches current far-leg data from Deribit and displays:
+  - **Implied volatility** (mark, bid, ask) and classification (very low / low / normal / high / very high)
+  - **Greeks:** delta, gamma, vega, theta, rho — with plain-English interpretation of what they mean
+  - **Current mark value and P&L** — how much the far leg is worth now
+  - **Recommendation:** Close the far leg, hold it for more theta decay, or roll in a new near leg
+  - **Suggested roll options:** Up to 3 near-leg expirations (1d, 3d, 7d) that are valid before the far leg expires, with IV/greeks analysis to help decide
+  
+- **ITM expiry:** The position closes normally, buying back the near leg at intrinsic value and selling the far leg.
+
+**Why this matters:** When the near leg expires worthless, you've already won — you've kept 100% of the premium. The remaining far leg is pure profit potential. The API analysis helps you decide whether to lock in gains immediately, hold for more decay, or add a new short (near) leg to fund further income.
 
 ---
 

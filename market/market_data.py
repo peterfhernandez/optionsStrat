@@ -221,15 +221,19 @@ def _fetch_mark_iv(instrument: str) -> float | None:
 def _fetch_order_book(instrument: str) -> dict | None:
     """
     Fetch full order book data for a Deribit instrument.
- 
-    Returns a dict with IV and liquidity metrics, or None if unavailable.
- 
+
+    Returns a dict with IV, Greeks, and liquidity metrics, or None if unavailable.
+
     Keys returned
     -------------
     mark_iv      : float  Mark IV as a decimal (e.g. 0.80)
     bid_iv       : float  Bid IV as a decimal
     ask_iv       : float  Ask IV as a decimal
     iv_spread    : float  ask_iv - bid_iv (tighter = more liquid)
+    delta        : float  Option delta
+    gamma        : float  Option gamma
+    vega         : float  Option vega (per 1% IV change)
+    theta        : float  Option theta (per day)
     open_interest: float  Open interest in contracts
     volume_usd   : float  24h volume in USD
     best_bid     : float  Best bid price (in BTC/ETH — Deribit convention)
@@ -243,20 +247,26 @@ def _fetch_order_book(instrument: str) -> dict | None:
     if response.status_code != 200:
         return None
     result = response.json().get("result", {})
- 
+
     mark_iv = result.get("mark_iv")
     bid_iv  = result.get("bid_iv")
     ask_iv  = result.get("ask_iv")
     if not mark_iv or mark_iv <= 0:
         return None
- 
+
     stats = result.get("stats", {})
+    greeks = result.get("greeks", {})
+
     return {
         "mark_iv":       float(mark_iv) / 100.0,
         "bid_iv":        float(bid_iv)  / 100.0 if bid_iv  else None,
         "ask_iv":        float(ask_iv)  / 100.0 if ask_iv  else None,
         "iv_spread":     round((ask_iv - bid_iv) / 100.0, 4)
                          if bid_iv and ask_iv else None,
+        "delta":         float(greeks.get("delta", 0)),
+        "gamma":         float(greeks.get("gamma", 0)),
+        "vega":          float(greeks.get("vega", 0)),
+        "theta":         float(greeks.get("theta", 0)),
         "open_interest": float(result.get("open_interest", 0)),
         "volume_usd":    float(stats.get("volume_usd", 0)),
         "best_bid":      result.get("best_bid_price"),

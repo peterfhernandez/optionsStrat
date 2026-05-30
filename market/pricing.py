@@ -92,6 +92,58 @@ def bs_call(S: float, K: float, T: float, r: float, v: float) -> float:
     return S * ncdf(d1) - K * math.exp(-r * T) * ncdf(d2)
 
 
+# ── Greeks ───────────────────────────────────────────────────────────────────
+
+def delta_call(S: float, K: float, T: float, r: float, v: float) -> float:
+    """Delta of a call option: sensitivity to underlying price changes."""
+    if T <= 0 or v <= 0:
+        return 1.0 if S > K else 0.0
+    return ncdf(_d1(S, K, T, r, v))
+
+
+def delta_put(S: float, K: float, T: float, r: float, v: float) -> float:
+    """Delta of a put option: sensitivity to underlying price changes."""
+    return delta_call(S, K, T, r, v) - 1.0
+
+
+def gamma(S: float, K: float, T: float, r: float, v: float) -> float:
+    """Gamma: rate of change of delta with respect to underlying price."""
+    if T <= 0 or v <= 0:
+        return 0.0
+    d1 = _d1(S, K, T, r, v)
+    return ncdf(d1) / (S * v * math.sqrt(T))
+
+
+def vega(S: float, K: float, T: float, r: float, v: float) -> float:
+    """Vega: sensitivity to implied volatility (per 1% change)."""
+    if T <= 0 or v <= 0:
+        return 0.0
+    d1 = _d1(S, K, T, r, v)
+    return S * ncdf(d1) * math.sqrt(T) / 100.0
+
+
+def theta_call(S: float, K: float, T: float, r: float, v: float) -> float:
+    """Theta of a call: time decay (per day)."""
+    if T <= 0 or v <= 0:
+        return 0.0
+    d1 = _d1(S, K, T, r, v)
+    d2 = _d2(S, K, T, r, v)
+    term1 = -S * ncdf(d1) * v / (2 * math.sqrt(T))
+    term2 = r * K * math.exp(-r * T) * ncdf(d2)
+    return (term1 - term2) / 365.0
+
+
+def theta_put(S: float, K: float, T: float, r: float, v: float) -> float:
+    """Theta of a put: time decay (per day)."""
+    if T <= 0 or v <= 0:
+        return 0.0
+    d1 = _d1(S, K, T, r, v)
+    d2 = _d2(S, K, T, r, v)
+    term1 = -S * ncdf(d1) * v / (2 * math.sqrt(T))
+    term2 = r * K * math.exp(-r * T) * ncdf(-d2)
+    return (term1 + term2) / 365.0
+
+
 # ── Probability helpers ───────────────────────────────────────────────────────
 
 def prob_otm_put(S: float, K: float, T: float, r: float, v: float) -> float:

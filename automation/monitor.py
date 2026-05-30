@@ -345,7 +345,7 @@ def _check_calendar(
     Evaluate an open calendar spread position and auto-close if thresholds are met.
 
     Checks in priority order:
-      1. Near-leg expiry reached → close at near-expiry P&L
+      1. Near-leg expiry reached → check if worthless (OTM); if so, analyze far leg
       2. Stop-loss hit           → spread value ≤ CALENDAR_STOP_PCT of debit
       3. Take-profit hit         → spread value ≥ 150% of debit
 
@@ -378,8 +378,16 @@ def _check_calendar(
     sv   = far_val - near_val
     pct  = sv / net_debit if net_debit > 0 else 0.0
 
-    # Near expiry: use intrinsic + remaining far value
+    # Near expiry: check if near leg expired worthless (OTM)
     if near_left == 0:
+        near_otm = (spot < K if opt_type == "Call" else spot > K)
+
+        if near_otm:
+            # Near leg expired worthless — analyze far leg
+            _handle_expired_worthless_near_leg(asset, op, spot, silent)
+            return True
+
+        # Near leg expired ITM — close normally
         if opt_type == "Call":
             near_cost = max(spot - K, 0) * qty
             T_rem = max(far_days - near_days, 1) / 365.0
@@ -391,7 +399,40 @@ def _check_calendar(
         pnl     = far_rem - near_cost - net_debit
         trigger = "EXPIRY"
         result  = "Win" if pnl >= 0 else "Loss"
-        note    = f"Auto-closed at near-leg expiry. P&L: ${pnl:.2f}"
+        note    = f"Auto-closed at near-leg expiry (ITM). P&L: ${pnl:.2f}"
+
+        col = GR if pnl >= 0 else RD
+        print(f"\n  {YL}⚡ AUTO-CLOSE [EXPIRY] {asset} {opt_type} Calendar{R}")
+        print(f"  Strike ${K:,.0f}  |  Net debit: ${net_debit:.2f}  |  P&L: {col}${pnl:.2f}{R}")
+
+        if broker is not None:
+            if _try_broker_close(close_calendar_position, op, broker, spot, label="calendar") == _BROKER_ABORT:
+                return False
+
+        trade_id = op.get("trade_id")
+        if trade_id:
+            close_near_fee = calculate_fee(spot, near_val, asset)
+            close_far_fee = calculate_fee(spot, far_val, asset)
+            total_close_fee = close_near_fee + close_far_fee
+            close_calendar_trade(
+                trade_id=trade_id,
+                date_close=date.today(),
+                spot_close=spot,
+                pnl=round(pnl, 4),
+                result=result,
+                notes=note,
+                close_fees=round(total_close_fee, 4),
+            )
+
+        if pnl >= 0:
+            state["wins"]  += 1
+        else:
+            state["losses"] += 1
+        state["total_pnl"] = state.get("total_pnl", 0.0) + pnl
+        state["open"] = None
+        save_calendar_state(asset, state)
+        ok(f"{asset} {opt_type} calendar auto-closed and logged to database.")
+        return True
 
     elif pct <= CALENDAR_STOP_PCT:
         pnl     = sv - net_debit
@@ -414,9 +455,9 @@ def _check_calendar(
                 f"P&L={col}${pnl:.2f}{R}  {near_left}d near / {far_left}d far  → No action")
         return False
 
-    # ── Auto-close ────────────────────────────────────────────────────────────
+    # ── Auto-close (stop-loss or take-profit) ──────────────────────────────────
     col = GR if pnl >= 0 else RD
-    trig_col = RD if trigger == "STOP-LOSS" else YL if trigger == "EXPIRY" else GR
+    trig_col = RD if trigger == "STOP-LOSS" else GR
     print(f"\n  {trig_col}⚡ AUTO-CLOSE [{trigger}] {asset} {opt_type} Calendar{R}")
     print(f"  Strike ${K:,.0f}  |  Net debit: ${net_debit:.2f}  |  P&L: {col}${pnl:.2f}{R}")
 
@@ -426,7 +467,6 @@ def _check_calendar(
 
     trade_id = op.get("trade_id")
     if trade_id:
-        # Calculate close fees for both legs (buying back near, selling far)
         close_near_fee = calculate_fee(spot, near_val, asset)
         close_far_fee = calculate_fee(spot, far_val, asset)
         total_close_fee = close_near_fee + close_far_fee
@@ -449,6 +489,57 @@ def _check_calendar(
     save_calendar_state(asset, state)
     ok(f"{asset} {opt_type} calendar auto-closed and logged to database.")
     return True
+
+
+def _handle_expired_worthless_near_leg(
+    asset: str,
+    op: dict,
+    spot: float,
+    silent: bool,
+) -> None:
+    """
+    Handle a calendar spread where the near leg expired worthless (OTM).
+
+    The near leg is already expired and worthless, so we skip the broker close.
+    Instead, we analyze the far leg and present recommendations.
+    """
+    from strategies.calendar_analysis import analyze_calendar_far_leg, display_calendar_analysis
+
+    K = op["strike"]
+    opt_type = op["option_type"]
+    net_debit = op["net_debit"]
+    qty = op["qty"]
+    expiry_far = op.get("expiry_far", "")
+
+    col = GR
+    print(f"\n  {YL}⚡ AUTO-CLOSE [EXPIRY] {asset} {opt_type} Calendar{R}")
+    print(f"  Strike ${K:,.0f}  |  Net debit: ${net_debit:.2f}  |  {GR}Near leg EXPIRED WORTHLESS{R}")
+
+    # Analyze far leg
+    analysis = analyze_calendar_far_leg(
+        asset=asset,
+        strike=K,
+        option_type=opt_type,
+        expiry_far=expiry_far,
+        qty=qty,
+        net_debit=net_debit,
+        paper=DERIBIT_PAPER,
+    )
+
+    if analysis:
+        # Always display far-leg analysis for expired worthless near legs
+        # This is a critical decision point (close, hold, or roll)
+        display_calendar_analysis(analysis, asset, K, opt_type)
+    else:
+        warn("Could not fetch far-leg analysis from Deribit. Manual review needed.")
+
+    # Mark the position as closed (near leg expired worthless)
+    state = load_calendar_state(asset)
+    state["wins"] += 1  # Near leg expiration = free money kept
+    state["open"] = None
+    save_calendar_state(asset, state)
+
+    ok(f"{asset} {opt_type} calendar near leg marked as expired worthless. Far leg retained for analysis.")
 
 
 # ── Credit Spread checker ─────────────────────────────────────────────────────
