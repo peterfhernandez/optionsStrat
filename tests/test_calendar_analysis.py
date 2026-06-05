@@ -399,12 +399,13 @@ class TestSuggestedRolls:
         )
         mock_fetch.return_value = far_leg_data
 
-        # Far expiry is 6 days away (05JUN vs 30MAY)
+        # Far expiry is 6 days away
+        future_date = (date.today() + timedelta(days=6)).strftime("%d-%b-%Y")
         analysis = analyze_calendar_far_leg(
             asset="ETH",
             strike=2100.0,
             option_type="Call",
-            expiry_far="05-JUN-2026",
+            expiry_far=future_date,
             qty=0.1,
             net_debit=6.61,
             paper=True,
