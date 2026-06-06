@@ -104,6 +104,10 @@ class Candidate:
     be_lo:        float = None
     be_hi:        float = None
 
+    # Spread-only fields (BPS/BCS)
+    short_strike: float = None
+    long_strike:  float = None
+
     # Calendar-only fields
     far_days:     int   = None
     max_profit:   float = None
@@ -529,8 +533,8 @@ def _build_candidates(
                 yield_ann     = round(yld_sp, 1),
                 prob_profit   = round(pop_sp, 1),
                 days          = days,
-                put_strike    = short_k if stype == "BPS" else None,
-                call_strike   = short_k if stype == "BCS" else None,
+                short_strike  = short_k,
+                long_strike   = long_k,
                 open_interest = liq_sp["open_interest"],
                 volume_usd    = liq_sp["volume_usd"],
                 iv_spread     = liq_sp["iv_spread"],

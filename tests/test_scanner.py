@@ -676,6 +676,23 @@ class TestBuildCandidates:
             results = _build_candidates("ETH", 2000.0, 0.80, 7)
         assert all(c.spot == pytest.approx(2000.0) for c in results)
 
+    def test_spread_candidates_store_strikes(self):
+        """BPS and BCS candidates should store short_strike and long_strike."""
+        with patch("strategies.scanner._fetch_liquidity", self._no_liquidity):
+            results = _build_candidates("ETH", 2000.0, 0.80, 7)
+        spreads = [c for c in results if c.strategy in ("BPS", "BCS")]
+        assert len(spreads) == len(OTM_LEVELS) * 2  # 3 OTM levels, 2 strategies
+        for c in spreads:
+            assert c.short_strike is not None, f"{c.strategy} at {c.otm_pct:.0%} OTM missing short_strike"
+            assert c.long_strike is not None, f"{c.strategy} at {c.otm_pct:.0%} OTM missing long_strike"
+            assert isinstance(c.short_strike, (int, float))
+            assert isinstance(c.long_strike, (int, float))
+            # For BPS, short_k > long_k (lower short strike); for BCS, short_k < long_k (higher short call)
+            if c.strategy == "BPS":
+                assert c.short_strike > c.long_strike, f"BPS should have short_strike > long_strike"
+            else:  # BCS
+                assert c.short_strike < c.long_strike, f"BCS should have short_strike < long_strike"
+
 
 # ── Ranking logic ─────────────────────────────────────────────────────────────
 

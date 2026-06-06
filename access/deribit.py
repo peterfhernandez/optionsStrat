@@ -326,7 +326,7 @@ class DeribitClient(BrokerBase):
             except Exception as exc:
                 logger.warning("place_order: get_instrument failed (%s) — using fallbacks", exc)
             tick      = self._effective_tick(inst_info, float(price)) if inst_info else 0.0001
-            min_price = float(inst_info.get("min_price", 0.0))
+            min_price = float(inst_info.get("min_price", tick))  # Default to tick size, not 0
             min_amt   = float(inst_info.get("min_trade_amount", 1))
             snapped   = self._snap_to_tick(float(price), tick)
             if snapped < min_price:
@@ -335,6 +335,12 @@ class DeribitClient(BrokerBase):
                     snapped, min_price, instrument,
                 )
                 snapped = self._snap_to_tick(min_price, tick)
+            if snapped == 0.0:
+                logger.error(
+                    "place_order: calculated price rounded to 0.0 for %s — price_usd was too small",
+                    instrument,
+                )
+                snapped = tick  # Use tick size as absolute minimum
             params["price"] = snapped
             if float(amount) < min_amt:
                 logger.warning(

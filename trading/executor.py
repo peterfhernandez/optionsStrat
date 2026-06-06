@@ -439,20 +439,29 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
     """Open a credit spread (BPS or BCS) position."""
     from config import SUPPORTED_ASSETS
     spread_type = c.strategy   # "BPS" | "BCS"
-    otm         = c.otm_pct
-    width       = SPREAD_WIDTH_PCT
     cfg         = SUPPORTED_ASSETS[c.asset]
     strike_rnd  = cfg["strike_round"]
 
+    # Use strikes from the candidate if available; otherwise recalculate
+    if hasattr(c, 'short_strike') and c.short_strike is not None and hasattr(c, 'long_strike') and c.long_strike is not None:
+        short_k = c.short_strike
+        long_k  = c.long_strike
+    else:
+        # Fallback: recalculate from OTM percentage (legacy behavior)
+        otm   = c.otm_pct
+        width = SPREAD_WIDTH_PCT
+        if spread_type == "BPS":
+            short_k = round_strike(c.spot * (1 - otm),          strike_rnd)
+            long_k  = round_strike(c.spot * (1 - otm - width),  strike_rnd)
+        else:  # BCS
+            short_k = round_strike(c.spot * (1 + otm),          strike_rnd)
+            long_k  = round_strike(c.spot * (1 + otm + width),  strike_rnd)
+
     if spread_type == "BPS":
-        short_k = round_strike(c.spot * (1 - otm),          strike_rnd)
-        long_k  = round_strike(c.spot * (1 - otm - width),  strike_rnd)
         short_p = bs_put(c.spot, short_k, T, RISK_FREE_RATE, c.iv)
         long_p  = bs_put(c.spot, long_k,  T, RISK_FREE_RATE, c.iv)
         otype   = "put"
     else:  # BCS
-        short_k = round_strike(c.spot * (1 + otm),          strike_rnd)
-        long_k  = round_strike(c.spot * (1 + otm + width),  strike_rnd)
         short_p = bs_call(c.spot, short_k, T, RISK_FREE_RATE, c.iv)
         long_p  = bs_call(c.spot, long_k,  T, RISK_FREE_RATE, c.iv)
         otype   = "call"
