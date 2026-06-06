@@ -29,12 +29,12 @@ The app has incomplete implementations for calendar strategy statuses and option
 - [x] Implement for both calls and puts
 - [x] Correctly handle premium retention/loss based on position side (long/short)
 
-### Trading Action: Expires In-The-Money (NOT IMPLEMENTED)
+### Trading Action: Expires In-The-Money (IMPLEMENTED)
 
-- [ ] Implement expires-in-the-money logic at common module level (used by: calendar, scanner, spread, strangle, executor, monitor)
-- [ ] Calculate intrinsic value: calls `(spot - strike) × multiplier`, puts `(strike - spot) × multiplier`
-- [ ] Handle assignment scenarios for short positions
-- [ ] Calculate settlement for long positions
+- [x] Implement expires-in-the-money logic at common module level (used by: calendar, scanner, spread, strangle, executor, monitor)
+- [x] Calculate intrinsic value: calls `(spot - strike) × multiplier`, puts `(strike - spot) × multiplier`
+- [x] Handle assignment scenarios for short positions
+- [x] Calculate settlement for long positions
 
 ### Recommendations Execution
 
