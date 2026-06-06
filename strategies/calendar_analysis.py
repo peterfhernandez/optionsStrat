@@ -16,11 +16,12 @@ analyze_calendar_far_leg(asset, strike, option_type, expiry_far, qty, net_debit)
 """
 
 import requests
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from dataclasses import dataclass
 
 from access.deribit import make_instrument
 from config import DERIBIT_PAPER, RISK_FREE_RATE
+from market.pricing import bs_call, bs_put, prob_otm_call, prob_otm_put
 from ui.display import hdr, sub, inf, ok, warn, GR, RD, YL, CY, WH, GY, R
 
 
@@ -54,6 +55,19 @@ class FarLegAnalysis:
     delta_comment: str
     recommendation: str
     suggested_rolls: list[tuple[int, str]]  # [(days, instrument_name), ...]
+
+
+@dataclass
+class RollOptionDetail:
+    """Detailed information for a roll option (new near leg)."""
+    days: int
+    expiry_date: date
+    strike: float
+    option_type: str
+    estimated_premium: float  # Premium to be collected for new near leg
+    probability_profit: float  # 0.0-1.0, probability of expiring worthless
+    expected_pnl: float  # If far leg + rolled near leg held to expiry
+    justification: str
 
 
 def _fetch_far_leg_data(instrument_name: str, paper: bool = True) -> FarLegData | None:
@@ -132,6 +146,86 @@ def _days_remaining(expiry_str: str) -> int:
         except ValueError:
             continue
     return 0
+
+
+def _next_friday(from_date: date) -> date:
+    """Return the nearest Friday on or after from_date (Deribit weekly expiry day)."""
+    days_ahead = (4 - from_date.weekday()) % 7   # 4 = Friday
+    return from_date + timedelta(days=days_ahead)
+
+
+def calculate_roll_options(
+    strike: float,
+    option_type: str,
+    spot: float,
+    iv: float,
+    qty: float,
+    current_far_pnl: float,
+    expiry_far_days: int,
+) -> list[RollOptionDetail]:
+    """
+    Calculate detailed roll options (1d, 3d, 7d near legs) with PoP and expected profit.
+
+    Parameters
+    ----------
+    strike          : float Strike price
+    option_type     : str   "Call" or "Put"
+    spot            : float Current spot price
+    iv              : float Implied volatility (decimal)
+    qty             : float Position quantity
+    current_far_pnl : float Current P&L from far leg alone
+    expiry_far_days : int   Days remaining on far leg
+
+    Returns
+    -------
+    list[RollOptionDetail]
+        Sorted list of roll options with PoP and justification.
+    """
+    roll_options = []
+    is_call = option_type.lower().startswith("c")
+
+    for near_days in [1, 3, 7]:
+        if near_days >= expiry_far_days:
+            continue  # Don't suggest rolling past the far leg expiry
+
+        # Calculate expiry date (snap to Friday for Deribit)
+        expiry_dt = _next_friday(date.today() + timedelta(days=near_days))
+        T_near = near_days / 365.0
+
+        # Estimate premium for new near leg (short position)
+        if is_call:
+            near_premium = bs_call(spot, strike, T_near, RISK_FREE_RATE, iv) * qty
+            prob_profit = prob_otm_call(spot, strike, T_near, RISK_FREE_RATE, iv)
+        else:
+            near_premium = bs_put(spot, strike, T_near, RISK_FREE_RATE, iv) * qty
+            prob_profit = prob_otm_put(spot, strike, T_near, RISK_FREE_RATE, iv)
+
+        # Expected P&L: current far leg P&L + premium from new near leg
+        # (This assumes near expires worthless and we keep the premium)
+        expected_pnl = current_far_pnl + near_premium
+
+        # Justification based on premium and PoP
+        if prob_profit > 0.80:
+            justification = f"High PoP ({prob_profit*100:.0f}%), collect ${near_premium:.2f} premium"
+        elif prob_profit > 0.65:
+            justification = f"Good PoP ({prob_profit*100:.0f}%), collect ${near_premium:.2f} premium"
+        else:
+            justification = f"Lower PoP ({prob_profit*100:.0f}%), modest ${near_premium:.2f} premium"
+
+        roll_options.append(
+            RollOptionDetail(
+                days=near_days,
+                expiry_date=expiry_dt,
+                strike=strike,
+                option_type=option_type,
+                estimated_premium=round(near_premium, 4),
+                probability_profit=round(prob_profit, 4),
+                expected_pnl=round(expected_pnl, 4),
+                justification=justification,
+            )
+        )
+
+    return roll_options
 
 
 def analyze_calendar_far_leg(

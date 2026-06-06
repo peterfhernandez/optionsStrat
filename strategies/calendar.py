@@ -43,6 +43,7 @@ from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_s
 from trading.executor import enter_trade, close_calendar_far_leg, roll_near_leg
 from trading.fee_calculator import calculate_fee
 from trading.expiry_handler import is_expired_worthless, handle_expires_worthless, handle_expires_itm
+from strategies.calendar_analysis import calculate_roll_options, _days_remaining
 from ui.display import (
     hdr, sub, inf, ok, warn,
     draw_calendar_zone,
@@ -793,17 +794,43 @@ def handle_far_leg_only_menu(
 
     # [3] Roll to a new near leg
     elif choice == "3":
+        # Calculate roll options with PoP and expected profit
+        current_far_pnl = (analysis.current_pnl if analysis else 0.0)
+        expiry_far_days = _days_remaining(op.get("expiry_far", ""))
+
+        roll_options = calculate_roll_options(
+            strike=K,
+            option_type=opt_type,
+            spot=spot,
+            iv=iv,
+            qty=qty,
+            current_far_pnl=current_far_pnl,
+            expiry_far_days=expiry_far_days,
+        )
+
+        if not roll_options:
+            warn("No suitable roll options available (near leg would not expire before far leg).")
+            return
+
         print(f"\n  {CY}Roll Options (New Near Legs){R}")
-        print(f"    [1]  1d  near leg")
-        print(f"    [2]  3d  near leg")
-        print(f"    [3]  7d  near leg")
+        for i, opt in enumerate(roll_options, 1):
+            expiry_str = opt.expiry_date.strftime("%d-%b-%Y")
+            pop_pct = opt.probability_profit * 100
+            pnl_str = f"+${opt.expected_pnl:.2f}" if opt.expected_pnl >= 0 else f"-${abs(opt.expected_pnl):.2f}"
+            pnl_color = GR if opt.expected_pnl >= 0 else RD
+            print(f"    [{i}]  {opt.days}d near leg (expires {expiry_str})")
+            print(f"         Premium: ${opt.estimated_premium:.2f}  |  PoP: {pop_pct:.0f}%  |  Expected P&L: {pnl_color}{pnl_str}{R}")
+            print(f"         {opt.justification}")
         print(f"    [4]  Back")
         roll_choice = input(f"  {YL}Select expiry: {R}").strip()
 
-        roll_days = {"1": 1, "2": 3, "3": 7}.get(roll_choice)
-        if roll_days is None:
+        roll_idx = int(roll_choice) - 1 if roll_choice.isdigit() else -1
+        if roll_idx < 0 or roll_idx >= len(roll_options):
             print("  Cancelled.")
             return
+
+        selected_roll = roll_options[roll_idx]
+        roll_days = selected_roll.days
 
         if broker is None:
             broker = DeribitClient(paper=DERIBIT_PAPER)
@@ -811,6 +838,7 @@ def handle_far_leg_only_menu(
         try:
             near_order = roll_near_leg(op, roll_days, broker, spot, iv)
             ok(f"Near leg rolled ({roll_days}d): {near_order.order_id}")
+            print(f"     Expected P&L at expiry: {pnl_color}{pnl_str}{R}")
 
             # State is updated by roll_near_leg
             s = load_calendar_state(asset)

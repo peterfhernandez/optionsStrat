@@ -11,9 +11,12 @@ from unittest.mock import patch, MagicMock
 from strategies.calendar_analysis import (
     FarLegData,
     FarLegAnalysis,
+    RollOptionDetail,
     _fetch_far_leg_data,
     _interpret_iv_level,
     _days_remaining,
+    _next_friday,
+    calculate_roll_options,
     analyze_calendar_far_leg,
 )
 
@@ -413,3 +416,183 @@ class TestSuggestedRolls:
 
         # With 6 days left, only 1d and 3d rolls are valid (7d roll would exceed far expiry)
         assert len(analysis.suggested_rolls) == 2
+
+
+class TestCalculateRollOptions:
+    """Test calculate_roll_options for roll details with PoP and expected profit."""
+
+    def test_call_roll_options(self):
+        """Test roll option calculation for call options."""
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=2000.0,
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=10.0,
+            expiry_far_days=30,
+        )
+
+        assert len(roll_opts) == 3  # 1d, 3d, 7d
+        assert all(isinstance(opt, RollOptionDetail) for opt in roll_opts)
+
+        # Check 1d option
+        assert roll_opts[0].days == 1
+        assert roll_opts[0].strike == 2000.0
+        assert roll_opts[0].option_type == "Call"
+        assert roll_opts[0].estimated_premium > 0.0
+        assert 0.0 <= roll_opts[0].probability_profit <= 1.0
+        assert roll_opts[0].expected_pnl == 10.0 + roll_opts[0].estimated_premium
+
+    def test_put_roll_options(self):
+        """Test roll option calculation for put options."""
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Put",
+            spot=2000.0,
+            iv=0.75,
+            qty=0.125,
+            current_far_pnl=5.0,
+            expiry_far_days=30,
+        )
+
+        assert len(roll_opts) == 3  # 1d, 3d, 7d
+        assert all(opt.option_type == "Put" for opt in roll_opts)
+
+    def test_roll_options_ordered_by_days(self):
+        """Test roll options are ordered by days (1, 3, 7)."""
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=2000.0,
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=10.0,
+            expiry_far_days=30,
+        )
+
+        days_list = [opt.days for opt in roll_opts]
+        assert days_list == [1, 3, 7]
+
+    def test_roll_options_not_past_far_expiry(self):
+        """Test roll options are not suggested if they exceed far leg expiry."""
+        # Only 2 days left on far leg
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=2000.0,
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=10.0,
+            expiry_far_days=2,  # Only 2 days left
+        )
+
+        # Should only suggest 1d (not 3d or 7d)
+        assert len(roll_opts) <= 1
+        assert all(opt.days < 2 for opt in roll_opts)
+
+    def test_premium_increases_with_days(self):
+        """Test that premium generally increases with more days to expiry."""
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=2000.0,
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=0.0,
+            expiry_far_days=30,
+        )
+
+        # Premium should generally increase with more time
+        premiums = [opt.estimated_premium for opt in roll_opts]
+        assert premiums[0] <= premiums[1] <= premiums[2]
+
+    def test_probability_higher_atm(self):
+        """Test PoP is higher when spot is at strike (ATM)."""
+        # ATM: spot == strike
+        roll_opts_atm = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=2000.0,
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=0.0,
+            expiry_far_days=30,
+        )
+
+        # OTM: spot much higher than strike
+        roll_opts_otm = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=2500.0,
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=0.0,
+            expiry_far_days=30,
+        )
+
+        # For calls, ATM should have higher PoP than OTM (spot high)
+        # (Lower delta/probability of expiring worthless when spot is high)
+        assert roll_opts_atm[0].probability_profit > roll_opts_otm[0].probability_profit
+
+    def test_justification_based_on_pop(self):
+        """Test justification text reflects PoP levels."""
+        # High IV scenario - high PoP
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=1500.0,  # Well below strike, high PoP for expiring worthless
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=0.0,
+            expiry_far_days=30,
+        )
+
+        # With spot well below strike, PoP should be high
+        for opt in roll_opts:
+            if opt.probability_profit > 0.80:
+                assert "High PoP" in opt.justification
+            elif opt.probability_profit > 0.65:
+                assert "Good PoP" in opt.justification
+            else:
+                assert "Lower PoP" in opt.justification
+
+    def test_expected_pnl_calculation(self):
+        """Test expected P&L is current + premium."""
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Call",
+            spot=2000.0,
+            iv=0.80,
+            qty=0.125,
+            current_far_pnl=10.0,
+            expiry_far_days=30,
+        )
+
+        # Expected P&L should be current + premium
+        for opt in roll_opts:
+            expected = 10.0 + opt.estimated_premium
+            assert abs(opt.expected_pnl - expected) < 0.01  # Allow for rounding
+
+    def test_roll_option_detail_data(self):
+        """Test RollOptionDetail contains all required fields."""
+        roll_opts = calculate_roll_options(
+            strike=2000.0,
+            option_type="Put",
+            spot=2000.0,
+            iv=0.75,
+            qty=0.125,
+            current_far_pnl=5.0,
+            expiry_far_days=30,
+        )
+
+        opt = roll_opts[0]
+        # All fields should be present and valid
+        assert hasattr(opt, "days") and opt.days == 1
+        assert hasattr(opt, "expiry_date") and isinstance(opt.expiry_date, date)
+        assert hasattr(opt, "strike") and opt.strike == 2000.0
+        assert hasattr(opt, "option_type") and opt.option_type == "Put"
+        assert hasattr(opt, "estimated_premium") and isinstance(opt.estimated_premium, float)
+        assert hasattr(opt, "probability_profit") and 0.0 <= opt.probability_profit <= 1.0
+        assert hasattr(opt, "expected_pnl") and isinstance(opt.expected_pnl, float)
+        assert hasattr(opt, "justification") and isinstance(opt.justification, str)

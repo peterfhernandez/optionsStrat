@@ -57,7 +57,11 @@ The app has incomplete implementations for calendar strategy statuses and option
   - [x] roll_near_leg function creates new position via Deribit ✓
   - [x] Menu calls roll_near_leg on user selection ✓
   - [x] Test coverage for roll menu option execution ✓
-- [ ] Display probability of profit and justification for each roll option
+- [x] Display probability of profit and justification for each roll option ✓
+  - [x] calculate_roll_options function with PoP calculations ✓
+  - [x] Display expiry dates, premium, PoP%, and expected P&L ✓
+  - [x] Show justification based on PoP level ✓
+  - [x] 9 comprehensive tests for roll option calculations ✓
 
 ### Monitoring & Display
 
