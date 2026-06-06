@@ -53,7 +53,10 @@ The app has incomplete implementations for calendar strategy statuses and option
   - 3d near leg should expire in 3–4 days (not 16d) ✓
   - 7d near leg should expire in 7–8 days (not 12d) ✓
 - [x] Ensure roll options are ordered logically (1d expires before 3d, 3d before 7d) ✓
-- [ ] Make roll options executable — app should enter the chosen position via deribit
+- [x] Make roll options executable — app should enter the chosen position via deribit ✓
+  - [x] roll_near_leg function creates new position via Deribit ✓
+  - [x] Menu calls roll_near_leg on user selection ✓
+  - [x] Test coverage for roll menu option execution ✓
 - [ ] Display probability of profit and justification for each roll option
 
 ### Monitoring & Display

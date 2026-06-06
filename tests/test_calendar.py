@@ -454,4 +454,101 @@ class TestHandleFarLegOnlyMenu:
             handle_far_leg_only_menu("ETH", 2000.0, 0.80)
             mock_ok.assert_called_with("Position kept open for continued monitoring.")
 
+    @patch("strategies.calendar.load_calendar_state")
+    @patch("strategies.calendar.roll_near_leg")
+    def test_roll_near_leg_option(self, mock_roll, mock_load):
+        """Selecting [3] then [1] should roll near leg with 1d expiry."""
+        far_leg_open = {
+            "status": "Far Leg Only",
+            "strike": 2000.0,
+            "option_type": "Call",
+            "asset": "ETH",
+            "qty": 0.125,
+            "net_debit": 10.0,
+            "expiry_far": "15-Jun-2026",
+            "far_prem": 125.0,
+            "far_days": 30,
+            "trade_id": 1,
+            "far_instrument": "ETH-15JUN26-2000-C",
+        }
+        mock_load.return_value = {"open": far_leg_open}
+
+        # Mock the order result
+        mock_order = MagicMock()
+        mock_order.order_id = "ROLL-ORDER-1"
+        mock_roll.return_value = mock_order
+
+        # Simulate user choice [3] (roll), then [1] (1d near leg), then submit
+        inputs = iter(["3", "1"])
+        with patch("builtins.input", side_effect=inputs), \
+             patch("strategies.calendar_analysis.analyze_calendar_far_leg", return_value=None), \
+             patch("strategies.calendar.ok") as mock_ok:
+            handle_far_leg_only_menu("ETH", 2000.0, 0.80)
+            # Should call roll_near_leg with 1 day
+            mock_roll.assert_called_once()
+            call_args = mock_roll.call_args[0]
+            assert call_args[1] == 1  # days parameter should be 1
+
+    @patch("strategies.calendar.load_calendar_state")
+    @patch("strategies.calendar.roll_near_leg")
+    def test_roll_near_leg_3d_option(self, mock_roll, mock_load):
+        """Rolling with [2] should use 3d expiry."""
+        far_leg_open = {
+            "status": "Far Leg Only",
+            "strike": 2000.0,
+            "option_type": "Put",
+            "asset": "BTC",
+            "qty": 0.125,
+            "net_debit": 10.0,
+            "expiry_far": "15-Jun-2026",
+            "far_prem": 125.0,
+            "far_days": 30,
+            "trade_id": 2,
+            "far_instrument": "BTC-15JUN26-2000-P",
+        }
+        mock_load.return_value = {"open": far_leg_open}
+
+        mock_order = MagicMock()
+        mock_order.order_id = "ROLL-ORDER-2"
+        mock_roll.return_value = mock_order
+
+        inputs = iter(["3", "2"])
+        with patch("builtins.input", side_effect=inputs), \
+             patch("strategies.calendar_analysis.analyze_calendar_far_leg", return_value=None), \
+             patch("strategies.calendar.ok"):
+            handle_far_leg_only_menu("BTC", 40000.0, 0.75)
+            call_args = mock_roll.call_args[0]
+            assert call_args[1] == 3  # days parameter should be 3
+
+    @patch("strategies.calendar.load_calendar_state")
+    @patch("strategies.calendar.roll_near_leg")
+    def test_roll_near_leg_7d_option(self, mock_roll, mock_load):
+        """Rolling with [3] should use 7d expiry."""
+        far_leg_open = {
+            "status": "Far Leg Only",
+            "strike": 150.0,
+            "option_type": "Call",
+            "asset": "SOL",
+            "qty": 1.0,
+            "net_debit": 5.0,
+            "expiry_far": "15-Jun-2026",
+            "far_prem": 45.0,
+            "far_days": 30,
+            "trade_id": 3,
+            "far_instrument": "SOL_USDC-15JUN26-150-C",
+        }
+        mock_load.return_value = {"open": far_leg_open}
+
+        mock_order = MagicMock()
+        mock_order.order_id = "ROLL-ORDER-3"
+        mock_roll.return_value = mock_order
+
+        inputs = iter(["3", "3"])
+        with patch("builtins.input", side_effect=inputs), \
+             patch("strategies.calendar_analysis.analyze_calendar_far_leg", return_value=None), \
+             patch("strategies.calendar.ok"):
+            handle_far_leg_only_menu("SOL", 150.0, 0.85)
+            call_args = mock_roll.call_args[0]
+            assert call_args[1] == 7  # days parameter should be 7
+
 
