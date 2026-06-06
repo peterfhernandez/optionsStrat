@@ -60,8 +60,11 @@ def _show_open_positions() -> None:
         if c.get("open"):
             op = c["open"]
             broker = c.get("broker", "—")
+            status = op.get("status", "Open")
+            status_badge = "📌 FAR LEG ONLY" if status == "Far Leg Only" else "📌 NEAR LEG ROLLED" if status == "Near Leg Rolled" else ""
+            status_label = f"  {status_badge}" if status_badge else ""
             inf(
-                f"  {asset} Calendar ({op.get('option_type', '?')})",
+                f"  {asset} Calendar ({op.get('option_type', '?')}){status_label}",
                 f"strike ${op.get('strike', 0):,.0f}  "
                 f"near {op.get('expiry_near', '?')} / "
                 f"far {op.get('expiry_far', '?')}  "

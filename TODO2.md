@@ -14,8 +14,8 @@ The app has incomplete implementations for calendar strategy statuses and option
 - [ ] Implement "Near Leg Rolled" status
 - [ ] Implement "Closed" status (both legs closed/expired)
 - [x] Ensure `monitor` correctly marks near leg expiry as "Far Leg Only" instead of "Closed"
-- [ ] Ensure `summary` and `portfolio` display "Far Leg Only" records
-- [ ] Update `monitor` and `calendar` to generate correct recommendations for "Far Leg Only" state
+- [x] Ensure `summary` and `portfolio` display "Far Leg Only" records
+- [x] Update `monitor` and `calendar` to generate correct recommendations for "Far Leg Only" state
 
 ### Trading Action: Close Position Early
 
@@ -48,11 +48,11 @@ The app has incomplete implementations for calendar strategy statuses and option
 
 ### Roll Options Calculation (CRITICAL BUG)
 
-- [ ] Fix expiry date calculation — count from today, not from far leg expiry
-  - 1d near leg should expire in 1–2 days (not 18d)
-  - 3d near leg should expire in 3–4 days (not 16d)
-  - 7d near leg should expire in 7–8 days (not 12d)
-- [ ] Ensure roll options are ordered logically (1d expires before 3d, 3d before 7d)
+- [x] Fix expiry date calculation — count from today, not from far leg expiry
+  - 1d near leg should expire in 1–2 days (not 18d) ✓
+  - 3d near leg should expire in 3–4 days (not 16d) ✓
+  - 7d near leg should expire in 7–8 days (not 12d) ✓
+- [x] Ensure roll options are ordered logically (1d expires before 3d, 3d before 7d) ✓
 - [ ] Make roll options executable — app should enter the chosen position via deribit
 - [ ] Display probability of profit and justification for each roll option
 

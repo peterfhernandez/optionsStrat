@@ -235,9 +235,8 @@ def analyze_calendar_far_leg(
     # Suggest new near legs (1d, 3d, 7d rolls) if far leg expiry is after suggested near expiry
     suggested_rolls = []
     for near_days in [1, 3, 7]:
-        near_expiry_days = days_left - near_days
-        if near_expiry_days > 0:
-            suggested_rolls.append((near_days, f"{near_days}d near leg (expires in {near_expiry_days}d)"))
+        if near_days < days_left:  # Only suggest if near leg expires before far leg
+            suggested_rolls.append((near_days, f"{near_days}d near leg (expires in {near_days}d)"))
 
     return FarLegAnalysis(
         data=data,
