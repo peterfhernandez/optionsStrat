@@ -462,10 +462,10 @@ def show_trade_history() -> None:
 
     session = get_session()
     try:
-        _closed = ("Win", "Loss", "Win (Auto TP)", "Loss (Auto Stop)")
-        singles   = session.query(Single).filter(Single.result.in_(_closed)).all()
-        strangles = session.query(Strangle).filter(Strangle.result.in_(_closed)).all()
-        calendars = session.query(Calendar).filter(Calendar.result.in_(_closed)).all()
+        _open = ("Open",)
+        singles   = session.query(Single).filter(~Single.result.in_(_open)).all()
+        strangles = session.query(Strangle).filter(~Strangle.result.in_(_open)).all()
+        calendars = session.query(Calendar).filter(~Calendar.result.in_(_open)).all()
     finally:
         session.close()
 
