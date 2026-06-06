@@ -497,6 +497,68 @@ class TestCloseStrangle:
 
 class TestCloseCalendar:
     @patch("trading.executor.calculate_fee", return_value=1.5)
+    def test_close_calendar_near_leg_only(self, mock_fee):
+        """close_calendar_near_leg should place only a buy (near) order."""
+        broker = _mock_broker("CLOSE-NEAR-1")
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "strike": 2000.0,
+            "option_type": "Put",
+            "near_instrument": "ETH-30MAY25-2000-P",
+            "far_instrument": "ETH-27JUN25-2000-P",
+        }
+        near_order = _import().close_calendar_near_leg(op, broker, spot=2000.0)
+        assert near_order.order_id == "CLOSE-NEAR-1"
+        # Verify direction: buy back our short near leg
+        call_list = broker.place_order.call_args_list
+        assert len(call_list) == 1
+        assert call_list[0].args[1] == "buy"   # near: buy back our short
+
+    @patch("trading.executor.calculate_fee", return_value=1.5)
+    def test_close_calendar_far_leg_only(self, mock_fee):
+        """close_calendar_far_leg should place only a sell (far) order."""
+        broker = _mock_broker("CLOSE-FAR-1")
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "strike": 2000.0,
+            "option_type": "Put",
+            "near_instrument": "ETH-30MAY25-2000-P",
+            "far_instrument": "ETH-27JUN25-2000-P",
+        }
+        far_order = _import().close_calendar_far_leg(op, broker, spot=2000.0)
+        assert far_order.order_id == "CLOSE-FAR-1"
+        # Verify direction: sell back our long far leg
+        call_list = broker.place_order.call_args_list
+        assert len(call_list) == 1
+        assert call_list[0].args[1] == "sell"  # far: sell back our long
+
+    @patch("trading.executor.calculate_fee", return_value=1.5)
+    def test_close_calendar_simultaneous_legs(self, mock_fee):
+        """Verify individual leg closes can be done sequentially to close simultaneously."""
+        broker = _mock_broker("CLOSE-NEAR-1", "CLOSE-FAR-1")
+        op = {
+            "asset": "BTC",
+            "qty": 0.01,
+            "strike": 45000.0,
+            "option_type": "Call",
+            "near_instrument": "BTC-31MAY25-45000-C",
+            "far_instrument": "BTC-28JUN25-45000-C",
+        }
+        # Simulate simultaneous close by calling both individual functions
+        near_order = _import().close_calendar_near_leg(op, broker, spot=45000.0)
+        far_order = _import().close_calendar_far_leg(op, broker, spot=45000.0)
+
+        assert near_order.order_id == "CLOSE-NEAR-1"
+        assert far_order.order_id == "CLOSE-FAR-1"
+        # Verify both orders were placed
+        call_list = broker.place_order.call_args_list
+        assert len(call_list) == 2
+        assert call_list[0].args[1] == "buy"   # near leg
+        assert call_list[1].args[1] == "sell"  # far leg
+
+    @patch("trading.executor.calculate_fee", return_value=1.5)
     def test_close_calendar_position_returns_orders(self, mock_fee):
         """close_calendar_position should place buy (near) and sell (far) orders."""
         broker = _mock_broker("CLOSE-NEAR-1", "CLOSE-FAR-1")
@@ -513,6 +575,7 @@ class TestCloseCalendar:
         assert far_order.order_id == "CLOSE-FAR-1"
         # Verify directions: near is buy (close short), far is sell (close long)
         call_list = broker.place_order.call_args_list
+        assert len(call_list) == 2
         assert call_list[0].args[1] == "buy"   # near: buy back our short
         assert call_list[1].args[1] == "sell"  # far: sell back our long
 

@@ -19,9 +19,9 @@ The app has incomplete implementations for calendar strategy statuses and option
 
 ### Trading Action: Close Position Early
 
-- [ ] Test early position closing (currently implemented but untested)
-- [ ] Verify individual leg closing in calendar spreads works independently
-- [ ] Verify simultaneous leg closing works correctly
+- [x] Test early position closing (currently implemented but untested)
+- [x] Verify individual leg closing in calendar spreads works independently
+- [x] Verify simultaneous leg closing works correctly
 
 ### Trading Action: Expires Worthless (Shared Implementation)
 

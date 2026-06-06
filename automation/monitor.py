@@ -46,7 +46,8 @@ from models import get_session, Single
 from access import BrokerBase, DeribitClient
 from trading.executor import (
     close_wheel_position, close_strangle_position,
-    close_calendar_position, close_spread_position,
+    close_calendar_near_leg, close_calendar_far_leg, close_calendar_position,
+    close_spread_position,
 )
 from trading.fee_calculator import calculate_fee
 

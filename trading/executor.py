@@ -632,6 +632,32 @@ def close_strangle_position(
     return put_order, call_order
 
 
+def close_calendar_near_leg(op: dict, broker: BrokerBase, spot: float) -> "OrderResult":
+    """
+    Close only the near leg of a calendar spread (buy back our short position).
+
+    Returns the order result for the near leg close.
+    """
+    asset      = op["asset"]
+    amount     = op.get("qty") or _broker_amount(asset, spot)
+    near_instr = op["near_instrument"]
+    near_order = broker.place_order(near_instr, "buy", amount, "market", label=f"CLOSE-CAL-NEAR-{asset}")
+    return near_order
+
+
+def close_calendar_far_leg(op: dict, broker: BrokerBase, spot: float) -> "OrderResult":
+    """
+    Close only the far leg of a calendar spread (sell back our long position).
+
+    Returns the order result for the far leg close.
+    """
+    asset      = op["asset"]
+    amount     = op.get("qty") or _broker_amount(asset, spot)
+    far_instr  = op["far_instrument"]
+    far_order  = broker.place_order(far_instr, "sell", amount, "market", label=f"CLOSE-CAL-FAR-{asset}")
+    return far_order
+
+
 def close_calendar_position(
     op: dict, broker: BrokerBase, spot: float
 ) -> "tuple[OrderResult, OrderResult]":
