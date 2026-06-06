@@ -43,8 +43,8 @@ The app has incomplete implementations for calendar strategy statuses and option
 - [x] Display recommendation options with clear user prompts:
   - Close far leg (execute with deribit) ✓
   - Keep position open ✓
-  - Roll position (with calculated options) [pending]
-- [ ] Show probability of profit and justification for each recommendation
+  - Roll position (with calculated options) ✓
+- [x] Show probability of profit and justification for each recommendation ✓
 
 ### Roll Options Calculation (CRITICAL BUG)
 
