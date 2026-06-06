@@ -579,6 +579,58 @@ class TestCloseCalendar:
         assert call_list[0].args[1] == "buy"   # near: buy back our short
         assert call_list[1].args[1] == "sell"  # far: sell back our long
 
+    @patch("trading.executor.calculate_fee", return_value=2.0)
+    @patch("database.calendar_db.create_calendar_trade")
+    @patch("database.calendar_db.close_calendar_trade")
+    def test_roll_near_leg_sells_new_near(self, mock_close_db, mock_create_db, mock_fee):
+        """roll_near_leg should sell a new near leg at the same strike."""
+        broker = _mock_broker("ROLL-NEAR-1")
+        # Far Leg Only position (near leg expired)
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "strike": 2000.0,
+            "option_type": "Call",
+            "far_instrument": "ETH-27JUN25-2000-C",
+            "far_prem": 125.0,
+            "far_days": 30,
+            "trade_id": 1,
+        }
+        near_order = _import().roll_near_leg(op, days=7, broker=broker, spot=2000.0, iv=0.80)
+        assert near_order.order_id == "ROLL-NEAR-1"
+        # Verify sell direction
+        call_list = broker.place_order.call_args_list
+        assert len(call_list) == 1
+        assert call_list[0].args[1] == "sell"  # sell new near leg
+
+    @patch("trading.executor.calculate_fee", return_value=2.0)
+    @patch("database.calendar_db.create_calendar_trade")
+    @patch("database.calendar_db.close_calendar_trade")
+    def test_roll_near_leg_updates_database(self, mock_close_db, mock_create_db, mock_fee):
+        """roll_near_leg should mark old position as Near Leg Rolled and create new trade."""
+        broker = _mock_broker("ROLL-NEAR-2")
+        op = {
+            "asset": "ETH",
+            "qty": 0.125,
+            "strike": 2000.0,
+            "option_type": "Put",
+            "far_instrument": "ETH-27JUN25-2000-P",
+            "far_prem": 85.0,
+            "far_days": 30,
+            "trade_id": 5,
+        }
+        _import().roll_near_leg(op, days=3, broker=broker, spot=2000.0, iv=0.75)
+
+        # Verify old position marked as Near Leg Rolled
+        mock_close_db.assert_called_once()
+        call_args = mock_close_db.call_args[1]
+        assert call_args["trade_id"] == 5
+        assert call_args["result"] == "Near Leg Rolled"
+        assert call_args["spot_close"] == 2000.0
+
+        # Verify new trade record created
+        mock_create_db.assert_called_once()
+
 
 class TestCloseSpread:
     @patch("trading.executor.calculate_fee", return_value=1.0)

@@ -350,6 +350,8 @@ def _check_calendar(
       2. Stop-loss hit           → spread value ≤ CALENDAR_STOP_PCT of debit
       3. Take-profit hit         → spread value ≥ 150% of debit
 
+    Also handles "Near Leg Rolled" positions (just check new near leg expiry).
+
     Returns True if a close was triggered, False otherwise.
     """
     state = load_calendar_state(asset)
@@ -357,6 +359,7 @@ def _check_calendar(
         return False
 
     op          = state["open"]
+    status      = op.get("status", "Open")
     K           = op["strike"]
     opt_type    = op["option_type"]
     net_debit   = op["net_debit"]

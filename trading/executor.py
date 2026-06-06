@@ -700,3 +700,100 @@ def close_spread_position(
         long_instr, "sell", amount, "market", label=f"CLOSE-SPR-L-{asset}"
     )
     return short_order, long_order
+
+
+def roll_near_leg(
+    op: dict, days: int, broker: BrokerBase, spot: float, iv: float
+) -> "OrderResult":
+    """
+    Roll a new near leg for a "Far Leg Only" position.
+
+    Sells a new near leg at the same strike as the original, creating a new
+    calendar spread with the same far leg. Updates database to "Near Leg Rolled".
+
+    Parameters
+    ----------
+    op      : dict          The "Far Leg Only" open position dict
+    days    : int           Days to expiry for the new near leg
+    broker  : BrokerBase    Broker for executing the trade
+    spot    : float         Current spot price
+    iv      : float         Implied volatility (decimal)
+
+    Returns
+    -------
+    OrderResult for the new near leg order.
+    """
+    asset       = op["asset"]
+    strike      = op["strike"]
+    option_type = op["option_type"].lower()
+    qty         = op.get("qty") or _broker_amount(asset, spot)
+    trade_id    = op.get("trade_id")
+    expiry_far  = op.get("expiry_far", "")
+
+    # Calculate expiry date for new near leg
+    expiry_near_dt = _expiry_date(days)
+    expiry_near    = expiry_near_dt.strftime("%d-%b-%Y")
+    T              = days / 365.0
+
+    # Price the new near leg
+    bs_fn = bs_call if option_type.startswith("c") else bs_put
+    near_price = bs_fn(spot, strike, T, RISK_FREE_RATE, iv)
+
+    # Place the new near leg order
+    near_order = _place_option(
+        broker, asset, expiry_near_dt, strike, option_type, "sell",
+        near_price, spot, label=f"ROLL-CAL-NEAR-{asset}", T=T, iv=iv,
+    )
+
+    # Update strike if exchange snapped to different one
+    strike_actual = _strike_from_instrument(near_order.instrument)
+    if strike_actual != strike:
+        near_price = bs_fn(spot, strike_actual, T, RISK_FREE_RATE, iv)
+
+    near_prem = near_price * qty
+    open_fee = calculate_fee(spot, near_prem, asset)
+
+    # Update database: mark as "Near Leg Rolled" with new near leg info
+    if trade_id:
+        from database.calendar_db import close_calendar_trade
+        close_calendar_trade(
+            trade_id=trade_id,
+            date_close=date.today(),
+            spot_close=spot,
+            pnl=0.0,
+            result="Near Leg Rolled",
+            notes=f"Rolled near leg: new {days}d near leg at ${strike_actual:,.0f}, premium ${near_prem:.2f}",
+            close_fees=round(open_fee, 4),
+        )
+
+    # Create new calendar trade record for the rolled position
+    from database.calendar_db import create_calendar_trade
+    near_days_actual = (
+        (_next_friday(date.today() + timedelta(days=days)) - date.today()).days
+    )
+    far_days_actual = op.get("far_days", CALENDAR_FAR_DAYS)
+    far_prem = op.get("far_prem", 0.0)  # Far leg premium from original position
+    net_debit_rolled = far_prem - near_prem
+
+    trade = create_calendar_trade(
+        asset=asset,
+        date_open=date.today(),
+        option_type=option_type.capitalize(),
+        strike=strike_actual,
+        expiry_near=expiry_near,
+        expiry_far=expiry_far,
+        near_days=near_days_actual,
+        far_days=far_days_actual,
+        qty=qty,
+        spot_open=spot,
+        near_prem=round(near_prem, 4),
+        far_prem=round(far_prem, 4),
+        net_debit=round(net_debit_rolled, 4),
+        broker=broker.broker_name,
+        near_instrument=near_order.instrument,
+        far_instrument=op.get("far_instrument", ""),
+        open_fees=round(open_fee, 4),
+        notes=f"ROLL {asset} {option_type.upper()} calendar, new {near_days_actual}d near leg",
+    )
+
+    return near_order

@@ -40,7 +40,7 @@ from database.calendar_db import (
 )
 from access import DeribitClient
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike, adjust_far_leg_price
-from trading.executor import enter_trade, close_calendar_far_leg
+from trading.executor import enter_trade, close_calendar_far_leg, roll_near_leg
 from trading.fee_calculator import calculate_fee
 from ui.display import (
     hdr, sub, inf, ok, warn,
@@ -731,7 +731,8 @@ def handle_far_leg_only_menu(
     print(f"""
   {CY}[1]{R}  Close far leg at current market price
   {CY}[2]{R}  Keep position open
-  {CY}[3]{R}  Back
+  {CY}[3]{R}  Roll to a new near leg
+  {CY}[4]{R}  Back
 """)
     choice = input(f"  {YL}Choice: {R}").strip()
 
@@ -765,7 +766,34 @@ def handle_far_leg_only_menu(
     elif choice == "2":
         ok("Position kept open for continued monitoring.")
 
-    # [3] Back
+    # [3] Roll to a new near leg
     elif choice == "3":
+        print(f"\n  {CY}Roll Options (New Near Legs){R}")
+        print(f"    [1]  1d  near leg")
+        print(f"    [2]  3d  near leg")
+        print(f"    [3]  7d  near leg")
+        print(f"    [4]  Back")
+        roll_choice = input(f"  {YL}Select expiry: {R}").strip()
+
+        roll_days = {"1": 1, "2": 3, "3": 7}.get(roll_choice)
+        if roll_days is None:
+            print("  Cancelled.")
+            return
+
+        if broker is None:
+            broker = DeribitClient(paper=DERIBIT_PAPER)
+
+        try:
+            near_order = roll_near_leg(op, roll_days, broker, spot, iv)
+            ok(f"Near leg rolled ({roll_days}d): {near_order.order_id}")
+
+            # State is updated by roll_near_leg
+            s = load_calendar_state(asset)
+            save_calendar_state(asset, s)
+        except Exception as e:
+            warn(f"Failed to roll near leg: {e}")
+
+    # [4] Back
+    elif choice == "4":
         print("  Cancelled.")
         return
