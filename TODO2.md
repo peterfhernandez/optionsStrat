@@ -25,9 +25,9 @@ The app has incomplete implementations for calendar strategy statuses and option
 
 ### Trading Action: Expires Worthless (Shared Implementation)
 
-- [ ] Move expires-worthless logic to common module level (used by: calendar, scanner, spread, strangle, executor, monitor)
-- [ ] Implement for both calls and puts
-- [ ] Correctly handle premium retention/loss based on position side (long/short)
+- [x] Move expires-worthless logic to common module level (used by: calendar, scanner, spread, strangle, executor, monitor)
+- [x] Implement for both calls and puts
+- [x] Correctly handle premium retention/loss based on position side (long/short)
 
 ### Trading Action: Expires In-The-Money (NOT IMPLEMENTED)
 
