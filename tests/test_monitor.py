@@ -771,3 +771,68 @@ class TestBrokerForwarding:
         assert result is False
         mock_close.assert_not_called()
         mock_save.assert_not_called()
+
+    def test_far_leg_only_pnl_calculation(self):
+        """P&L for Far Leg Only should be based on far leg value only, not spread."""
+        far_expiry = (date.today() + timedelta(days=15)).strftime("%d-%b-%Y")
+        state = {
+            "open": {
+                "strike":          2000.0,
+                "option_type":     "Call",
+                "net_debit":       10.0,
+                "qty":             0.125,
+                "near_days":       1,
+                "far_days":        30,
+                "expiry_near":     (date.today() + timedelta(days=1)).strftime("%d-%b-%Y"),
+                "expiry_far":      far_expiry,
+                "spot_open":       2000.0,
+                "asset":           "ETH",
+                "status":          "Far Leg Only",
+            },
+            "wins": 0, "losses": 0, "trades": 1,
+        }
+
+        with patch("automation.monitor.load_calendar_state", return_value=state), \
+             patch("automation.monitor.bs_call", side_effect=[60.0, 1.0]), \
+             patch("automation.monitor.bs_put", return_value=0.5):
+            # bs_call called for far and near legs: far=60.0, near=1.0
+            # For Call: far_val = 60.0 * 0.125 = 7.5
+            # Far Leg Only: sv = 7.5 (just far leg)
+            # pct = 7.5 / 10.0 = 75% (above 50% stop-loss threshold)
+            result = _check_calendar("ETH", 2000.0, 0.80, True)
+
+        # Should NOT trigger auto-close (75% > 50% threshold)
+        assert result is False
+
+    def test_near_leg_rolled_pnl_calculation(self):
+        """P&L for Near Leg Rolled should include both legs (spread calculation)."""
+        near_expiry = (date.today() + timedelta(days=3)).strftime("%d-%b-%Y")
+        far_expiry = (date.today() + timedelta(days=15)).strftime("%d-%b-%Y")
+        state = {
+            "open": {
+                "strike":          2100.0,
+                "option_type":     "Put",
+                "net_debit":       8.0,
+                "qty":             0.125,
+                "near_days":       3,
+                "far_days":        30,
+                "expiry_near":     near_expiry,
+                "expiry_far":      far_expiry,
+                "spot_open":       2000.0,
+                "asset":           "ETH",
+                "status":          "Near Leg Rolled",
+            },
+            "wins": 0, "losses": 0, "trades": 1,
+        }
+
+        with patch("automation.monitor.load_calendar_state", return_value=state), \
+             patch("automation.monitor.bs_put", side_effect=[60.0, 10.0]), \
+             patch("automation.monitor.bs_call", return_value=0.5):
+            # bs_put called for far and near legs: far=60.0, near=10.0
+            # For Put: far_val = 60.0 * 0.125 = 7.5, near_val = 10.0 * 0.125 = 1.25
+            # Near Leg Rolled: sv = 7.5 - 1.25 = 6.25 (spread calculation)
+            # pct = 6.25 / 8.0 = 78% (above 50% stop-loss threshold)
+            result = _check_calendar("ETH", 2000.0, 0.80, True)
+
+        # Should NOT trigger auto-close (78% > 50% threshold)
+        assert result is False

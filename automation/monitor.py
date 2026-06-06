@@ -430,8 +430,14 @@ def _check_calendar(
         far_val  = bs_put(spot, K, T_far,  RISK_FREE_RATE, iv) * qty
         near_val = bs_put(spot, K, T_near, RISK_FREE_RATE, iv) * qty
 
-    sv   = far_val - near_val
-    pct  = sv / net_debit if net_debit > 0 else 0.0
+    # For "Far Leg Only" positions, only the far leg exists (near leg expired/closed)
+    if status == "Far Leg Only":
+        sv   = far_val  # Only far leg value
+        pct  = sv / net_debit if net_debit > 0 else 0.0
+    else:
+        # For "Open" and "Near Leg Rolled" positions, calculate spread value
+        sv   = far_val - near_val
+        pct  = sv / net_debit if net_debit > 0 else 0.0
 
     # Display status for "Far Leg Only" and "Near Leg Rolled" positions when monitoring
     if status in ("Far Leg Only", "Near Leg Rolled") and not silent:

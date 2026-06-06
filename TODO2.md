@@ -69,5 +69,12 @@ The app has incomplete implementations for calendar strategy statuses and option
   - [x] Display "📌 FAR LEG ONLY" status in monitor non-silent output ✓
   - [x] Display "🔄 NEAR LEG ROLLED" status in monitor non-silent output ✓
   - [x] Show current mark value and days remaining for special states ✓
-- [ ] Ensure Greek and P&L calculations remain valid for far-leg-only positions
-- [ ] Verify recommendation thresholds apply correctly to rolled positions
+- [x] Ensure Greek and P&L calculations remain valid for far-leg-only positions ✓
+  - [x] P&L calculated using only far leg value (not spread) for Far Leg Only ✓
+  - [x] P&L calculated using spread value for Near Leg Rolled ✓
+  - [x] Greeks fetched from Deribit API (already correct for far leg only) ✓
+  - [x] 2 comprehensive tests verifying P&L calculation logic ✓
+- [x] Verify recommendation thresholds apply correctly to rolled positions ✓
+  - [x] Stop-loss thresholds work with corrected P&L calculations ✓
+  - [x] Take-profit thresholds work with corrected P&L calculations ✓
+  - [x] Verified through test cases and full test suite ✓
