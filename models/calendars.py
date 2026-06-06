@@ -30,7 +30,7 @@ class Calendar(Base):
     close_fees = Column(Float, default=0.0)  # fee charged at exit
     pnl = Column(Float)
 
-    result = Column(String(10))               # Win | Loss | Open
+    result = Column(String(20))               # Open | Far Leg Only | Near Leg Rolled | Win | Loss
     notes = Column(Text)
     broker = Column(String(30), nullable=True)  # e.g. deribit_paper | deribit_live
     near_instrument = Column(String(30), nullable=True)  # broker instrument name for near leg

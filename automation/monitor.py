@@ -510,6 +510,7 @@ def _handle_expired_worthless_near_leg(
     net_debit = op["net_debit"]
     qty = op["qty"]
     expiry_far = op.get("expiry_far", "")
+    trade_id = op.get("trade_id")
 
     col = GR
     print(f"\n  {YL}⚡ AUTO-CLOSE [EXPIRY] {asset} {opt_type} Calendar{R}")
@@ -533,11 +534,17 @@ def _handle_expired_worthless_near_leg(
     else:
         warn("Could not fetch far-leg analysis from Deribit. Manual review needed.")
 
-    # Mark the position as closed (near leg expired worthless)
-    state = load_calendar_state(asset)
-    state["wins"] += 1  # Near leg expiration = free money kept
-    state["open"] = None
-    save_calendar_state(asset, state)
+    # Update position status to "Far Leg Only" instead of closing
+    if trade_id:
+        close_calendar_trade(
+            trade_id=trade_id,
+            date_close=date.today(),
+            spot_close=spot,
+            pnl=0.0,  # P&L not calculated until far leg is closed
+            result="Far Leg Only",
+            notes="Near leg expired worthless. Far leg retained for analysis.",
+            close_fees=0.0,
+        )
 
     ok(f"{asset} {opt_type} calendar near leg marked as expired worthless. Far leg retained for analysis.")
 

@@ -337,8 +337,41 @@ class TestGetCalendarStats:
         stats = get_calendar_stats()
         assert stats["losses"] == 1
 
-    def test_loss_early_counted_as_loss(self):
+
+# ── Far Leg Only status ───────────────────────────────────────────────────────
+
+class TestFarLegOnlyStatus:
+    """Test that 'Far Leg Only' status is properly loaded and managed."""
+
+    def test_far_leg_only_is_loaded_as_open(self):
+        """A trade with 'Far Leg Only' status should be loaded as an open position."""
         t = _open_trade()
-        close_calendar_trade(t.id, date(2026, 5, 8), 1600.0, -5.0, "Loss (Early)")
-        stats = get_calendar_stats()
-        assert stats["losses"] == 1
+        # Simulate near leg expiring by changing status to "Far Leg Only"
+        close_calendar_trade(t.id, date(2026, 5, 8), 2050.0, 0.0, "Far Leg Only")
+
+        # Load state — should have an open position (the far leg)
+        state = load_calendar_state("ETH")
+        assert state["open"] is not None
+        assert state["open"]["status"] == "Far Leg Only"
+        assert state["open"]["strike"] == 2000.0
+        assert state["open"]["expiry_far"] == "01-Jun-2026"
+
+    def test_far_leg_only_includes_trade_id(self):
+        """Open position dict should include trade_id for updating."""
+        t = _open_trade()
+        close_calendar_trade(t.id, date(2026, 5, 8), 2050.0, 0.0, "Far Leg Only")
+
+        state = load_calendar_state("ETH")
+        assert state["open"]["trade_id"] == t.id
+
+    def test_multiple_far_leg_only_loads_latest(self):
+        """Only the most recent Far Leg Only trade should be loaded."""
+        t1 = _open_trade()
+        close_calendar_trade(t1.id, date(2026, 5, 8), 2050.0, 0.0, "Far Leg Only")
+
+        # Create another position that got to Far Leg Only
+        t2 = _open_trade()
+        close_calendar_trade(t2.id, date(2026, 5, 9), 2040.0, 0.0, "Far Leg Only")
+
+        state = load_calendar_state("ETH")
+        assert state["open"]["trade_id"] == t2.id

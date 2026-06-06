@@ -39,10 +39,13 @@ def load_calendar_state(asset: str, session: Optional[Session] = None) -> dict:
         total_pnl = sum(t.pnl for t in closed_trades if t.pnl) or 0.0
 
         # Get open position from the most recent open trade if any
+        # (includes "Open", "Far Leg Only", "Near Leg Rolled" statuses)
         open_position = None
         for trade in reversed(trades):
-            if trade.result == "Open":
+            if trade.result in ("Open", "Far Leg Only", "Near Leg Rolled"):
                 open_position = {
+                    "trade_id": trade.id,
+                    "status": trade.result,
                     "asset": trade.asset,
                     "option_type": trade.option_type,
                     "strike": trade.strike,
