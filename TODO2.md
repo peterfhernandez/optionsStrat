@@ -65,6 +65,9 @@ The app has incomplete implementations for calendar strategy statuses and option
 
 ### Monitoring & Display
 
-- [ ] Update Position Monitor output to correctly label "Far Leg Only" state
+- [x] Update Position Monitor output to correctly label "Far Leg Only" state ✓
+  - [x] Display "📌 FAR LEG ONLY" status in monitor non-silent output ✓
+  - [x] Display "🔄 NEAR LEG ROLLED" status in monitor non-silent output ✓
+  - [x] Show current mark value and days remaining for special states ✓
 - [ ] Ensure Greek and P&L calculations remain valid for far-leg-only positions
 - [ ] Verify recommendation thresholds apply correctly to rolled positions

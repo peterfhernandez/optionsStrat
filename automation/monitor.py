@@ -433,6 +433,15 @@ def _check_calendar(
     sv   = far_val - near_val
     pct  = sv / net_debit if net_debit > 0 else 0.0
 
+    # Display status for "Far Leg Only" and "Near Leg Rolled" positions when monitoring
+    if status in ("Far Leg Only", "Near Leg Rolled") and not silent:
+        status_label = "📌 FAR LEG ONLY" if status == "Far Leg Only" else "🔄 NEAR LEG ROLLED"
+        inf(
+            f"{asset} {opt_type} Calendar {status_label}",
+            f"Strike ${K:,.0f}  |  Far leg expires {op.get('expiry_far', '?')}  |  "
+            f"Days remaining: {far_left}  |  Current mark: ${sv:.2f}"
+        )
+
     # Near expiry: check if near leg expired worthless (OTM)
     if near_left == 0:
         # Use shared expiry handler to determine if near leg is worthless
