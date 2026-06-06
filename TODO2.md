@@ -12,7 +12,7 @@ The app has incomplete implementations for calendar strategy statuses and option
 
 - [x] Implement "Far Leg Only" status (when near leg expires/rolls)
 - [x] Implement "Near Leg Rolled" status
-- [ ] Implement "Closed" status (both legs closed/expired)
+- [x] Implement "Closed" status (both legs closed/expired)
 - [x] Ensure `monitor` correctly marks near leg expiry as "Far Leg Only" instead of "Closed"
 - [x] Ensure `summary` and `portfolio` display "Far Leg Only" records
 - [x] Update `monitor` and `calendar` to generate correct recommendations for "Far Leg Only" state

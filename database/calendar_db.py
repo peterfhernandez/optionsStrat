@@ -33,8 +33,13 @@ def load_calendar_state(asset: str, session: Optional[Session] = None) -> dict:
             }
 
         # Calculate aggregate stats from trade history
-        closed_trades = [t for t in trades if t.result != "Open"]
-        wins = sum(1 for t in closed_trades if "Win" in (t.result or ""))
+        # Don't count "Far Leg Only" or "Near Leg Rolled" as closed (they're still open)
+        closed_trades = [t for t in trades if t.result not in ("Open", "Far Leg Only", "Near Leg Rolled")]
+        # Count wins: either "Win" in result or "Closed" with P&L >= 0
+        wins = sum(
+            1 for t in closed_trades
+            if ("Win" in (t.result or "")) or (t.result == "Closed" and (t.pnl or 0.0) >= 0)
+        )
         losses = len(closed_trades) - wins
         total_pnl = sum(t.pnl for t in closed_trades if t.pnl) or 0.0
 
@@ -259,7 +264,7 @@ def get_calendar_stats(asset: Optional[str] = None, session: Optional[Session] =
 
     try:
         query = session.query(Calendar).filter(
-            Calendar.result.in_(["Win", "Loss", "Win (Auto TP)", "Loss (Auto Stop)", "Loss (Stop)", "Loss (Early)"])
+            Calendar.result.in_(["Win", "Loss", "Closed", "Win (Auto TP)", "Loss (Auto Stop)", "Loss (Stop)", "Loss (Early)"])
         )
         if asset:
             query = query.filter(Calendar.asset == asset)
@@ -275,7 +280,11 @@ def get_calendar_stats(asset: Optional[str] = None, session: Optional[Session] =
                 "avg_pnl":   0.0,
             }
 
-        wins      = sum(1 for t in trades if "Win" in (t.result or ""))
+        # Count wins: either "Win" in result or "Closed" with P&L >= 0
+        wins = sum(
+            1 for t in trades
+            if ("Win" in (t.result or "")) or (t.result == "Closed" and (t.pnl or 0.0) >= 0)
+        )
         losses    = len(trades) - wins
         pnls      = [t.pnl for t in trades if t.pnl is not None]
         total_pnl = sum(pnls) if pnls else 0.0

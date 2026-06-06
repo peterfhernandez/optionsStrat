@@ -372,6 +372,25 @@ def _check_calendar(
     T_near    = max(near_left / 365.0, 1 / 365.0)
     T_far     = max(far_left  / 365.0, 1 / 365.0)
 
+    # For "Far Leg Only" and "Near Leg Rolled" positions, check if far leg expires
+    if status in ("Far Leg Only", "Near Leg Rolled") and far_left == 0:
+        # Far leg expired — mark position as Closed
+        trade_id = op.get("trade_id")
+        if trade_id:
+            close_calendar_trade(
+                trade_id=trade_id,
+                date_close=date.today(),
+                spot_close=spot,
+                pnl=0.0,  # Final P&L would need additional analysis
+                result="Closed",
+                notes=f"Far leg expired. Position fully closed.",
+                close_fees=0.0,
+            )
+        state["open"] = None
+        save_calendar_state(asset, state)
+        ok(f"{asset} {opt_type} calendar far leg expired. Position closed.")
+        return True
+
     if opt_type == "Call":
         far_val  = bs_call(spot, K, T_far,  RISK_FREE_RATE, iv) * qty
         near_val = bs_call(spot, K, T_near, RISK_FREE_RATE, iv) * qty

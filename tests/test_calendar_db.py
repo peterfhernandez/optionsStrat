@@ -375,3 +375,68 @@ class TestFarLegOnlyStatus:
 
         state = load_calendar_state("ETH")
         assert state["open"]["trade_id"] == t2.id
+
+
+# ── Closed status ────────────────────────────────────────────────────────────────
+
+class TestClosedStatus:
+    """Test that 'Closed' status (both legs closed) is properly handled."""
+
+    def test_closed_status_not_loaded_as_open(self):
+        """A trade with 'Closed' status should NOT be loaded as an open position."""
+        t = _open_trade()
+        close_calendar_trade(t.id, date(2026, 5, 20), 2000.0, 15.0, "Closed")
+
+        state = load_calendar_state("ETH")
+        assert state["open"] is None  # Position is fully closed
+
+    def test_closed_status_counted_in_stats(self):
+        """Closed trades should be counted in stats."""
+        t = _open_trade()
+        close_calendar_trade(t.id, date(2026, 5, 20), 2000.0, 5.0, "Closed")
+
+        stats = get_calendar_stats()
+        assert stats["trades"] == 1
+        assert stats["total_pnl"] == 5.0
+
+    def test_closed_with_positive_pnl_counted_as_win(self):
+        """Closed trade with P&L >= 0 should be counted as a win."""
+        t = _open_trade()
+        close_calendar_trade(t.id, date(2026, 5, 20), 2000.0, 10.0, "Closed")
+
+        stats = get_calendar_stats()
+        assert stats["wins"] == 1
+        assert stats["losses"] == 0
+        assert stats["win_rate"] == 100.0
+
+    def test_closed_with_negative_pnl_counted_as_loss(self):
+        """Closed trade with P&L < 0 should be counted as a loss."""
+        t = _open_trade()
+        close_calendar_trade(t.id, date(2026, 5, 20), 2000.0, -5.0, "Closed")
+
+        stats = get_calendar_stats()
+        assert stats["wins"] == 0
+        assert stats["losses"] == 1
+        assert stats["win_rate"] == 0.0
+
+    def test_closed_mixed_with_win_loss_statuses(self):
+        """Closed trades should be counted correctly alongside Win/Loss trades."""
+        # Create: 1 Win, 1 Closed (profit), 1 Loss, 1 Closed (loss)
+        _open_trade(asset="ETH")
+        t1 = _open_trade(asset="ETH")
+        close_calendar_trade(t1.id, date(2026, 5, 8), 2050.0, 10.0, "Win")
+
+        t2 = _open_trade(asset="ETH")
+        close_calendar_trade(t2.id, date(2026, 5, 9), 2000.0, 8.0, "Closed")
+
+        t3 = _open_trade(asset="ETH")
+        close_calendar_trade(t3.id, date(2026, 5, 10), 1950.0, -5.0, "Loss")
+
+        t4 = _open_trade(asset="ETH")
+        close_calendar_trade(t4.id, date(2026, 5, 11), 1900.0, -3.0, "Closed")
+
+        stats = get_calendar_stats()
+        assert stats["trades"] == 4
+        assert stats["wins"] == 2  # 1 Win + 1 Closed (profit)
+        assert stats["losses"] == 2  # 1 Loss + 1 Closed (loss)
+        assert stats["total_pnl"] == pytest.approx(10.0)  # 10 + 8 - 5 - 3

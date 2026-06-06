@@ -753,8 +753,8 @@ def handle_far_leg_only_menu(
                     date_close=date.today(),
                     spot_close=spot,
                     pnl=round(pnl_estimate, 4) if analysis else 0.0,
-                    result="Win" if (analysis and analysis.current_pnl >= 0) else "Loss",
-                    notes=f"Far leg only closed at ${spot:,.0f}",
+                    result="Closed",
+                    notes=f"Far leg closed at ${spot:,.0f}. Position fully closed (both legs).",
                 )
 
             s["open"] = None
