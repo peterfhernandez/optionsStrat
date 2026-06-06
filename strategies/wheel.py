@@ -32,6 +32,7 @@ from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_s
 from models import get_session, Single
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
+from trading.expiry_handler import is_expired_worthless, handle_expires_worthless, handle_expires_itm
 from access import DeribitClient
 from ui.display import hdr, sub, inf, ok, warn, GR, RD, CY, YL, GY, WH, R
 
@@ -220,23 +221,42 @@ def wheel_paper_menu(asset: str, spot: float, iv: float, days: int) -> None:
         spot_close  = float(
             input(f"  {asset} price at expiry [~${spot:,.0f}]: $") or spot
         )
-        expired = spot_close > K if op["type"] == "Put" else spot_close < K
-
-        if expired:
-            pnl = p0
-            result = "Win"
-            s["wins"] += 1
-            ok(f"Expired worthless ✓  P&L: +${pnl:.2f}")
-            s["stage"] = "holding" if op["type"] == "Call" else "no_position"
-            if op["type"] == "Call":
-                s["cycles"] += 1
-        else:
-            intrinsic = abs(spot_close - K) * qty
-            pnl = p0 - intrinsic
-            result = "Loss"
-            s["losses"] += 1
-            warn(f"Expired ITM.  P&L: ${pnl:.2f}")
-            s["stage"] = "no_position"
+        # Use shared expiry handler to determine outcome
+        try:
+            if is_expired_worthless(op["type"], spot_close, K):
+                expiry_result = handle_expires_worthless(op["type"], spot_close, K, is_short=True, premium=p0, qty=qty)
+                pnl = expiry_result["pnl"]
+                result = "Win"
+                s["wins"] += 1
+                ok(f"Expired worthless ✓  P&L: +${pnl:.2f}")
+                s["stage"] = "holding" if op["type"] == "Call" else "no_position"
+                if op["type"] == "Call":
+                    s["cycles"] += 1
+            else:
+                expiry_result = handle_expires_itm(op["type"], spot_close, K, is_short=True, premium=p0, qty=qty)
+                pnl = expiry_result["pnl"]
+                result = "Loss"
+                s["losses"] += 1
+                warn(f"Expired ITM.  P&L: ${pnl:.2f}")
+                s["stage"] = "no_position"
+        except Exception as e:
+            # Fallback to original logic
+            expired = spot_close > K if op["type"] == "Put" else spot_close < K
+            if expired:
+                pnl = p0
+                result = "Win"
+                s["wins"] += 1
+                ok(f"Expired worthless ✓  P&L: +${pnl:.2f}")
+                s["stage"] = "holding" if op["type"] == "Call" else "no_position"
+                if op["type"] == "Call":
+                    s["cycles"] += 1
+            else:
+                intrinsic = abs(spot_close - K) * qty
+                pnl = p0 - intrinsic
+                result = "Loss"
+                s["losses"] += 1
+                warn(f"Expired ITM.  P&L: ${pnl:.2f}")
+                s["stage"] = "no_position"
 
         # Find the open trade in the database and close it
         session = get_session()

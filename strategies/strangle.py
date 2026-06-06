@@ -38,6 +38,7 @@ from database.strangle_db import (
 from market.pricing       import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
+from trading.expiry_handler import is_expired_worthless, handle_expires_worthless, handle_expires_itm
 from access import DeribitClient
 from ui.display       import (
     hdr, sub, inf, ok, warn,
@@ -355,7 +356,25 @@ def strangle_paper_menu(
         spot_close = float(
             input(f"  {asset} price at expiry [~${spot:,.0f}]: $") or spot
         )
-        pnl = _pnl(spot_close, Kp, Kc, tot, q)
+
+        # Use shared expiry handler for both legs (both are short positions)
+        put_prem = op.get("put_premium", 0.0)
+        call_prem = op.get("call_premium", 0.0)
+        try:
+            if is_expired_worthless("Put", spot_close, Kp):
+                put_result = handle_expires_worthless("Put", spot_close, Kp, is_short=True, premium=put_prem, qty=q)
+            else:
+                put_result = handle_expires_itm("Put", spot_close, Kp, is_short=True, premium=put_prem, qty=q)
+
+            if is_expired_worthless("Call", spot_close, Kc):
+                call_result = handle_expires_worthless("Call", spot_close, Kc, is_short=True, premium=call_prem, qty=q)
+            else:
+                call_result = handle_expires_itm("Call", spot_close, Kc, is_short=True, premium=call_prem, qty=q)
+
+            pnl = put_result["pnl"] + call_result["pnl"]
+        except Exception:
+            # Fallback to original _pnl calculation
+            pnl = _pnl(spot_close, Kp, Kc, tot, q)
 
         if pnl >= 0:
             result = "Win";  s["wins"]   += 1

@@ -50,6 +50,7 @@ from trading.executor import (
     close_spread_position,
 )
 from trading.fee_calculator import calculate_fee
+from trading.expiry_handler import is_expired_worthless, handle_expires_worthless, handle_expires_itm
 
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -158,9 +159,28 @@ def _check_strangle(
 
     if days_left == 0:
         trigger = "EXPIRY"
-        pnl     = p0 - max(Kp - spot, 0) * qty - max(spot - Kc, 0) * qty
-        result  = "Win" if pnl >= 0 else "Loss"
-        note    = f"Auto-closed at expiry. P&L: ${pnl:.2f}"
+        # Use shared expiry handler for both legs (both are short positions)
+        put_prem = op.get("put_premium", 0.0)
+        call_prem = op.get("call_premium", 0.0)
+        try:
+            if is_expired_worthless("Put", spot, Kp):
+                put_result = handle_expires_worthless("Put", spot, Kp, is_short=True, premium=put_prem, qty=qty)
+            else:
+                put_result = handle_expires_itm("Put", spot, Kp, is_short=True, premium=put_prem, qty=qty)
+
+            if is_expired_worthless("Call", spot, Kc):
+                call_result = handle_expires_worthless("Call", spot, Kc, is_short=True, premium=call_prem, qty=qty)
+            else:
+                call_result = handle_expires_itm("Call", spot, Kc, is_short=True, premium=call_prem, qty=qty)
+
+            pnl = put_result["pnl"] + call_result["pnl"]
+            note = f"Expiry settlement: {put_result['notes']} | {call_result['notes']} | Total P&L: ${pnl:.2f}"
+        except Exception:
+            # Fallback to original logic
+            pnl = p0 - max(Kp - spot, 0) * qty - max(spot - Kc, 0) * qty
+            note = f"Auto-closed at expiry. P&L: ${pnl:.2f}"
+
+        result = "Win" if pnl >= 0 else "Loss"
 
     elif mult >= STOP_LOSS_MULTIPLIER:
         trigger = "STOP-LOSS"
@@ -263,10 +283,22 @@ def _check_wheel(
 
     if days_left == 0:
         trigger   = "EXPIRY"
-        expired_otm = (spot > K if opt_type == "Put" else spot < K)
-        pnl       = p0 if expired_otm else p0 - abs(spot - K) * qty
-        result    = "Win" if expired_otm else "Loss"
-        note      = f"Auto-expired {'OTM' if expired_otm else 'ITM'}. P&L: ${pnl:.2f}"
+        # Use shared expiry handler to determine outcome
+        try:
+            if is_expired_worthless(opt_type, spot, K):
+                expiry_result = handle_expires_worthless(opt_type, spot, K, is_short=True, premium=p0, qty=qty)
+                result = "Win"
+            else:
+                expiry_result = handle_expires_itm(opt_type, spot, K, is_short=True, premium=p0, qty=qty)
+                result = "Loss"
+            pnl = expiry_result["pnl"]
+            note = expiry_result["notes"]
+        except Exception as e:
+            # Fallback to original logic if handler fails
+            expired_otm = (spot > K if opt_type == "Put" else spot < K)
+            pnl       = p0 if expired_otm else p0 - abs(spot - K) * qty
+            result    = "Win" if expired_otm else "Loss"
+            note      = f"Auto-expired {'OTM' if expired_otm else 'ITM'}. P&L: ${pnl:.2f}"
 
     elif mult >= STOP_LOSS_MULTIPLIER:
         trigger = "STOP-LOSS"
@@ -403,26 +435,41 @@ def _check_calendar(
 
     # Near expiry: check if near leg expired worthless (OTM)
     if near_left == 0:
-        near_otm = (spot < K if opt_type == "Call" else spot > K)
+        # Use shared expiry handler to determine if near leg is worthless
+        near_worthless = is_expired_worthless(opt_type, spot, K)
 
-        if near_otm:
+        if near_worthless:
             # Near leg expired worthless — analyze far leg
             _handle_expired_worthless_near_leg(asset, op, spot, silent)
             return True
 
-        # Near leg expired ITM — close normally
-        if opt_type == "Call":
-            near_cost = max(spot - K, 0) * qty
+        # Near leg expired ITM — close normally using shared handler
+        near_prem = op.get("near_prem", 0.0)  # Premium received for sold near leg
+        try:
+            near_result = handle_expires_itm(opt_type, spot, K, is_short=True, premium=near_prem, qty=qty)
             T_rem = max(far_days - near_days, 1) / 365.0
-            far_rem = bs_call(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
-        else:
-            near_cost = max(K - spot, 0) * qty
-            T_rem = max(far_days - near_days, 1) / 365.0
-            far_rem = bs_put(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
-        pnl     = far_rem - near_cost - net_debit
+            far_rem = (
+                bs_call(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
+                if opt_type == "Call"
+                else bs_put(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
+            )
+            pnl = far_rem - near_result["total_intrinsic"] - net_debit
+            note = f"Near leg ITM at expiry: {near_result['notes']}. P&L: ${pnl:.2f}"
+        except Exception:
+            # Fallback to original logic
+            if opt_type == "Call":
+                near_cost = max(spot - K, 0) * qty
+                T_rem = max(far_days - near_days, 1) / 365.0
+                far_rem = bs_call(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
+            else:
+                near_cost = max(K - spot, 0) * qty
+                T_rem = max(far_days - near_days, 1) / 365.0
+                far_rem = bs_put(spot, K, T_rem, RISK_FREE_RATE, iv) * qty
+            pnl = far_rem - near_cost - net_debit
+            note = f"Auto-closed at near-leg expiry (ITM). P&L: ${pnl:.2f}"
+
         trigger = "EXPIRY"
         result  = "Win" if pnl >= 0 else "Loss"
-        note    = f"Auto-closed at near-leg expiry (ITM). P&L: ${pnl:.2f}"
 
         col = GR if pnl >= 0 else RD
         print(f"\n  {YL}⚡ AUTO-CLOSE [EXPIRY] {asset} {opt_type} Calendar{R}")
@@ -620,16 +667,40 @@ def _check_spread(
     note    = None
 
     if days_left == 0:
-        if spread_type == "BPS":
-            short_int = max(short_k - spot, 0) * qty
-            long_int  = max(long_k  - spot, 0) * qty
-        else:
-            short_int = max(spot - short_k, 0) * qty
-            long_int  = max(spot - long_k,  0) * qty
-        pnl     = net_credit - short_int + long_int
+        # Use shared expiry handler for both legs
+        # For spreads: short leg was sold (is_short=True), long leg was bought (is_short=False)
+        option_type = "Put" if spread_type == "BPS" else "Call"
+        short_prem = op.get("short_premium", 0.0)
+        long_prem = op.get("long_premium", 0.0)
+        try:
+            # Short leg
+            if is_expired_worthless(option_type, spot, short_k):
+                short_result = handle_expires_worthless(option_type, spot, short_k, is_short=True, premium=short_prem, qty=qty)
+            else:
+                short_result = handle_expires_itm(option_type, spot, short_k, is_short=True, premium=short_prem, qty=qty)
+
+            # Long leg
+            if is_expired_worthless(option_type, spot, long_k):
+                long_result = handle_expires_worthless(option_type, spot, long_k, is_short=False, premium=long_prem, qty=qty)
+            else:
+                long_result = handle_expires_itm(option_type, spot, long_k, is_short=False, premium=long_prem, qty=qty)
+
+            # Combine results: short leg loss + long leg gain
+            pnl = short_result["pnl"] + long_result["pnl"]
+            note = f"Spread expiry: Short {short_result['notes']} | Long {long_result['notes']} | P&L: ${pnl:.2f}"
+        except Exception:
+            # Fallback to original logic
+            if spread_type == "BPS":
+                short_int = max(short_k - spot, 0) * qty
+                long_int  = max(long_k  - spot, 0) * qty
+            else:
+                short_int = max(spot - short_k, 0) * qty
+                long_int  = max(spot - long_k,  0) * qty
+            pnl = net_credit - short_int + long_int
+            note = f"Auto-closed at expiry. P&L: ${pnl:.2f}"
+
         trigger = "EXPIRY"
         result  = "Win" if pnl >= 0 else "Loss"
-        note    = f"Auto-closed at expiry. P&L: ${pnl:.2f}"
 
     elif max_loss > 0 and cur_cost >= max_loss:
         trigger = "STOP-LOSS"

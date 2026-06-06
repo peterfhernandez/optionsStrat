@@ -44,6 +44,7 @@ from database.spread_db import (
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike
 from trading.executor import enter_trade
 from trading.fee_calculator import calculate_fee
+from trading.expiry_handler import is_expired_worthless, handle_expires_worthless, handle_expires_itm
 from access import DeribitClient
 from ui.display import (
     hdr, sub, inf, ok, warn,
@@ -470,11 +471,32 @@ def _close_at_expiry(state: dict, asset: str, spot: float, iv: float) -> None:
     long_k      = op["long_strike"]
     net_credit  = op["net_credit"]
     qty         = op["qty"]
+    short_prem  = op.get("short_premium", 0.0)
+    long_prem   = op.get("long_premium", 0.0)
 
-    pnl    = _spread_pnl(spot, spread_type, short_k, long_k, net_credit, qty)
+    # Use shared expiry handler for both legs
+    option_type = "Put" if spread_type == "BPS" else "Call"
+    try:
+        # Short leg
+        if is_expired_worthless(option_type, spot, short_k):
+            short_result = handle_expires_worthless(option_type, spot, short_k, is_short=True, premium=short_prem, qty=qty)
+        else:
+            short_result = handle_expires_itm(option_type, spot, short_k, is_short=True, premium=short_prem, qty=qty)
+
+        # Long leg
+        if is_expired_worthless(option_type, spot, long_k):
+            long_result = handle_expires_worthless(option_type, spot, long_k, is_short=False, premium=long_prem, qty=qty)
+        else:
+            long_result = handle_expires_itm(option_type, spot, long_k, is_short=False, premium=long_prem, qty=qty)
+
+        pnl = short_result["pnl"] + long_result["pnl"]
+        note = f"Spread expiry: {short_result['notes']} | {long_result['notes']} | P&L: ${pnl:.2f}"
+    except Exception:
+        # Fallback to original _spread_pnl calculation
+        pnl = _spread_pnl(spot, spread_type, short_k, long_k, net_credit, qty)
+        note = f"Closed at expiry. Spot=${spot:.2f}  P&L=${pnl:.2f}"
+
     result = "Win" if pnl >= 0 else "Loss"
-    note   = f"Closed at expiry. Spot=${spot:.2f}  P&L=${pnl:.2f}"
-
     _finalise_close(state, asset, spot, pnl, result, note)
     col = GR if pnl >= 0 else RD
     ok(f"Closed at expiry  |  P&L: {col}${pnl:.2f}{R}")
