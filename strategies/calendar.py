@@ -42,6 +42,7 @@ from access import DeribitClient
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike, adjust_far_leg_price
 from trading.executor import enter_trade, close_calendar_far_leg, roll_near_leg
 from trading.fee_calculator import calculate_fee
+from trading.expiry_handler import is_expired_worthless, handle_expires_worthless, handle_expires_itm
 from ui.display import (
     hdr, sub, inf, ok, warn,
     draw_calendar_zone,
@@ -90,16 +91,40 @@ def _pnl_at_near_expiry(
     """
     Estimated P&L at near-leg expiry for a given closing spot price.
 
-    Near leg is settled at intrinsic value (if ITM) or zero (if OTM).
+    Near leg is settled at intrinsic value (if ITM) or zero (if OTM) using shared expiry handler.
     Far leg is sold at Black-Scholes with the remaining time (far - near days).
     """
     T_remaining = max(far_days - near_days, 1) / 365.0
+
+    # Use shared expiry handler for near leg settlement
+    try:
+        if is_expired_worthless(option_type, spot_close, strike):
+            # Near leg expires worthless - we keep received premium, costs nothing
+            near_cost = 0.0
+        else:
+            # Near leg expires ITM - use handler to get intrinsic value we owe
+            near_result = handle_expires_itm(
+                position_type=option_type,
+                spot=spot_close,
+                strike=strike,
+                is_short=True,
+                premium=0.0,  # We just need the intrinsic, not premium part
+                qty=qty,
+            )
+            near_cost = near_result["total_intrinsic"]
+    except Exception:
+        # Fallback to original calculation
+        if option_type == "Call":
+            near_cost = max(spot_close - strike, 0) * qty
+        else:
+            near_cost = max(strike - spot_close, 0) * qty
+
+    # Value far leg with remaining time
     if option_type == "Call":
-        near_cost = max(spot_close - strike, 0) * qty
-        far_val   = bs_call(spot_close, strike, T_remaining, r, iv) * qty
+        far_val = bs_call(spot_close, strike, T_remaining, r, iv) * qty
     else:
-        near_cost = max(strike - spot_close, 0) * qty
-        far_val   = bs_put(spot_close, strike, T_remaining, r, iv) * qty
+        far_val = bs_put(spot_close, strike, T_remaining, r, iv) * qty
+
     return far_val - near_cost - net_debit
 
 
