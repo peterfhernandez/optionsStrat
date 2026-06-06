@@ -40,7 +40,7 @@ from database.calendar_db import (
 )
 from access import DeribitClient
 from market.pricing import bs_put, bs_call, prob_otm_put, prob_otm_call, round_strike, adjust_far_leg_price
-from trading.executor import enter_trade
+from trading.executor import enter_trade, close_calendar_far_leg
 from trading.fee_calculator import calculate_fee
 from ui.display import (
     hdr, sub, inf, ok, warn,
@@ -666,3 +666,106 @@ def calendar_paper_menu(
 
         s["open"] = None
         save_calendar_state(asset, s)
+
+
+def handle_far_leg_only_menu(
+    asset: str,
+    spot: float,
+    iv: float,
+    broker: DeribitClient | None = None,
+) -> None:
+    """
+    Interactive menu for "Far Leg Only" positions (after near leg expiration).
+
+    Presents options to:
+    1. Close the far leg at current market price
+    2. Keep the position open for continued monitoring
+    3. (Future) Roll to a new near leg
+
+    Parameters
+    ----------
+    asset   : str             Underlying asset symbol (ETH, BTC, etc.)
+    spot    : float           Current spot price
+    iv      : float           Implied volatility (decimal)
+    broker  : DeribitClient   Broker for executing closes (optional for paper trading)
+    """
+    from strategies.calendar_analysis import analyze_calendar_far_leg, display_calendar_analysis
+
+    s = load_calendar_state(asset)
+    if not s.get("open"):
+        warn("No open position.")
+        return
+
+    op = s["open"]
+    status = op.get("status", "Open")
+    if status != "Far Leg Only":
+        warn(f"Position is {status}, not Far Leg Only. Use regular close option.")
+        return
+
+    K = op["strike"]
+    opt_type = op["option_type"]
+    net_debit = op["net_debit"]
+    qty = op["qty"]
+    expiry_far = op.get("expiry_far", "")
+    trade_id = op.get("trade_id")
+
+    hdr(f"Far Leg Only — {asset} {opt_type} ${K:,.0f}")
+
+    # Analyze and display far leg
+    analysis = analyze_calendar_far_leg(
+        asset=asset,
+        strike=K,
+        option_type=opt_type,
+        expiry_far=expiry_far,
+        qty=qty,
+        net_debit=net_debit,
+        paper=DERIBIT_PAPER,
+    )
+
+    if analysis:
+        display_calendar_analysis(analysis, asset, K, opt_type)
+    else:
+        warn("Could not fetch far-leg analysis from Deribit. Manual review needed.")
+
+    # ── Menu ──────────────────────────────────────────────────────────────────
+    print(f"""
+  {CY}[1]{R}  Close far leg at current market price
+  {CY}[2]{R}  Keep position open
+  {CY}[3]{R}  Back
+""")
+    choice = input(f"  {YL}Choice: {R}").strip()
+
+    # [1] Close far leg
+    if choice == "1":
+        if broker is None:
+            broker = DeribitClient(paper=DERIBIT_PAPER)
+
+        try:
+            far_order = close_calendar_far_leg(op, broker, spot)
+            ok(f"Far leg closed: {far_order.order_id}")
+
+            # Record the close in the database
+            if trade_id:
+                pnl_estimate = (op["far_instrument"] and analysis.current_pnl) or 0.0
+                close_calendar_trade(
+                    trade_id=trade_id,
+                    date_close=date.today(),
+                    spot_close=spot,
+                    pnl=round(pnl_estimate, 4) if analysis else 0.0,
+                    result="Win" if (analysis and analysis.current_pnl >= 0) else "Loss",
+                    notes=f"Far leg only closed at ${spot:,.0f}",
+                )
+
+            s["open"] = None
+            save_calendar_state(asset, s)
+        except Exception as e:
+            warn(f"Failed to close far leg: {e}")
+
+    # [2] Keep position open
+    elif choice == "2":
+        ok("Position kept open for continued monitoring.")
+
+    # [3] Back
+    elif choice == "3":
+        print("  Cancelled.")
+        return

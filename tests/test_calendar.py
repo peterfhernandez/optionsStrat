@@ -27,6 +27,7 @@ from strategies.calendar import (
     _pnl_at_near_expiry,
     _find_breakevens,
     check_calendar_status,
+    handle_far_leg_only_menu,
 )
 from config import CALENDAR_STOP_PCT, RISK_FREE_RATE
 
@@ -373,5 +374,84 @@ class TestCalendarPaperMenuExecutor:
         mock_enter.assert_called_once()
         c = mock_enter.call_args[0][0]
         assert c.strategy == "Cal-P"
+
+
+class TestHandleFarLegOnlyMenu:
+    """Tests for handle_far_leg_only_menu — Far Leg Only position handling."""
+
+    @patch("strategies.calendar.load_calendar_state")
+    def test_no_open_position_warns(self, mock_load):
+        """Should warn if no open position exists."""
+        mock_load.return_value = {"open": None}
+
+        with patch("strategies.calendar.warn") as mock_warn:
+            handle_far_leg_only_menu("ETH", 2000.0, 0.80)
+            mock_warn.assert_called_with("No open position.")
+
+    @patch("strategies.calendar.load_calendar_state")
+    def test_not_far_leg_only_status_warns(self, mock_load):
+        """Should warn if position status is not Far Leg Only."""
+        mock_load.return_value = {
+            "open": {
+                "status": "Open",
+                "strike": 2000.0,
+                "asset": "ETH",
+            }
+        }
+
+        with patch("strategies.calendar.warn") as mock_warn:
+            handle_far_leg_only_menu("ETH", 2000.0, 0.80)
+            mock_warn.assert_called_with("Position is Open, not Far Leg Only. Use regular close option.")
+
+    @patch("strategies.calendar.load_calendar_state")
+    def test_close_far_leg_option(self, mock_load):
+        """Selecting [1] should attempt to close the far leg."""
+        far_leg_open = {
+            "status": "Far Leg Only",
+            "strike": 2000.0,
+            "option_type": "Call",
+            "asset": "ETH",
+            "qty": 0.125,
+            "net_debit": 10.0,
+            "expiry_far": "15-Jun-2026",
+            "trade_id": 1,
+            "far_instrument": "ETH-15JUN26-2000-C",
+        }
+        mock_load.return_value = {"open": far_leg_open}
+
+        # Simulate user choice [1]
+        inputs = iter(["1"])
+        with patch("builtins.input", side_effect=inputs), \
+             patch("strategies.calendar_analysis.analyze_calendar_far_leg", return_value=None), \
+             patch("strategies.calendar.close_calendar_far_leg") as mock_close_far, \
+             patch("strategies.calendar.close_calendar_trade"), \
+             patch("strategies.calendar.save_calendar_state"), \
+             patch("strategies.calendar.warn"):  # Suppress warnings during test
+            handle_far_leg_only_menu("ETH", 2000.0, 0.80)
+            # Should attempt to close far leg (even if analysis is None)
+            mock_close_far.assert_called_once()
+
+    @patch("strategies.calendar.load_calendar_state")
+    def test_keep_position_open_option(self, mock_load):
+        """Selecting [2] should keep position open."""
+        far_leg_open = {
+            "status": "Far Leg Only",
+            "strike": 2000.0,
+            "option_type": "Put",
+            "asset": "ETH",
+            "qty": 0.125,
+            "net_debit": 10.0,
+            "expiry_far": "15-Jun-2026",
+            "far_instrument": "ETH-15JUN26-2000-P",
+        }
+        mock_load.return_value = {"open": far_leg_open}
+
+        # Simulate user choice [2]
+        inputs = iter(["2"])
+        with patch("builtins.input", side_effect=inputs), \
+             patch("strategies.calendar_analysis.analyze_calendar_far_leg", return_value=None), \
+             patch("strategies.calendar.ok") as mock_ok:
+            handle_far_leg_only_menu("ETH", 2000.0, 0.80)
+            mock_ok.assert_called_with("Position kept open for continued monitoring.")
 
 

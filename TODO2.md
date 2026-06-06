@@ -38,12 +38,12 @@ The app has incomplete implementations for calendar strategy statuses and option
 
 ### Recommendations Execution
 
-- [ ] Add execution capability when app recommends closing position
-- [ ] Integrate deribit API to sell far leg on user confirmation
-- [ ] Display recommendation options with clear user prompts:
-  - Close far leg (execute with deribit)
-  - Keep position open
-  - Roll position (with calculated options)
+- [x] Add execution capability when app recommends closing position
+- [x] Integrate deribit API to sell far leg on user confirmation
+- [x] Display recommendation options with clear user prompts:
+  - Close far leg (execute with deribit) ✓
+  - Keep position open ✓
+  - Roll position (with calculated options) [pending]
 - [ ] Show probability of profit and justification for each recommendation
 
 ### Roll Options Calculation (CRITICAL BUG)
