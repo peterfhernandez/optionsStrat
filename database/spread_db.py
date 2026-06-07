@@ -43,13 +43,19 @@ def load_spread_state(asset: str, session: Optional[Session] = None) -> dict:
         for trade in reversed(trades):
             if trade.result == "Open":
                 open_position = {
-                    "spread_type": trade.spread_type,
+                    "spread_type":  trade.spread_type,
                     "short_strike": trade.short_strike,
-                    "long_strike": trade.long_strike,
-                    "qty": trade.qty,
-                    "expiry": trade.expiry,
-                    "open_fees": trade.open_fees or 0.0,
-                    "close_fees": trade.close_fees or 0.0,
+                    "long_strike":  trade.long_strike,
+                    "net_credit":   trade.net_credit or 0.0,
+                    "max_loss":     trade.max_loss or 0.0,
+                    "qty":          trade.qty,
+                    "expiry":       trade.expiry,
+                    "spot_open":    trade.spot_open or 0.0,
+                    "days":         trade.days or 0,
+                    "asset":        trade.asset,
+                    "trade_id":     trade.id,
+                    "open_fees":    trade.open_fees or 0.0,
+                    "close_fees":   trade.close_fees or 0.0,
                 }
                 break
 
