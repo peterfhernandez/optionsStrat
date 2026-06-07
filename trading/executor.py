@@ -478,9 +478,6 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
     expiry_dt  = _expiry_date(c.days)
     expiry     = expiry_dt.strftime("%d-%b-%Y")
 
-    # Calculate the exact amount that will be sent to broker
-    broker_qty = _broker_amount(c.asset, c.spot)
-
     short_order = _place_option(
         broker, c.asset, expiry_dt, short_k, otype, "sell",
         short_p, c.spot, label=f"SPR-S-{c.asset}", T=T, iv=c.iv,
@@ -491,6 +488,7 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
     )
     short_k = _strike_from_instrument(short_order.instrument)
     long_k  = _strike_from_instrument(long_order.instrument)
+    broker_qty = short_order.amount  # Actual qty enforced by broker (e.g. after min_trade_amount)
 
     trade = create_spread_trade(
         asset=c.asset,
@@ -501,7 +499,7 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
         spot_open=c.spot,
         net_credit=round(net_credit, 4),
         max_loss=round(max_loss, 4),
-        qty=broker_qty,  # Use broker-calculated amount
+        qty=broker_qty,  # Actual broker-executed amount
         days=c.days,
         expiry=expiry,
         broker=broker.broker_name,
@@ -521,7 +519,7 @@ def _enter_spread(c, T: float, broker: BrokerBase) -> dict:
         "long_strike":            long_k,
         "net_credit":             round(net_credit, 4),
         "max_loss":               round(max_loss, 4),
-        "qty":                    broker_qty,  # Store broker-calculated amount
+        "qty":                    broker_qty,  # Actual broker-executed amount
         "expiry":                 expiry,
         "spot_open":              c.spot,
         "days":                   c.days,
